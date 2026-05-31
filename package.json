@@ -1,0 +1,22 @@
+{
+  "name": "reversegen",
+  "version": "1.0.0",
+  "description": "Standalone ReverseGen board generation algorithm and ReplayCode serializer, decoupled from Unity",
+  "type": "module",
+  "main": "./src/index.ts",
+  "bin": {
+    "reversegen": "./cli/generate.ts"
+  },
+  "scripts": {
+    "generate": "npx tsx cli/generate.ts",
+    "test": "npx tsx --test test/*.ts",
+    "test:algo": "npx tsx --test test/test-reverse-gen.ts",
+    "test:serializer": "npx tsx --test test/test-serializer.ts",
+    "gui": "npx tsx gui/server.ts --open"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

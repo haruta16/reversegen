@@ -1,0 +1,45 @@
+{
+  "levelResId": 100001,
+  "LevelHash": "0000000000000001",
+  "LevelWidth": 40,
+  "LevelHeight": 40,
+  "elementsPerLevel": 7,
+  "layers": [
+    {
+      "tiles": [
+        { "ID": 1, "Layer": 0, "Dependencies": [], "IsConst": true, "ConstElementValue": 301, "PosX": 15, "PosY": 3 },
+        { "ID": 2, "Layer": 0, "Dependencies": [], "IsConst": true, "ConstElementValue": 301, "PosX": 25, "PosY": 3 },
+        { "ID": 3, "Layer": 0, "Dependencies": [], "IsConst": false, "ConstElementValue": 0, "PosX": 5, "PosY": 13 },
+        { "ID": 4, "Layer": 0, "Dependencies": [], "IsConst": false, "ConstElementValue": 0, "PosX": 15, "PosY": 13 },
+        { "ID": 5, "Layer": 0, "Dependencies": [], "IsConst": false, "ConstElementValue": 0, "PosX": 25, "PosY": 13 },
+        { "ID": 6, "Layer": 0, "Dependencies": [], "IsConst": false, "ConstElementValue": 0, "PosX": 35, "PosY": 13 },
+        { "ID": 7, "Layer": 0, "Dependencies": [], "IsConst": false, "ConstElementValue": 0, "PosX": 10, "PosY": 17 },
+        { "ID": 8, "Layer": 0, "Dependencies": [], "IsConst": false, "ConstElementValue": 0, "PosX": 20, "PosY": 17 },
+        { "ID": 9, "Layer": 0, "Dependencies": [], "IsConst": false, "ConstElementValue": 0, "PosX": 30, "PosY": 17 }
+      ]
+    },
+    {
+      "tiles": [
+        { "ID": 10, "Layer": 1, "Dependencies": [3, 4], "IsConst": false, "ConstElementValue": 0, "PosX": 13, "PosY": 10 },
+        { "ID": 11, "Layer": 1, "Dependencies": [4, 5], "IsConst": false, "ConstElementValue": 0, "PosX": 18, "PosY": 10 },
+        { "ID": 12, "Layer": 1, "Dependencies": [5, 6], "IsConst": false, "ConstElementValue": 0, "PosX": 23, "PosY": 10 },
+        { "ID": 13, "Layer": 1, "Dependencies": [7, 8], "IsConst": false, "ConstElementValue": 0, "PosX": 15, "PosY": 14 },
+        { "ID": 14, "Layer": 1, "Dependencies": [8, 9], "IsConst": false, "ConstElementValue": 0, "PosX": 20, "PosY": 14 },
+        { "ID": 15, "Layer": 1, "Dependencies": [3, 7], "IsConst": false, "ConstElementValue": 0, "PosX": 10, "PosY": 14 },
+        { "ID": 16, "Layer": 1, "Dependencies": [6, 9], "IsConst": false, "ConstElementValue": 0, "PosX": 28, "PosY": 14 },
+        { "ID": 17, "Layer": 1, "Dependencies": [4, 8], "IsConst": false, "ConstElementValue": 0, "PosX": 18, "PosY": 12 },
+        { "ID": 18, "Layer": 1, "Dependencies": [5, 8], "IsConst": false, "ConstElementValue": 0, "PosX": 20, "PosY": 12 }
+      ]
+    },
+    {
+      "tiles": [
+        { "ID": 19, "Layer": 2, "Dependencies": [10, 11, 12], "IsConst": false, "ConstElementValue": 0, "PosX": 18, "PosY": 7 },
+        { "ID": 20, "Layer": 2, "Dependencies": [13, 14], "IsConst": false, "ConstElementValue": 0, "PosX": 18, "PosY": 11 },
+        { "ID": 21, "Layer": 2, "Dependencies": [15, 16], "IsConst": false, "ConstElementValue": 0, "PosX": 18, "PosY": 15 },
+        { "ID": 22, "Layer": 2, "Dependencies": [10, 17], "IsConst": false, "ConstElementValue": 0, "PosX": 15, "PosY": 8 },
+        { "ID": 23, "Layer": 2, "Dependencies": [12, 18], "IsConst": false, "ConstElementValue": 0, "PosX": 21, "PosY": 8 },
+        { "ID": 24, "Layer": 2, "Dependencies": [17, 18], "IsConst": false, "ConstElementValue": 0, "PosX": 19, "PosY": 10 }
+      ]
+    }
+  ]
+}

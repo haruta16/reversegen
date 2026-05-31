@@ -1,0 +1,268 @@
+/**
+ * HTTP server for ReverseGen web GUI.
+ *
+ * Usage:
+ *   npx tsx gui/server.ts [--port 3000] [--open] [--levels-dir /path/to/levels]
+ */
+
+import { createServer, IncomingMessage, ServerResponse } from 'node:http';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { join, dirname, basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { exec } from 'node:child_process';
+
+import {
+  generateBoard,
+  loadTerrainFromFile,
+  generateTestTerrain,
+  getAllTiles,
+  getCanonicalTileOrder,
+  decodeFromString,
+  formatHash,
+  setLogLevel,
+  LogLevel,
+} from '../src/index.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const GUI_DIR = __dirname;
+
+// ── CLI Args ──
+const args = process.argv.slice(2);
+let port = 3000;
+let autoOpen = false;
+// Default: look for levels in the original TileMatchShell project
+let defaultLevelsDir = join(__dirname, '..', '..', 'TileMatchShell', 'Tools', 'Config', 'Json', 'Levels');
+
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '--port' && args[i + 1]) {
+    port = parseInt(args[i + 1], 10); i++;
+  } else if (args[i] === '--open') {
+    autoOpen = true;
+  } else if (args[i] === '--levels-dir' && args[i + 1]) {
+    defaultLevelsDir = args[i + 1]; i++;
+  }
+}
+
+// ── Helpers ──
+setLogLevel(LogLevel.Silent);
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css',
+  '.js': 'application/javascript',
+  '.json': 'application/json',
+};
+
+function serveStatic(res: ServerResponse, path: string): void {
+  try {
+    if (!existsSync(path) || path.includes('..')) { res.writeHead(404); res.end('Not found'); return; }
+    const content = readFileSync(path);
+    res.writeHead(200, { 'Content-Type': MIME[path.substring(path.lastIndexOf('.'))] || 'application/octet-stream' });
+    res.end(content);
+  } catch { res.writeHead(500); res.end('Internal error'); }
+}
+
+function json(res: ServerResponse, data: unknown, status = 200): void {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(data));
+}
+
+function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolve) => {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', () => { try { resolve(JSON.parse(body)); } catch { resolve({}); } });
+  });
+}
+
+/** Resolve terrain: levelId takes priority; falls back to terrainPath; then test terrain. */
+function resolveTerrainPath(levelId: string | undefined, levelsDir: string | undefined, terrainPath: string | undefined): string | null {
+  if (levelId) {
+    const dir = levelsDir || defaultLevelsDir;
+    const p = join(dir, `${levelId}.json`);
+    if (existsSync(p)) return p;
+    throw new Error(`关卡 ${levelId} 不存在: ${p}`);
+  }
+  if (terrainPath) {
+    if (existsSync(terrainPath)) return terrainPath;
+    throw new Error(`文件不存在: ${terrainPath}`);
+  }
+  return null; // use test terrain
+}
+
+/** List level IDs from a directory */
+function listLevels(dir: string): Array<{ id: number; name: string; tiles: number }> {
+  if (!existsSync(dir)) return [];
+  const results: Array<{ id: number; name: string; tiles: number }> = [];
+  try {
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith('.json')) continue;
+      const id = parseInt(basename(f, '.json'), 10);
+      if (isNaN(id)) continue;
+      try {
+        const raw = JSON.parse(readFileSync(join(dir, f), 'utf-8'));
+        let total = 0;
+        if (raw.layers) for (const l of raw.layers) total += (l.tiles?.length || 0);
+        results.push({ id, name: String(raw.levelResId || id), tiles: total });
+      } catch { results.push({ id, name: String(id), tiles: 0 }); }
+    }
+  } catch { /* ignore */ }
+  results.sort((a, b) => a.id - b.id);
+  return results;
+}
+
+// ── Server ──
+const server = createServer(async (req, res) => {
+  const url = new URL(req.url || '/', `http://localhost:${port}`);
+
+  // ── API: list levels ──
+  if (url.pathname === '/api/levels' && req.method === 'GET') {
+    const dir = url.searchParams.get('dir') || defaultLevelsDir;
+    json(res, { ok: true, dir, levels: listLevels(dir) });
+    return;
+  }
+
+  // ── API: terrain info (by levelId or terrainPath) ──
+  if (url.pathname === '/api/terrain-info' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const { levelId, levelsDir, terrainPath } = body as { levelId?: string; levelsDir?: string; terrainPath?: string };
+      const path = resolveTerrainPath(levelId, levelsDir, terrainPath);
+      if (!path) throw new Error('请提供关卡ID或文件路径');
+
+      const terrain = loadTerrainFromFile(path);
+      const allTiles = getAllTiles(terrain);
+      const freeTiles = allTiles.filter(t => !t.isConst);
+      const constTiles = allTiles.filter(t => t.isConst);
+
+      json(res, {
+        ok: true,
+        levelResId: terrain.levelResId,
+        levelHash: terrain.levelHash || '',
+        layers: terrain.layers.length,
+        totalTiles: allTiles.length,
+        freeTiles: freeTiles.length,
+        steps: Math.floor(freeTiles.length / 3),
+        constTiles: constTiles.length,
+        width: terrain.LevelWidth,
+        height: terrain.LevelHeight,
+        resolvedPath: path,
+      });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
+  // ── API: generate board ──
+  if (url.pathname === '/api/generate' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const { costArray, colorCount, layers, tilesPerLayer, levelId, levelsDir, terrainPath, levelHash } = body as {
+        costArray?: string; colorCount?: string; layers?: string; tilesPerLayer?: string;
+        levelId?: string; levelsDir?: string; terrainPath?: string; levelHash?: string;
+      };
+
+      const k = parseInt(colorCount || '8', 10);
+      const l = parseInt(layers || '3', 10);
+      const tpl = parseInt(tilesPerLayer || '18', 10);
+
+      let terrain;
+      const path = resolveTerrainPath(levelId, levelsDir, terrainPath);
+      if (path) {
+        terrain = loadTerrainFromFile(path);
+      } else {
+        terrain = generateTestTerrain(l, tpl);
+      }
+
+      let costs: number[] | null = null;
+      if (costArray && costArray.trim()) {
+        costs = costArray.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+        if (costs.length === 0) costs = null;
+      }
+
+      const result = generateBoard({ terrain, costArray: costs, colorCount: k, levelHash });
+
+      const allTiles = getAllTiles(terrain);
+      const ordered = getCanonicalTileOrder(allTiles);
+      const tileSummary = ordered.map((t, i) => ({
+        index: i, id: t.id, layer: t.layer, isConst: t.isConst,
+        element: result.assignments.get(t.id) ?? t.constElementValue ?? 0,
+      }));
+
+      const assignmentsObj: Record<string, number> = {};
+      for (const [k, v] of result.assignments) assignmentsObj[String(k)] = v;
+
+      json(res, {
+        ok: true,
+        replayCode: result.replayCode,
+        levelHash: result.levelHash,
+        completed: result.completed,
+        totalSteps: result.totalSteps,
+        costLog: result.costLog,
+        branchLog: result.branchLog,
+        assignments: assignmentsObj,
+        stats: result.stats,
+        banSetSize: result.banSetSize,
+        deviationCount: result.deviationCount,
+        matchRate: result.matchRate,
+        costTargets: costs,
+        colorCount: k,
+        terrainSummary: {
+          layers: terrain.layers.length,
+          totalTiles: allTiles.length,
+          freeTiles: allTiles.filter(t => !t.isConst).length,
+          constTiles: allTiles.filter(t => t.isConst).length,
+          source: path ? basename(path) : 'test-terrain',
+        },
+        tiles: tileSummary,
+      });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
+  // ── API: decode ──
+  if (url.pathname === '/api/decode' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const { replayCode } = body as { replayCode?: string };
+      if (!replayCode) throw new Error('Missing replayCode');
+      const data = decodeFromString(replayCode);
+      if (!data) throw new Error('Failed to decode');
+
+      const tiles = Array.from(data.instanceArray, (b, i) => ({
+        index: i, state: (b >> 6) & 0x3, elemIdx: b & 0x3F, elemValue: (b & 0x3F) + 1,
+      }));
+
+      json(res, {
+        ok: true, version: data.version, tileCount: data.instanceArray.length,
+        elementCount: data.elementCount, levelHash: formatHash(data.levelHash),
+        dockEntries: data.dockEntries.map(e => ({ tileId: e.tileId, element: e.element })),
+        tiles,
+      });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
+  // ── Static files ──
+  if (url.pathname === '/' || url.pathname === '/index.html') {
+    serveStatic(res, join(GUI_DIR, 'index.html'));
+    return;
+  }
+  serveStatic(res, join(GUI_DIR, url.pathname));
+});
+
+server.listen(port, () => {
+  console.log(`\n🔧 ReverseGen GUI → http://localhost:${port}`);
+  if (existsSync(defaultLevelsDir)) {
+    const n = listLevels(defaultLevelsDir).length;
+    console.log(`📁 关卡目录: ${defaultLevelsDir} (${n} 个关卡)`);
+  } else {
+    console.log(`⚠️  关卡目录不存在: ${defaultLevelsDir}`);
+    console.log(`   用 --levels-dir 指定路径`);
+  }
+  console.log('');
+  if (autoOpen) {
+    const platform = process.platform;
+    const cmd = platform === 'darwin' ? 'open' : platform === 'win32' ? 'start' : 'xdg-open';
+    exec(`${cmd} http://localhost:${port}`);
+  }
+});

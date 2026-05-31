@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ReverseGen · 牌局生成器</title>
+<style>
+  :root{--bg:#0d1117;--s:#161b22;--b:#30363d;--t:#c9d1d9;--m:#8b949e;--a:#58a6ff;--g:#3fb950;--r:#f85149;--o:#d2991d}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--t);padding:20px;max-width:1100px;margin:0 auto}
+  h1{font-size:18px;margin-bottom:4px}
+  .sub{color:var(--m);font-size:12px;margin-bottom:20px}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .col{flex:1;min-width:300px}
+  .card{background:var(--s);border:1px solid var(--b);border-radius:8px;padding:16px;margin-bottom:14px}
+  .card h2{font-size:12px;color:var(--m);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--b)}
+  label{display:block;font-size:12px;color:var(--m);margin-bottom:4px;margin-top:10px}
+  label:first-child{margin-top:0}
+  input,textarea,button{font-family:inherit;font-size:13px}
+  input,textarea{width:100%;background:var(--bg);border:1px solid var(--b);border-radius:5px;color:var(--t);padding:8px 10px;outline:none}
+  input:focus,textarea:focus{border-color:var(--a)}
+  textarea{resize:vertical;min-height:50px;font-family:monospace;font-size:12px}
+  button{cursor:pointer;border:none;border-radius:5px;padding:8px 16px;font-weight:600;transition:all .15s}
+  .btn-blue{background:var(--a);color:#fff;width:100%;padding:12px;font-size:14px}
+  .btn-blue:hover{background:#4090e0}
+  .btn-sm{background:var(--b);color:var(--t);padding:5px 12px;font-size:12px}
+  .btn-sm:hover{background:#48505a}
+  .inrow{display:flex;gap:6px}
+  .inrow input{flex:1}
+  .tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+  .tag{font-size:11px;padding:3px 8px;border-radius:10px;background:var(--bg);border:1px solid var(--b);color:var(--m);cursor:pointer;font-family:monospace}
+  .tag:hover{border-color:var(--a);color:var(--a)}
+  .info{font-size:11px;color:var(--m);line-height:1.6;margin-top:6px;min-height:20px}
+  .err{color:var(--r);font-size:11px;margin-top:6px}
+  .code{background:var(--bg);border:1px solid var(--b);border-radius:5px;padding:10px;font-family:monospace;font-size:11px;word-break:break-all;color:var(--g);max-height:70px;overflow-y:auto;position:relative}
+  .code button{position:absolute;top:6px;right:6px;font-size:10px}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+  .stat{background:var(--bg);border-radius:5px;padding:10px;text-align:center}
+  .stat .v{font-size:18px;font-weight:700}.stat .l{font-size:10px;color:var(--m)}
+  .g{color:var(--g)}.r{color:var(--r)}.o{color:var(--o)}
+  canvas{width:100%;border-radius:5px;margin-top:8px}
+  hr{border:none;border-top:1px solid var(--b);margin:14px 0}
+  .hint{font-size:10px;color:var(--m);margin-top:4px}
+  table{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px}
+  th,td{padding:4px 8px;text-align:left;border-bottom:1px solid var(--b)}
+  th{color:var(--m);font-size:10px}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:middle}
+  #status{position:fixed;bottom:0;left:0;right:0;background:var(--r);color:#fff;padding:6px 16px;font-size:11px;font-family:monospace;display:none;z-index:999}
+</style>
+</head>
+<body>
+
+<h1>🎴 ReverseGen Cost Ladder</h1>
+<div class="sub">牌局生成器 · 输入关卡ID + Cost数组 → 输出 ReplayCode · 与 Unity 解耦</div>
+
+<div id="status"></div>
+
+<div class="row">
+<div class="col">
+  <!-- ═══ 地形 ═══ -->
+  <div class="card">
+    <h2>🗺️ 地形</h2>
+
+    <label>关卡 ID（输入后点"加载"）</label>
+    <div class="inrow">
+      <input type="number" id="levelId" placeholder="如 100002" style="font-size:15px;font-weight:600">
+      <button class="btn-sm" onclick="loadLevel()">加载关卡</button>
+    </div>
+    <div class="info" id="levelInfo"></div>
+
+    <div class="inrow" style="margin-top:4px">
+      <input type="text" id="levelsDir" placeholder="关卡目录（自动检测）" style="font-size:10px">
+      <button class="btn-sm" onclick="scanLevels()">扫描列表</button>
+    </div>
+    <div class="tags" id="quickIds"></div>
+
+    <hr>
+
+    <label>🧪 测试地形（不填关卡ID时使用）</label>
+    <div class="inrow">
+      <input type="number" id="layers" value="3" min="1" max="20" style="width:70px" placeholder="层数">
+      <input type="number" id="tilesPerLayer" value="18" min="3" step="3" style="width:80px" placeholder="牌数/层">
+    </div>
+  </div>
+
+  <!-- ═══ 参数 ═══ -->
+  <div class="card">
+    <h2>⚙️ 算法参数</h2>
+
+    <label>Cost 数组（逗号分隔，留空=自然minCost）</label>
+    <textarea id="costArray" placeholder="如: 3,3,2,2,2,1"></textarea>
+
+    <div class="inrow" style="margin-top:10px">
+      <div style="flex:1"><label>花色数</label><input type="number" id="colorCount" value="8" min="1" max="64"></div>
+      <div style="flex:1"><label>Level Hash</label><input type="text" id="levelHash" placeholder="自动"></div>
+    </div>
+
+    <button class="btn-blue" onclick="generate()" style="margin-top:12px">🔄 生成牌局</button>
+    <div class="err" id="genErr"></div>
+  </div>
+
+  <!-- ═══ 解码 ═══ -->
+  <div class="card">
+    <h2>🔍 解码 ReplayCode</h2>
+    <textarea id="decodeInput" placeholder="粘贴 ReplayCode..." style="min-height:40px;font-size:11px"></textarea>
+    <button class="btn-sm" onclick="decodeCode()" style="width:100%;margin-top:6px">解码</button>
+    <div class="info" id="decodeOut"></div>
+  </div>
+</div>
+
+<div class="col">
+  <!-- ═══ 结果 ═══ -->
+  <div class="card" id="resultCard" style="display:none">
+    <h2>📊 结果</h2>
+
+    <div class="stats" id="stats"></div>
+
+    <h2 style="margin-top:12px">Cost Ladder 对比</h2>
+    <canvas id="costChart" height="180"></canvas>
+    <div style="font-size:10px;color:var(--m);margin-top:4px">
+      <span>🟦 目标</span> <span>🟩 实际</span>
+      <span id="chartLabel" style="margin-left:8px"></span>
+    </div>
+
+    <h2 style="margin-top:12px">花色分布</h2>
+    <canvas id="elemChart" height="80"></canvas>
+
+    <h2 style="margin-top:12px">ReplayCode <button class="btn-sm" onclick="copyCode(this)">📋 复制</button></h2>
+    <div class="code" id="codeBox"></div>
+    <div class="hint">可直接用于 Unity TileMatchBattle.LoadLevel_V2()</div>
+
+    <h2 style="margin-top:12px">牌面分配 <span style="font-weight:400;font-size:10px;color:var(--m)" id="tblCount"></span></h2>
+    <div style="max-height:300px;overflow-y:auto;border:1px solid var(--b);border-radius:5px">
+      <table><thead><tr><th>序号</th><th>ID</th><th>层</th><th>花色</th><th>标记</th></tr></thead>
+      <tbody id="tblBody"></tbody></table>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+// ═══════════════════════════════════
+// 全局错误捕获
+// ═══════════════════════════════════
+window.onerror = function(msg,src,line,col,err){
+  var s=document.getElementById('status');
+  s.style.display='block';
+  s.textContent='⚠️ JS错误: '+msg+' (行'+line+') — 打开Console(F12)查看';
+  console.error(msg,err);
+};
+
+// ═══════════════════════════════════
+// 颜色
+// ═══════════════════════════════════
+var PAL=['#58a6ff','#3fb950','#d2991d','#f85149','#a371f7','#39d2c0','#ff7b72','#79c0ff','#e3b341','#f0883e','#56d364','#db6dab','#a5d6ff','#7ee787','#d2a82e','#ffa657','#f778ba','#96d0ff','#8bdd98','#c69026'];
+function ec(e){return PAL[(e-1)%PAL.length]}
+
+// ═══════════════════════════════════
+// 扫描关卡列表
+// ═══════════════════════════════════
+async function scanLevels(){
+  var dir=document.getElementById('levelsDir').value.trim();
+  var list=document.getElementById('quickIds');
+  list.innerHTML='扫描中...';
+  try{
+    var url=dir?'/api/levels?dir='+encodeURIComponent(dir):'/api/levels';
+    var r=await fetch(url);
+    var d=await r.json();
+    if(!d.ok){list.innerHTML='<span style="color:var(--r)">'+d.error+'</span>';return}
+    var h='';
+    for(var i=0;i<Math.min(d.levels.length,50);i++){
+      var lv=d.levels[i];
+      h+='<span class="tag" onclick="pickLevel('+lv.id+')" title="'+lv.tiles+'张牌">'+lv.id+'<span style="font-size:9px">('+lv.tiles+')</span></span>';
+    }
+    if(d.levels.length>50)h+='<span style="font-size:10px;color:var(--m)">...共'+d.levels.length+'个</span>';
+    list.innerHTML=h;
+    document.getElementById('levelsDir').placeholder=d.dir||'';
+  }catch(e){list.innerHTML='<span style="color:var(--r)">'+e.message+'</span>'}
+}
+
+function pickLevel(id){
+  document.getElementById('levelId').value=id;
+  loadLevel();
+}
+
+// ═══════════════════════════════════
+// 加载关卡信息
+// ═══════════════════════════════════
+async function loadLevel(){
+  var id=document.getElementById('levelId').value.trim();
+  var info=document.getElementById('levelInfo');
+  if(!id){info.innerHTML='<span style="color:var(--o)">请输入关卡ID</span>';return}
+  info.textContent='加载中...';
+  try{
+    var body={levelId:id};
+    var dir=document.getElementById('levelsDir').value.trim();
+    if(dir)body.levelsDir=dir;
+    var r=await fetch('/api/terrain-info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var d=await r.json();
+    if(!d.ok){info.innerHTML='<span style="color:var(--r)">❌ '+d.error+'</span>';return}
+    var html='<span class="tag" style="color:var(--a);border-color:var(--a)">关卡 '+ (d.levelResId||id) +'</span> ';
+    html+=d.layers+'层 · '+d.totalTiles+'张牌 · <b>'+d.freeTiles+'</b>自由牌';
+    if(d.constTiles>0)html+=' · '+d.constTiles+'固定牌';
+    html+='<br>自由牌÷3 = <b>'+d.steps+'</b>步 · Hash: '+(d.levelHash||'(无)');
+    html+='<br><span style="font-size:9px">'+ (d.resolvedPath||'') +'</span>';
+    info.innerHTML=html;
+    // 自动填入cost数组长度提示
+    updateCostHint(d.steps);
+  }catch(e){info.innerHTML='<span style="color:var(--r)">❌ '+e.message+'</span>'}
+}
+
+function updateCostHint(steps){
+  if(!steps)return;
+  var ta=document.getElementById('costArray');
+  if(!ta.value.trim()){
+    ta.placeholder='需要'+steps+'步，如: '+Array(steps).fill(3).join(',');
+  }
+}
+
+// ═══════════════════════════════════
+// 生成
+// ═══════════════════════════════════
+async function generate(){
+  var btn=document.querySelector('.btn-blue');
+  var err=document.getElementById('genErr');
+  err.textContent='';
+  btn.textContent='生成中...';btn.disabled=true;
+
+  var lid=document.getElementById('levelId').value.trim();
+  var info=document.getElementById('levelInfo');
+  // 有加载成功的关卡信息就用关卡，否则用测试地形
+  var useLevel=lid && info.innerHTML.indexOf('关卡')>=0;
+
+  var body={
+    costArray:document.getElementById('costArray').value.trim(),
+    colorCount:document.getElementById('colorCount').value,
+    layers:document.getElementById('layers').value,
+    tilesPerLayer:document.getElementById('tilesPerLayer').value,
+    levelHash:document.getElementById('levelHash').value.trim()||undefined
+  };
+  if(useLevel){
+    body.levelId=lid;
+    var dir=document.getElementById('levelsDir').value.trim();
+    if(dir)body.levelsDir=dir;
+  }
+
+  try{
+    var r=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var d=await r.json();
+    if(!d.ok){err.textContent=d.error;return}
+    showResult(d);
+  }catch(e){err.textContent=e.message}
+  finally{btn.textContent='🔄 生成牌局';btn.disabled=false}
+}
+
+// ═══════════════════════════════════
+// 显示结果
+// ═══════════════════════════════════
+function showResult(d){
+  document.getElementById('resultCard').style.display='block';
+  document.getElementById('codeBox').textContent=d.replayCode;
+
+  // 统计
+  var m=d.matchRate!=null?d.matchRate.toFixed(0)+'%':'N/A';
+  var mc=d.matchRate!=null?(d.matchRate>=80?'g':d.matchRate>=50?'o':'r'):'';
+  document.getElementById('stats').innerHTML=
+    '<div class="stat"><div class="v '+mc+'">'+m+'</div><div class="l">匹配率</div></div>'+
+    '<div class="stat"><div class="v">'+d.totalSteps+'</div><div class="l">总步数</div></div>'+
+    '<div class="stat"><div class="v">'+d.colorCount+'</div><div class="l">花色数</div></div>'+
+    '<div class="stat"><div class="v">'+d.stats.min+'/'+d.stats.max+'</div><div class="l">Cost min/max</div></div>'+
+    '<div class="stat"><div class="v">'+d.stats.avg.toFixed(1)+'</div><div class="l">Cost 均值</div></div>'+
+    '<div class="stat"><div class="v o">'+d.banSetSize+'</div><div class="l">黑名单</div></div>'+
+    '<div class="stat"><div class="v">'+d.terrainSummary.totalTiles+'</div><div class="l">总牌数</div></div>'+
+    '<div class="stat"><div class="v">'+d.terrainSummary.freeTiles+'/'+d.terrainSummary.constTiles+'</div><div class="l">自由/固定</div></div>';
+
+  // Chart
+  document.getElementById('chartLabel').textContent=
+    (d.costTargets?'匹配'+m+' · '+d.deviationCount+'处偏差':'自然minCost模式')+
+    ' · min='+d.stats.min+' max='+d.stats.max+' avg='+d.stats.avg.toFixed(1);
+
+  drawCostChart(d);
+  drawElemChart(d);
+
+  // Tile table
+  document.getElementById('tblCount').textContent=d.tiles.length+'张牌';
+  var rows='';
+  for(var i=0;i<Math.min(d.tiles.length,100);i++){
+    var t=d.tiles[i];
+    rows+='<tr><td>'+t.index+'</td><td><b>#'+t.id+'</b></td><td>L'+t.layer+'</td>'+
+      '<td><span class="dot" style="background:'+ec(t.element)+'"></span>'+t.element+'</td>'+
+      '<td>'+(t.isConst?'<span style="color:var(--o)">固定</span>':'自由')+'</td></tr>';
+  }
+  document.getElementById('tblBody').innerHTML=rows;
+}
+
+// ═══════════════════════════════════
+// Cost Chart
+// ═══════════════════════════════════
+function drawCostChart(d){
+  var c=document.getElementById('costChart');
+  var ctx=c.getContext('2d');
+  var dpr=window.devicePixelRatio||1;
+  var r=c.getBoundingClientRect();
+  var W=r.width,H=180;
+  c.width=W*dpr;c.height=H*dpr;ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+  var steps=d.costLog.length;
+  if(!steps)return;
+  var tgt=d.costTargets||[];
+  var mx=Math.max.apply(null,d.costLog.concat(tgt));
+  if(mx<1)mx=1;
+  var pad={t:14,r:14,b:28,l:28},cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
+  var gw=cw/steps,bw=Math.max(3,gw*0.55);
+
+  // Grid
+  for(var v=0;v<=mx;v++){
+    var y=pad.t+ch-(v/mx)*ch;
+    ctx.strokeStyle=v?'#21262d':'#30363d';ctx.lineWidth=v?0.5:1;
+    ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();
+    ctx.fillStyle='#8b949e';ctx.font='9px system-ui';ctx.textAlign='right';
+    ctx.fillText(v,pad.l-4,y+3);
+  }
+  // Labels
+  ctx.textAlign='center';
+  var iv=Math.max(1,Math.floor(steps/14));
+  for(var i=0;i<steps;i+=iv){
+    ctx.fillStyle='#8b949e';ctx.fillText(i+1,pad.l+gw*i+gw/2,H-pad.b+14);
+  }
+  ctx.fillText('步数',W/2,H-2);
+
+  // Bars
+  for(var i=0;i<steps;i++){
+    var x=pad.l+gw*i;
+    var ah=(d.costLog[i]/mx)*ch,ay=pad.t+ch-ah;
+    if(tgt.length&&i<tgt.length){
+      var th=(tgt[i]/mx)*ch,ty=pad.t+ch-th;
+      var ok=d.costLog[i]===tgt[i];
+      ctx.fillStyle=ok?'rgba(88,166,255,.15)':'rgba(88,166,255,.08)';
+      ctx.fillRect(x+gw*0.05,ty,gw*0.9,th);
+      ctx.strokeStyle='rgba(88,166,255,.3)';ctx.lineWidth=1;
+      ctx.setLineDash([2,2]);ctx.strokeRect(x+gw*0.05,ty,gw*0.9,th);ctx.setLineDash([]);
+      ctx.fillStyle=ok?'#3fb950':'#f85149';
+      ctx.fillRect(x+gw*0.2,ay,gw*0.6,Math.max(1,ah));
+    }else{
+      ctx.fillStyle=ec((i%8)+1);
+      ctx.fillRect(x+gw*0.1,ay,gw*0.8,Math.max(1,ah));
+    }
+  }
+}
+
+// ═══════════════════════════════════
+// Elem Chart
+// ═══════════════════════════════════
+function drawElemChart(d){
+  var c=document.getElementById('elemChart');
+  var ctx=c.getContext('2d');
+  var dpr=window.devicePixelRatio||1;
+  var r=c.getBoundingClientRect();
+  var W=r.width,H=80;
+  c.width=W*dpr;c.height=H*dpr;ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+  var dist={};
+  for(var k in d.assignments){var e=d.assignments[k];dist[e]=(dist[e]||0)+1}
+  var ents=Object.entries(dist).sort(function(a,b){return +a[0]-+b[0]});
+  if(!ents.length)return;
+  var mx=Math.max.apply(null,ents.map(function(e){return e[1]}));
+  var pad={t:6,r:10,b:18,l:10},cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
+  var gap=cw/ents.length,bw=Math.min(30,gap*0.7);
+  ents.forEach(function(e,i){
+    var x=pad.l+gap*i+(gap-bw)/2;
+    var bh=Math.max(1,(e[1]/mx)*ch),y=pad.t+ch-bh;
+    ctx.fillStyle=ec(+e[0]);
+    ctx.fillRect(x,y,bw,bh);
+    ctx.fillStyle='#c9d1d9';ctx.font='9px system-ui';ctx.textAlign='center';
+    ctx.fillText(e[1],x+bw/2,y-3);
+    ctx.fillText('花'+e[0],x+bw/2,H-4);
+  });
+}
+
+// ═══════════════════════════════════
+// 解码
+// ═══════════════════════════════════
+async function decodeCode(){
+  var code=document.getElementById('decodeInput').value.trim();
+  var out=document.getElementById('decodeOut');
+  if(!code){out.textContent='';return}
+  out.textContent='解码中...';
+  try{
+    var r=await fetch('/api/decode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code})});
+    var d=await r.json();
+    if(!d.ok){out.innerHTML='<span style="color:var(--r)">'+d.error+'</span>';return}
+    var dist={};
+    for(var i=0;i<d.tiles.length;i++){var ev=d.tiles[i].elemValue;dist[ev]=(dist[ev]||0)+1}
+    out.innerHTML='<b>v'+d.version+'</b> · '+d.tileCount+'张牌 · '+d.elementCount+'种花色 · Hash: '+d.levelHash+
+      ' · Dock: '+d.dockEntries.length+'<br>分布: '+Object.entries(dist).sort(function(a,b){return +a[0]-+b[0]}).map(function(e){return '<span style="color:'+ec(+e[0])+'">花'+e[0]+':'+e[1]+'</span>'}).join(' · ');
+  }catch(e){out.innerHTML='<span style="color:var(--r)">'+e.message+'</span>'}
+}
+
+// ═══════════════════════════════════
+// 复制
+// ═══════════════════════════════════
+function copyCode(btn){
+  var t=document.getElementById('codeBox').textContent;
+  navigator.clipboard.writeText(t).then(function(){
+    btn.textContent='✅ 已复制';
+    setTimeout(function(){btn.textContent='📋 复制'},1500);
+  }).catch(function(){
+    btn.textContent='❌ 复制失败';
+    setTimeout(function(){btn.textContent='📋 复制'},2000);
+  });
+}
+
+// ═══════════════════════════════════
+// 启动: 自动扫描关卡列表
+// ═══════════════════════════════════
+scanLevels();
+</script>
+</body>
+</html>
