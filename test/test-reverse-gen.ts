@@ -15,64 +15,66 @@ import {
   runReverseGen,
   loadTerrainFromFile,
   getAllTiles,
+  generateCostArray,
   setLogLevel,
   LogLevel,
 } from '../src/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(__dirname, 'fixtures', '100075.json');
+const SEED = 42;
+
+// Load fixture once — all tests share the same real terrain
+const FIXTURE_TILES = getAllTiles(loadTerrainFromFile(FIXTURE));
+const FIXTURE_FREE = FIXTURE_TILES.filter(t => !t.isConst);
+const STEPS = Math.floor(FIXTURE_FREE.length / 3); // 84 / 3 = 28
 
 // Silence logs during tests
 setLogLevel(LogLevel.Silent);
 
-/** Load the real terrain fixture (100075: 84 tiles, 28 steps) */
-function loadFixture(): TerrainTile[] {
-  return getAllTiles(loadTerrainFromFile(FIXTURE));
+function cloneTiles(): TerrainTile[] {
+  return FIXTURE_FREE.map(t => ({ ...t, dependencies: [...t.dependencies] }));
 }
 
 describe('ReverseGen Algorithm', () => {
   it('should complete successfully with natural minCost', () => {
-    const tiles = loadFixture();
+    const tiles = cloneTiles();
 
     const result = runReverseGen({ tiles, costArray: null, colorCount: 6 });
 
     assert.equal(result.completed, true);
-    assert.equal(result.totalSteps, 28);
-    assert.equal(result.costLog.length, 28);
-    assert.equal(result.branchLog.length, 28);
+    assert.equal(result.totalSteps, STEPS);
+    assert.equal(result.costLog.length, STEPS);
+    assert.equal(result.branchLog.length, STEPS);
     assert.ok(result.assignments.size > 0);
   });
 
   it('should complete successfully with cost targets', () => {
-    const tiles = loadFixture();
-    // 28 steps, mean=3
-    const costArray = Array(28).fill(3);
+    const tiles = cloneTiles();
+    const costArray = generateCostArray(STEPS, 1.0, SEED);
 
     const result = runReverseGen({ tiles, costArray, colorCount: 6 });
 
     assert.equal(result.completed, true);
-    assert.equal(result.totalSteps, 28);
-    assert.equal(result.costLog.length, 28);
+    assert.equal(result.totalSteps, STEPS);
+    assert.equal(result.costLog.length, STEPS);
     assert.ok(result.matchRate !== undefined);
     assert.ok(result.deviationCount !== undefined);
   });
 
   it('should assign each free tile exactly once', () => {
-    const tiles = loadFixture();
+    const tiles = cloneTiles();
     const result = runReverseGen({ tiles, costArray: null, colorCount: 10 });
 
-    // All 84 free tiles should be assigned
-    assert.equal(result.assignments.size, 84);
+    assert.equal(result.assignments.size, FIXTURE_FREE.length);
 
-    // Each assignment should be a valid color [1..colorCount]
     for (const [, color] of result.assignments) {
       assert.ok(color >= 1 && color <= 10, `Color ${color} out of range`);
     }
   });
 
   it('should not assign colors to const tiles', () => {
-    const tiles = loadFixture();
-    // Mark first 3 tiles as const
+    const tiles = cloneTiles();
     tiles[0].isConst = true; tiles[0].constElementValue = 999;
     tiles[1].isConst = true; tiles[1].constElementValue = 999;
     tiles[2].isConst = true; tiles[2].constElementValue = 999;
@@ -82,30 +84,28 @@ describe('ReverseGen Algorithm', () => {
     assert.equal(result.assignments.has(tiles[0].id), false);
     assert.equal(result.assignments.has(tiles[1].id), false);
     assert.equal(result.assignments.has(tiles[2].id), false);
-    // steps = (84-3)/3 = 27
-    assert.equal(result.totalSteps, 27);
+    assert.equal(result.totalSteps, STEPS - 1); // 3 const tiles = 1 less step
   });
 
   it('should handle cost targets not matching steps (fallback to minCost)', () => {
-    const tiles = loadFixture();
+    const tiles = cloneTiles();
 
     const result = runReverseGen({
       tiles,
-      costArray: [1, 2, 3], // length 3 != 28 steps
+      costArray: generateCostArray(3, 1.0, SEED), // length 3 != STEPS
       colorCount: 6,
     });
 
     assert.equal(result.completed, true);
-    assert.equal(result.totalSteps, 28);
+    assert.equal(result.totalSteps, STEPS);
     assert.equal(result.matchRate, undefined);
     assert.equal(result.deviationCount, undefined);
   });
 
   it('should reject cost arrays with values < 1', () => {
-    const tiles = loadFixture();
-
-    // contains 0 → should fallback to natural minCost
-    const costArray = Array(28).fill(0);
+    const tiles = cloneTiles();
+    // contains 0 → generator never produces this, must hardcode
+    const costArray = Array(STEPS).fill(0);
 
     const result = runReverseGen({ tiles, costArray, colorCount: 6 });
 
@@ -114,16 +114,17 @@ describe('ReverseGen Algorithm', () => {
   });
 
   it('should handle single layer terrain (no dependencies)', () => {
-    // 30 independent tiles, single layer — all costs should be exactly 3
+    // Edge case: all costs should be exactly 3 when tiles have no dependencies
+    const N = 30;
     const tiles: TerrainTile[] = [];
-    for (let i = 1; i <= 30; i++) {
+    for (let i = 1; i <= N; i++) {
       tiles.push({ id: i, layer: 0, dependencies: [], isConst: false, constElementValue: 0 });
     }
 
     const result = runReverseGen({ tiles, costArray: null, colorCount: 10 });
 
     assert.equal(result.completed, true);
-    assert.equal(result.totalSteps, 10);
+    assert.equal(result.totalSteps, N / 3);
 
     for (const cost of result.costLog) {
       assert.equal(cost, 3, `Expected cost=3 for independent tiles, got ${cost}`);
@@ -131,8 +132,8 @@ describe('ReverseGen Algorithm', () => {
   });
 
   it('should be deterministic for the same input', () => {
-    const tiles = loadFixture();
-    const costArray = Array(28).fill(3);
+    const tiles = cloneTiles();
+    const costArray = generateCostArray(STEPS, 1.0, SEED);
 
     const result1 = runReverseGen({
       tiles: JSON.parse(JSON.stringify(tiles)),
@@ -150,17 +151,16 @@ describe('ReverseGen Algorithm', () => {
   });
 
   it('should handle large terrains', () => {
-    // 100075 is already 84 tiles/28 steps — verify it completes
-    const tiles = loadFixture();
+    const tiles = cloneTiles();
     const result = runReverseGen({ tiles, costArray: null, colorCount: 12 });
 
     assert.equal(result.completed, true);
-    assert.equal(result.totalSteps, 28);
-    assert.equal(result.costLog.length, 28);
+    assert.equal(result.totalSteps, STEPS);
+    assert.equal(result.costLog.length, STEPS);
   });
 
   it('should include cost statistics', () => {
-    const tiles = loadFixture();
+    const tiles = cloneTiles();
 
     const result = runReverseGen({ tiles, costArray: null, colorCount: 6 });
 
