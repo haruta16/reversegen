@@ -117,6 +117,9 @@ export {
   printTerrainSummary,
 } from './terrain-loader.js';
 
+// Cost 生成器
+export { generateCostArray, generateForTerrain } from './cost-generator.js';
+
 // 工具
 export { computeCRC16, computeCRC16Bitwise } from './crc16.js';
 export { logger, setLogLevel, LogLevel } from './logger.js';
