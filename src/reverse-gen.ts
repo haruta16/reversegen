@@ -91,11 +91,7 @@ export function runReverseGen(input: ReverseGenInput): ReverseGenOutput {
   const pools: Pool[] = [];
   if (costTargets) {
     for (let i = 0; i < costTargets.length; i++) {
-      if (pools.length === 0 || pools[pools.length - 1].cost !== costTargets[i]) {
-        pools.push({ cost: costTargets[i], count: 1 });
-      } else {
-        pools[pools.length - 1].count++;
-      }
+      pools.push({ cost: costTargets[i], count: 1 });
     }
   } else {
     pools.push({ cost: -1, count: steps });

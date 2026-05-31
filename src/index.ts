@@ -113,7 +113,6 @@ export {
   loadTerrainFromFile,
   getAllTiles,
   getConstTiles,
-  generateTestTerrain,
   printTerrainSummary,
 } from './terrain-loader.js';
 

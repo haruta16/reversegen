@@ -80,59 +80,7 @@ export function getConstTiles(terrain: TerrainData): TerrainTile[] {
   return getAllTiles(terrain).filter(t => t.isConst && t.constElementValue > 0);
 }
 
-/**
- * 生成一个简单的测试地形。
- * 层间自动建立依赖关系：上层牌依赖下层 2-3 张牌。
- *
- * @param layers - 层数
- * @param tilesPerLayer - 每层牌数（必须为 3 的倍数）
- */
-export function generateTestTerrain(
-  layers: number = 3,
-  tilesPerLayer: number = 18
-): TerrainData {
-  const result: TerrainLayer[] = [];
-  let nextId = 1;
-
-  for (let l = 0; l < layers; l++) {
-    const tiles: TerrainTile[] = [];
-    // 底层无依赖，上层依赖下层牌
-    const prevLayerTileIds: number[] = l > 0
-      ? result[l - 1].tiles.map(t => t.id)
-      : [];
-
-    for (let i = 0; i < tilesPerLayer; i++) {
-      const deps: number[] = [];
-      if (prevLayerTileIds.length > 0) {
-        const depCount = Math.min(2 + (i % 2), prevLayerTileIds.length);
-        for (let d = 0; d < depCount; d++) {
-          const depIdx = (i * 2 + d) % prevLayerTileIds.length;
-          deps.push(prevLayerTileIds[depIdx]);
-        }
-      }
-
-      tiles.push({
-        id: nextId++,
-        layer: l,
-        dependencies: deps,
-        isConst: false,
-        constElementValue: 0,
-      });
-    }
-    result.push({ tiles });
-  }
-
-  return {
-    levelResId: 0,
-    levelHash: '',
-    layers: result,
-    LevelWidth: 40,
-    LevelHeight: 40,
-    elementsPerLevel: 8,
-  };
-}
-
-/** 在地控制台打印地形摘要信息 */
+/** 在控制台打印地形摘要信息 */
 export function printTerrainSummary(terrain: TerrainData): void {
   const allTiles = getAllTiles(terrain);
   const freeTiles = allTiles.filter(t => !t.isConst);

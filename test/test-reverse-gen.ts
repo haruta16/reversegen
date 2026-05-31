@@ -6,10 +6,9 @@
 
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
+import type { TerrainTile } from '../src/types.js';
 import {
   runReverseGen,
-  generateTestTerrain,
-  getAllTiles,
   setLogLevel,
   LogLevel,
 } from '../src/index.js';
@@ -17,10 +16,28 @@ import {
 // Silence logs during tests
 setLogLevel(LogLevel.Silent);
 
+/** Inline test terrain — builds N tiles with optional layered dependencies */
+function makeTestTiles(layers: number, perLayer: number): TerrainTile[] {
+  const tiles: TerrainTile[] = [];
+  let id = 1;
+  for (let l = 0; l < layers; l++) {
+    const prevIds = l > 0 ? tiles.filter(t => t.layer === l - 1).map(t => t.id) : [];
+    for (let i = 0; i < perLayer; i++) {
+      const deps: number[] = [];
+      if (prevIds.length > 0) {
+        const n = Math.min(2 + (i % 2), prevIds.length);
+        for (let d = 0; d < n; d++) deps.push(prevIds[(i * 2 + d) % prevIds.length]);
+      }
+      tiles.push({ id: id++, layer: l, dependencies: deps, isConst: false, constElementValue: 0 });
+    }
+  }
+  return tiles;
+}
+
 describe('ReverseGen Algorithm', () => {
   it('should complete successfully with natural minCost', () => {
-    const terrain = generateTestTerrain(2, 9); // 18 free tiles → 6 steps
-    const tiles = getAllTiles(terrain);
+    const tiles = makeTestTiles(2, 9); // 18 free tiles → 6 steps
+
 
     const result = runReverseGen({
       tiles,
@@ -36,8 +53,8 @@ describe('ReverseGen Algorithm', () => {
   });
 
   it('should complete successfully with cost targets', () => {
-    const terrain = generateTestTerrain(2, 9); // 18 free tiles → 6 steps
-    const tiles = getAllTiles(terrain);
+    const tiles = makeTestTiles(2, 9); // 18 free tiles → 6 steps
+
 
     const result = runReverseGen({
       tiles,
@@ -53,8 +70,8 @@ describe('ReverseGen Algorithm', () => {
   });
 
   it('should assign exactly 3 tiles per color group', () => {
-    const terrain = generateTestTerrain(1, 18); // single layer, 18 tiles → 6 steps
-    const tiles = getAllTiles(terrain);
+    const tiles = makeTestTiles(1, 18); // single layer, 18 tiles → 6 steps
+
 
     const result = runReverseGen({
       tiles,
@@ -74,8 +91,8 @@ describe('ReverseGen Algorithm', () => {
   });
 
   it('should not assign colors to const tiles', () => {
-    const terrain = generateTestTerrain(2, 9);
-    const tiles = getAllTiles(terrain);
+    const tiles = makeTestTiles(2, 9);
+
     // Mark first 3 tiles as const
     tiles[0].isConst = true;
     tiles[0].constElementValue = 999;
@@ -100,8 +117,8 @@ describe('ReverseGen Algorithm', () => {
   });
 
   it('should handle cost targets not matching steps (fallback to minCost)', () => {
-    const terrain = generateTestTerrain(2, 9); // 6 steps
-    const tiles = getAllTiles(terrain);
+    const tiles = makeTestTiles(2, 9); // 6 steps
+
 
     // Cost array with wrong length → should fallback to natural minCost
     const result = runReverseGen({
@@ -118,8 +135,8 @@ describe('ReverseGen Algorithm', () => {
   });
 
   it('should reject cost arrays with values < 1', () => {
-    const terrain = generateTestTerrain(2, 9);
-    const tiles = getAllTiles(terrain);
+    const tiles = makeTestTiles(2, 9);
+
 
     const result = runReverseGen({
       tiles,
@@ -133,8 +150,8 @@ describe('ReverseGen Algorithm', () => {
   });
 
   it('should handle single layer terrain (no dependencies)', () => {
-    const terrain = generateTestTerrain(1, 30); // 10 steps
-    const tiles = getAllTiles(terrain);
+    const tiles = makeTestTiles(1, 30); // 10 steps
+
 
     const result = runReverseGen({
       tiles,
@@ -152,8 +169,8 @@ describe('ReverseGen Algorithm', () => {
   });
 
   it('should be deterministic for the same input', () => {
-    const terrain = generateTestTerrain(2, 9);
-    const tiles = getAllTiles(terrain);
+    const tiles = makeTestTiles(2, 9);
+
 
     const result1 = runReverseGen({
       tiles: JSON.parse(JSON.stringify(tiles)),
@@ -173,8 +190,8 @@ describe('ReverseGen Algorithm', () => {
   });
 
   it('should handle large terrains', () => {
-    const terrain = generateTestTerrain(4, 18); // 72 free tiles → 24 steps
-    const tiles = getAllTiles(terrain);
+    const tiles = makeTestTiles(4, 18); // 72 free tiles → 24 steps
+
 
     const result = runReverseGen({
       tiles,
@@ -188,8 +205,8 @@ describe('ReverseGen Algorithm', () => {
   });
 
   it('should include cost statistics', () => {
-    const terrain = generateTestTerrain(2, 9);
-    const tiles = getAllTiles(terrain);
+    const tiles = makeTestTiles(2, 9);
+
 
     const result = runReverseGen({
       tiles,

@@ -12,9 +12,6 @@
  *   # Natural minCost mode (no cost targets)
  *   npx tsx cli/generate.ts --terrain level.json --colors 8
  *
- *   # Generate a test terrain and run
- *   npx tsx cli/generate.ts --test-terrain --layers 3 --tiles 18 --cost 3,3,2,2,2,1 --colors 8
- *
  *   # JSON output for piping
  *   npx tsx cli/generate.ts --terrain level.json --cost 3,3,2 --colors 6 --json
  *
@@ -26,7 +23,6 @@ import { parseArgs } from 'node:util';
 import {
   generateBoard,
   loadTerrainFromFile,
-  generateTestTerrain,
   printTerrainSummary,
   setLogLevel,
   LogLevel,
@@ -43,9 +39,6 @@ const { values } = parseArgs({
     cost:          { type: 'string', short: 'c' },
     colors:        { type: 'string', short: 'k', default: '99' },
     hash:          { type: 'string' },
-    'test-terrain': { type: 'boolean', default: false },
-    layers:        { type: 'string', default: '3' },
-    tiles:         { type: 'string', default: '18' },
     json:          { type: 'boolean', short: 'j', default: false },
     quiet:         { type: 'boolean', short: 'q', default: false },
     verbose:       { type: 'boolean', short: 'v', default: false },
@@ -66,14 +59,11 @@ USAGE:
   npx tsx cli/generate.ts [OPTIONS]
 
 OPTIONS:
-  -t, --terrain <path>   Path to terrain JSON file (Unity level format)
+  -t, --terrain <path>   Path to terrain JSON file (Unity level format) (required)
   -c, --cost <array>     Cost array, comma-separated (e.g. "3,3,2,2,2,1")
-                          Omit for natural minCost mode
+                           Omit for natural minCost mode
   -k, --colors <n>       花色数量 (默认: 99)
   --hash <hex>           Level hash override (16-char hex)
-  --test-terrain         Generate a test terrain instead of loading from file
-  --layers <n>           Test terrain layers (default: 3)
-  --tiles <n>            Test terrain tiles per layer (default: 18)
   -j, --json             Output results as JSON
   -q, --quiet            Output only the ReplayCode
   -v, --verbose          Verbose logging (debug level)
@@ -86,9 +76,6 @@ EXAMPLES:
 
   # Natural minCost mode
   npx tsx cli/generate.ts -t level.json -k 6
-
-  # Test terrain generation
-  npx tsx cli/generate.ts --test-terrain --layers 3 --tiles 18 -c 2,2,3,3,4,4 -k 6
 
   # JSON output
   npx tsx cli/generate.ts -t level.json -c 3,3,2 -k 6 --json
@@ -189,32 +176,15 @@ try {
     });
   }
 
-  // Load or generate terrain
-  let terrain;
-  if (values['test-terrain']) {
-    const numLayers = parseInt(values.layers!, 10);
-    const numTiles = parseInt(values.tiles!, 10);
-    if (isNaN(numLayers) || numLayers < 1) {
-      console.error('Error: --layers must be >= 1');
-      process.exit(1);
-    }
-    if (isNaN(numTiles) || numTiles < 3 || numTiles % 3 !== 0) {
-      console.error('Error: --tiles must be >= 3 and a multiple of 3');
-      process.exit(1);
-    }
-    terrain = generateTestTerrain(numLayers, numTiles);
-    if (!values.quiet && !values.json) {
-      printTerrainSummary(terrain);
-    }
-  } else if (values.terrain) {
-    terrain = loadTerrainFromFile(values.terrain);
-    if (!values.quiet && !values.json) {
-      printTerrainSummary(terrain);
-    }
-  } else {
-    console.error('Error: specify --terrain <path> or --test-terrain');
+  // Load terrain
+  if (!values.terrain) {
+    console.error('Error: --terrain <path> is required');
     console.error('Use --help for usage information');
     process.exit(1);
+  }
+  const terrain = loadTerrainFromFile(values.terrain);
+  if (!values.quiet && !values.json) {
+    printTerrainSummary(terrain);
   }
 
   // Run generation

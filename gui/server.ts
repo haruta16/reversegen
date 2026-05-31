@@ -14,7 +14,6 @@ import { exec } from 'node:child_process';
 import {
   generateBoard,
   loadTerrainFromFile,
-  generateTestTerrain,
   getAllTiles,
   getCanonicalTileOrder,
   decodeFromString,
@@ -75,7 +74,7 @@ function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   });
 }
 
-/** Resolve terrain: levelId takes priority; falls back to terrainPath; then test terrain. */
+/** Resolve terrain: levelId takes priority; falls back to terrainPath. */
 function resolveTerrainPath(levelId: string | undefined, levelsDir: string | undefined, terrainPath: string | undefined): string | null {
   if (levelId) {
     const dir = levelsDir || defaultLevelsDir;
@@ -87,7 +86,7 @@ function resolveTerrainPath(levelId: string | undefined, levelsDir: string | und
     if (existsSync(terrainPath)) return terrainPath;
     throw new Error(`文件不存在: ${terrainPath}`);
   }
-  return null; // use test terrain
+  return null;
 }
 
 /** List level IDs from a directory */
@@ -156,22 +155,19 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/generate' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { costArray, colorCount, layers, tilesPerLayer, levelId, levelsDir, terrainPath, levelHash } = body as {
-        costArray?: string; colorCount?: string; layers?: string; tilesPerLayer?: string;
+      const { costArray, colorCount, levelId, levelsDir, terrainPath, levelHash } = body as {
+        costArray?: string; colorCount?: string;
         levelId?: string; levelsDir?: string; terrainPath?: string; levelHash?: string;
       };
 
       const k = parseInt(colorCount || '99', 10);
-      const l = parseInt(layers || '3', 10);
-      const tpl = parseInt(tilesPerLayer || '18', 10);
 
-      let terrain;
       const path = resolveTerrainPath(levelId, levelsDir, terrainPath);
-      if (path) {
-        terrain = loadTerrainFromFile(path);
-      } else {
-        terrain = generateTestTerrain(l, tpl);
+      if (!path) {
+        json(res, { ok: false, error: '请提供关卡ID或文件路径' }, 400);
+        return;
       }
+      const terrain = loadTerrainFromFile(path);
 
       let costs: number[] | null = null;
       if (costArray && costArray.trim()) {
