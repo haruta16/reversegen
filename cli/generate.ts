@@ -247,6 +247,7 @@ try {
       totalSteps: result.totalSteps,
       costLog: result.costLog,
       branchLog: result.branchLog,
+      stepLog: result.stepLog,
       assignments: assignmentsObj,
       constAssignments: constAssignmentsObj,
       stats: result.stats,
@@ -271,6 +272,19 @@ try {
       console.log(`  Match rate:  ${result.matchRate.toFixed(0)}% (${result.deviationCount} deviations)`);
     }
     console.log(`  Level hash:  ${result.levelHash}`);
+
+    // ── 步骤详情表 ──
+    if (result.stepLog && result.stepLog.length > 0) {
+      console.log(`\n── 步骤详情 ──`);
+      console.log(`  ${'步'.padEnd(4)} ${'ID'.padEnd(24)} ${'cost'.padEnd(5)} ${'目标'.padEnd(5)} ${'候选'.padEnd(6)} ${'封杀'.padEnd(6)} ${'色'.padEnd(3)} ${'备注'}`);
+      console.log(`  ${'─'.repeat(80)}`);
+      for (const s of result.stepLog) {
+        const ids = `[${s.tileIds.join(',')}]`.padEnd(22);
+        const note = s.rescued ? `⚠抢救(第${s.bannedAtStep}步拉黑)` : '';
+        console.log(`  ${String(s.step).padEnd(4)} ${ids} ${String(s.cost).padEnd(5)} ${String(s.target).padEnd(5)} ${String(s.candidateCount).padEnd(6)} ${String(s.bannedCount).padEnd(6)} ${String(s.colorIndex).padEnd(3)} ${note}`);
+      }
+    }
+
     console.log(`\n── ReplayCode ──`);
     console.log(`  ${result.replayCode}`);
     console.log(`  (length: ${result.replayCode.length} chars)`);

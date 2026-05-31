@@ -16,7 +16,7 @@
  * 遵循 temporal locality 原则，最小化对前期 cost ladder 的冲击。
  */
 
-import type { TerrainTile, Triple, TripleKey, ScheduleEntry, ReverseGenInput, ReverseGenOutput, CostStats } from './types.js';
+import type { TerrainTile, Triple, TripleKey, ScheduleEntry, StepRecord, ReverseGenInput, ReverseGenOutput, CostStats } from './types.js';
 import { tripleKey, parseTripleKey } from './types.js';
 import { computeAllDependencies } from './dependency-graph.js';
 import { buildTriples, overlaps, computeCost } from './triple-builder.js';
@@ -81,7 +81,9 @@ export function runReverseGen(input: ReverseGenInput): ReverseGenOutput {
   const collectedIds = new Set<number>();    // 依赖已被释放的牌
   const banSet = new Set<TripleKey>();       // 黑名单（被ban的triple键）
   const banList: Triple[] = [];              // 黑名单列表（按插入顺序，抢救时从后往前）
+  const banStepMap = new Map<TripleKey, number>(); // triple键 → 在第几步被拉黑
   const schedule: ScheduleEntry[] = [];      // 生成调度记录
+  const stepLog: StepRecord[] = [];          // 每步详细记录
   const tileToBanTriples = new Map<number, TripleKey[]>(); // tile→被ban的triple键 索引
   const tileColorMap = new Map<number, number>();          // tile→已分配花色
 
@@ -123,21 +125,25 @@ export function runReverseGen(input: ReverseGenInput): ReverseGenOutput {
     let best: Triple | null = null;
     let bestCost = 0;
     let bestKey: TripleKey = '';
+    let rescued = false;
+    let bannedAtStep = -1;
 
     if (candidates.length === 0) {
       // 候选耗光 → 从黑名单抢救
       logger.warn(
         `[ReverseGen] 第${stepNum}步无可用candidate，从黑名单抢救剩余${freeTiles.length - usedIds.size}张牌`
       );
-      const rescued = rescueFromBlacklist(usedIds, collectedIds, banSet, banList);
-      if (!rescued) {
+      const rescueResult = rescueFromBlacklist(usedIds, collectedIds, banSet, banList, banStepMap);
+      if (!rescueResult) {
         logger.warn('[ReverseGen] 抢救失败，中止');
         aborted = true;
         return;
       }
-      best = rescued.triple;
-      bestCost = rescued.cost;
-      bestKey = rescued.key;
+      best = rescueResult.triple;
+      bestCost = rescueResult.cost;
+      bestKey = rescueResult.key;
+      bannedAtStep = rescueResult.bannedAtStep;
+      rescued = true;
       banSet.delete(bestKey);
     } else {
       // 按 cost 升序排列
@@ -172,6 +178,7 @@ export function runReverseGen(input: ReverseGenInput): ReverseGenOutput {
         if (cost <= bestCost && key !== bestKey) {
           banSet.add(key);
           banList.push(t);
+          banStepMap.set(key, stepNum);  // 记录：这个 triple 在第几步被拉黑
           addToBanIndex(tileToBanTriples, t.tileIds);
           banCnt++;
         }
@@ -181,15 +188,29 @@ export function runReverseGen(input: ReverseGenInput): ReverseGenOutput {
     // ── 安全选色 ──
     const chosenColor = selectSafeColor(best.tileIds, tileToBanTriples, tileColorMap, colorCount);
 
+    const rescueInfo = rescued ? ` ⚠抢救(第${bannedAtStep}步拉黑)` : '';
     if (target > 0) {
       logger.info(
-        `[ReverseGen] 第${stepNum}/${steps}步 ID=[${best.tileIds.join(',')}] cost=${bestCost} 目标=${target} 候选=${candidates.length} 封杀=${banCnt} 色=${chosenColor}`
+        `[ReverseGen] 第${stepNum}/${steps}步 ID=[${best.tileIds.join(',')}] cost=${bestCost} 目标=${target} 候选=${candidates.length} 封杀=${banCnt} 色=${chosenColor}${rescueInfo}`
       );
     } else {
       logger.info(
-        `[ReverseGen] 第${stepNum}/${steps}步 ID=[${best.tileIds.join(',')}] cost=${bestCost} 候选=${candidates.length} 封杀=${banCnt} 色=${chosenColor}`
+        `[ReverseGen] 第${stepNum}/${steps}步 ID=[${best.tileIds.join(',')}] cost=${bestCost} 候选=${candidates.length} 封杀=${banCnt} 色=${chosenColor}${rescueInfo}`
       );
     }
+
+    // ── 记录该步详情 ──
+    stepLog.push({
+      step: stepNum,
+      tileIds: best.tileIds,
+      cost: bestCost,
+      target,
+      candidateCount: candidates.length,
+      bannedCount: banCnt,
+      colorIndex: chosenColor,
+      rescued,
+      bannedAtStep,
+    });
 
     schedule.push({ tileIds: best.tileIds, colorIndex: chosenColor });
     for (const id of best.tileIds) {
@@ -273,22 +294,39 @@ export function runReverseGen(input: ReverseGenInput): ReverseGenOutput {
     }
 
     // Ban: allCandidates 中 cost ≤ target 且未被选中的全部封杀
+    const poolStepNum = startStep; // 池内所有 triple 视为同一"步"的决策
     let banCnt = 0;
     for (const { triple: t, cost, key } of allCandidates) {
       if (cost <= target && !selected.some(s => s.key === key)) {
         banSet.add(key);
         banList.push(t);
+        banStepMap.set(key, poolStepNum);  // 记录拉黑步骤
         addToBanIndex(tileToBanTriples, t.tileIds);
         banCnt++;
       }
     }
 
-    // 落色 + 更新状态
-    for (const { triple, cost, key } of selected) {
+    // 落色 + 更新状态 + 记录步骤
+    let poolIdx = 0;
+    for (const { triple, cost } of selected) {
+      const stepNum = startStep + poolIdx;
       const chosenColor = selectSafeColor(triple.tileIds, tileToBanTriples, tileColorMap, colorCount);
       logger.info(
-        `[ReverseGen] 池cost=${target} 第${startStep}-${startStep + count - 1}步 ID=[${triple.tileIds.join(',')}] cost=${cost} 总候选=${allCandidates.length} 池内=${poolCandidates.length} 封杀=${banCnt} 色=${chosenColor}`
+        `[ReverseGen] 池cost=${target} 第${stepNum}步 ID=[${triple.tileIds.join(',')}] cost=${cost} 总候选=${allCandidates.length} 池内=${poolCandidates.length} 封杀=${banCnt} 色=${chosenColor}`
       );
+
+      stepLog.push({
+        step: stepNum,
+        tileIds: triple.tileIds,
+        cost,
+        target,
+        candidateCount: allCandidates.length,
+        bannedCount: banCnt,
+        colorIndex: chosenColor,
+        rescued: false,
+        bannedAtStep: -1,
+      });
+
       schedule.push({ tileIds: triple.tileIds, colorIndex: chosenColor });
       for (const id of triple.tileIds) {
         usedIds.add(id);
@@ -297,6 +335,7 @@ export function runReverseGen(input: ReverseGenInput): ReverseGenOutput {
       for (const id of triple.depSet) {
         collectedIds.add(id);
       }
+      poolIdx++;
     }
 
     // 补齐：池内选不够的余量用单步
@@ -381,6 +420,7 @@ export function runReverseGen(input: ReverseGenInput): ReverseGenOutput {
     constAssignments,
     costLog,
     branchLog,
+    stepLog,
     completed: !aborted,
     deviationCount: costTargets ? devCount : undefined,
     matchRate,
@@ -427,8 +467,9 @@ function rescueFromBlacklist(
   usedIds: Set<number>,
   collectedIds: Set<number>,
   banSet: Set<TripleKey>,
-  banList: Triple[]
-): { triple: Triple; cost: number; key: TripleKey } | null {
+  banList: Triple[],
+  banStepMap: Map<TripleKey, number>
+): { triple: Triple; cost: number; key: TripleKey; bannedAtStep: number } | null {
   for (let i = banList.length - 1; i >= 0; i--) {
     const t = banList[i];
     if (overlaps(t, usedIds)) continue;
@@ -439,6 +480,7 @@ function rescueFromBlacklist(
       triple: t,
       cost: computeCost(t, collectedIds),
       key,
+      bannedAtStep: banStepMap.get(key) ?? -1,  // 查找最初在第几步被拉黑
     };
   }
   return null;

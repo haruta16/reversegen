@@ -122,6 +122,12 @@
       <span id="chartLabel" style="margin-left:8px"></span>
     </div>
 
+    <h2 style="margin-top:12px">步骤详情 <span style="font-weight:400;font-size:10px;color:var(--m)" id="stepCnt"></span></h2>
+    <div style="max-height:260px;overflow-y:auto;border:1px solid var(--b);border-radius:5px">
+      <table><thead><tr><th>步</th><th>选中 ID</th><th>cost</th><th>目标</th><th>候选数</th><th>封杀</th><th>花色</th><th>备注</th></tr></thead>
+      <tbody id="stepBody"></tbody></table>
+    </div>
+
     <h2 style="margin-top:12px">花色分布</h2>
     <canvas id="elemChart" height="80"></canvas>
 
@@ -279,6 +285,7 @@ function showResult(d){
     ' · min='+d.stats.min+' max='+d.stats.max+' avg='+d.stats.avg.toFixed(1);
 
   drawCostChart(d);
+  renderStepTable(d);
   drawElemChart(d);
 
   // Tile table
@@ -346,6 +353,34 @@ function drawCostChart(d){
       ctx.fillRect(x+gw*0.1,ay,gw*0.8,Math.max(1,ah));
     }
   }
+}
+
+// ═══════════════════════════════════
+// 步骤详情表
+// ═══════════════════════════════════
+function renderStepTable(d){
+  var log=d.stepLog||[];
+  document.getElementById('stepCnt').textContent=log.length+'步';
+  var rows='';
+  for(var i=0;i<log.length;i++){
+    var s=log[i];
+    var note='';
+    if(s.rescued) note='<span style=\"color:#f85149;font-weight:600\">⚠抢救(第'+s.bannedAtStep+'步拉黑)</span>';
+    var costCol=s.target>0&&s.cost!==s.target
+      ? '<span style=\"color:#f85149\">'+s.cost+'</span>'
+      : '<span style=\"color:#3fb950\">'+s.cost+'</span>';
+    rows+='<tr>'+
+      '<td>'+s.step+'</td>'+
+      '<td><b>['+s.tileIds.join(',')+']</b></td>'+
+      '<td>'+costCol+'</td>'+
+      '<td>'+(s.target>0?s.target:'-')+'</td>'+
+      '<td>'+s.candidateCount+'</td>'+
+      '<td>'+s.bannedCount+'</td>'+
+      '<td>'+s.colorIndex+'</td>'+
+      '<td>'+note+'</td>'+
+      '</tr>';
+  }
+  document.getElementById('stepBody').innerHTML=rows;
 }
 
 // ═══════════════════════════════════

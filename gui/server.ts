@@ -199,6 +199,7 @@ const server = createServer(async (req, res) => {
         totalSteps: result.totalSteps,
         costLog: result.costLog,
         branchLog: result.branchLog,
+        stepLog: result.stepLog,
         assignments: assignmentsObj,
         stats: result.stats,
         banSetSize: result.banSetSize,

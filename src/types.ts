@@ -65,6 +65,28 @@ export interface ReverseGenInput {
   colorCount: number;
 }
 
+/** 每一步的详细记录 */
+export interface StepRecord {
+  /** 步序号（从 1 开始） */
+  step: number;
+  /** 选中的 triple 的三张牌 ID */
+  tileIds: [number, number, number];
+  /** 实际 cost */
+  cost: number;
+  /** 目标 cost（自然 minCost 模式时为 -1） */
+  target: number;
+  /** 该步可用的候选 triple 总数 */
+  candidateCount: number;
+  /** 该步被封杀的 triple 数量 */
+  bannedCount: number;
+  /** 分配的花色索引 */
+  colorIndex: number;
+  /** 是否来自黑名单抢救 */
+  rescued: boolean;
+  /** 如果是抢救的: 这个 triple 最初在第几步被拉黑（非抢救步为 -1） */
+  bannedAtStep: number;
+}
+
 /** ReverseGen 算法输出 */
 export interface ReverseGenOutput {
   /** tileId → 归一化花色值（1..colorCount） */
@@ -75,6 +97,8 @@ export interface ReverseGenOutput {
   costLog: number[];
   /** 策略分支日志（每步可选同色 triple 数，越大越安全） */
   branchLog: number[];
+  /** 每步的详细记录（triple 选择、封杀、抢救信息） */
+  stepLog: StepRecord[];
   /** 算法是否成功完成 */
   completed: boolean;
   /** 偏离 cost 目标的步数（仅传入 costArray 时有值） */
