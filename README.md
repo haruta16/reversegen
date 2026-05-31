@@ -1,270 +1,163 @@
-# ReverseGen Extracted
+# ReverseGen · 牌局生成器
 
-Standalone board generation algorithm and ReplayCode serializer, fully decoupled from Unity.
+从 Unity TileMatch 项目中剥离的**独立牌局生成工具**。输入「地形 + Cost 数组 + 花色数」，输出「完整牌局花色分配 + 序列化种子 (ReplayCode)」。
 
-Extracted from the TileMatch game project — provides the **ReverseGen CostLadder algorithm** and **ReplaySerializer v4** as a pure TypeScript package for fast iteration, testing, and integration.
+与 Unity 零依赖，CLI / Web GUI / TypeScript API 三种使用方式。
 
-## Architecture
+---
 
-```
-                    ┌──────────────────────┐
-                    │   Terrain JSON File   │
-                    │  (Unity level format) │
-                    └──────────┬───────────┘
-                               │
-                               ▼
-                    ┌──────────────────────┐
-                    │   Terrain Loader     │
-                    │  (terrain-loader.ts) │
-                    └──────────┬───────────┘
-                               │
-              ┌────────────────┼────────────────┐
-              │                │                │
-              ▼                ▼                ▼
-     ┌────────────┐   ┌──────────────┐  ┌──────────────┐
-     │ Dep Graph  │   │    Tiles     │  │ Const Tiles  │
-     │ (BFS)      │   │ (free tiles) │  │ (fixed elem) │
-     └─────┬──────┘   └──────┬───────┘  └──────┬───────┘
-           │                 │                  │
-           └─────────┬───────┘                  │
-                     │                          │
-                     ▼                          │
-           ┌──────────────────┐                 │
-           │  Triple Builder  │                 │
-           │  C(n,3) enum     │                 │
-           └────────┬─────────┘                 │
-                    │                           │
-                    ▼                           │
-           ┌──────────────────┐                 │
-           │  ReverseGen      │                 │
-           │  CostLadder Algo │                 │
-           │  + Pooling       │                 │
-           │  + Blacklist     │                 │
-           │  + Rescue        │                 │
-           └────────┬─────────┘                 │
-                    │                           │
-                    ▼                           │
-           ┌──────────────────┐                 │
-           │  Greedy Sim      │                 │
-           │  (verification)  │                 │
-           └────────┬─────────┘                 │
-                    │                           │
-                    └───────────┬───────────────┘
-                                │
-                                ▼
-                      ┌──────────────────┐
-                      │  Element Values  │
-                      │  (all tiles)     │
-                      └────────┬─────────┘
-                               │
-                               ▼
-                      ┌──────────────────┐
-                      │  ReplaySerializer│
-                      │  v4 binary       │
-                      │  + Deflate       │
-                      │  + CRC16/MODBUS  │
-                      │  + Base64        │
-                      └────────┬─────────┘
-                               │
-                               ▼
-                      ┌──────────────────┐
-                      │   ReplayCode     │
-                      │  (Base64 string) │
-                      └──────────────────┘
-```
-
-## Quick Start
+## 安装
 
 ```bash
-# Install dependencies
+cd reversegen
 npm install
-
-# Generate a board from a terrain file
-npx tsx cli/generate.ts --terrain test/fixtures/sample-terrain.json \
-  --cost 3,3,2,2,2,1 --colors 6
-
-# Or use a test terrain
-npx tsx cli/generate.ts --test-terrain --layers 3 --tiles 18 \
-  --cost 3,3,2,2,2,1 --colors 6
-
-# Get just the ReplayCode (for piping)
-npx tsx cli/generate.ts -t terrain.json -c 3,3,2 -k 6 -q
-
-# JSON output
-npx tsx cli/generate.ts -t terrain.json -c 3,3,2 -k 6 --json
-
-# Decode an existing ReplayCode
-npx tsx cli/generate.ts -d "eJx1kEsOAUEQRH..."
 ```
 
-## API Usage
+依赖仅三个：`typescript`、`tsx`、`@types/node`，无运行时依赖。
+
+---
+
+## 快速开始
+
+### CLI
+
+```bash
+# 测试地形（不需要关卡文件）
+npx tsx cli/generate.ts --test-terrain --layers 2 --tiles 12 --colors 4
+
+# 真实关卡
+npx tsx cli/generate.ts \
+  --terrain /path/to/TileMatchShell/Tools/Config/Json/Levels/100075.json \
+  --cost 4,4,4,3,3,2,3,2,4,4,5,2,3,4,3,2,3,4,3,3,2,1,5,2,4,2,2,1 \
+  --colors 30
+
+# 仅输出 ReplayCode（可管道）
+npx tsx cli/generate.ts -t level.json -c 3,3,2 -k 6 -q | pbcopy
+
+# 查看帮助
+npx tsx cli/generate.ts --help
+```
+
+### Web GUI
+
+```bash
+npm run gui
+# → 浏览器打开 http://localhost:3000
+# 页面自动扫描关卡列表，点击 ID 即可加载
+```
+
+### TypeScript API
 
 ```typescript
-import {
-  generateBoard,
-  loadTerrainFromFile,
-  generateTestTerrain,
-  runReverseGen,
-  generateReplayCode,
-  getCanonicalTileOrder,
-  getAllTiles,
-  decodeFromString,
-  looksLikeReplayCode,
-  setLogLevel,
-  LogLevel,
-} from 'reversegen';
+import { generateBoard, loadTerrainFromFile } from 'reversegen';
 
-// ── High-Level API ──
-const terrain = loadTerrainFromFile('level.json');
+const terrain = loadTerrainFromFile('/path/to/100075.json');
 const result = generateBoard({
   terrain,
-  costArray: [3, 3, 2, 2, 2, 1],
-  colorCount: 8,
+  costArray: [4, 4, 4, 3, 3, 2, 3, 2, 4, 4, 5, 2, 3, 4, 3, 2, 3, 4, 3, 3, 2, 1, 5, 2, 4, 2, 2, 1],
+  colorCount: 30,
 });
 
-console.log(result.replayCode);     // Base64 ReplayCode
-console.log(result.costLog);        // Actual costs per step
-console.log(result.matchRate);      // % match with cost targets
-console.log(result.assignments);    // Map<tileId, elementValue>
-
-// ── Natural minCost mode (no cost targets) ──
-const result2 = generateBoard({
-  terrain,
-  costArray: null,  // or omit
-  colorCount: 6,
-});
-
-// ── Low-Level API ──
-const tiles = getAllTiles(terrain);
-
-// Run algorithm directly
-const algoResult = runReverseGen({
-  tiles,
-  costArray: [3, 3, 2, 2, 2, 1],
-  colorCount: 8,
-});
-
-// Generate ReplayCode manually
-const orderedTiles = getCanonicalTileOrder(tiles);
-const elementValues = new Map<number, number>();
-for (const [tileId, ev] of algoResult.assignments) {
-  elementValues.set(tileId, ev);
-}
-const code = generateReplayCode(orderedTiles, elementValues, terrain.levelHash);
+console.log(result.replayCode);   // "PYjJEQMx..." 序列化种子
+console.log(result.costLog);      // [4,4,4,3,1,2,...] 实际cost链
+console.log(result.matchRate);    // 67.85  匹配率(%)
+console.log(result.assignments);  // Map<tileId, elementValue>
 ```
 
-## Terrain Format
+---
 
-Supports the original Unity level JSON format:
+## 核心概念
+
+### Cost 数组（难度曲线）
+每一步的目标 cost。cost = 消除这三张牌需要"释放"的依赖数量。cost 越大 = 这一步越难。数组长度必须 = 自由牌数 ÷ 3。
+
+### Triple（三牌组合）
+从自由牌中任选 3 张组成的消除组合。C(n,3) 枚举所有可能。
+
+### ReplayCode（序列化种子）
+v4 格式二进制：`version + tileCount + elementCount + levelHash + instanceArray + dockEntries + CRC16`，经 Raw Deflate 压缩后 Base64 编码。可直接用于 Unity `TileMatchBattle.LoadLevel_V2()` 还原完整牌局。
+
+---
+
+## 算法简介
+
+ReverseGen CostLadder 逆向模拟游戏过程：
+
+1. **依赖图**：BFS 计算每张牌的传递依赖闭包
+2. **Triple 枚举**：C(n,3) 枚举所有合法三牌组合
+3. **贪心选择**：每步选动态 cost 最小的 triple
+4. **黑名单**：cost ≤ 选中 triple 的候选全部封杀，防止贪心矛盾
+5. **池化**：cost ≤ 3 的连续同值步骤合并，同一快照下互选
+6. **抢救**：候选耗光时从黑名单尾部找回最近被封的 triple
+7. **安全选色**：选创建最少违规的花色
+
+---
+
+## 项目结构
+
+```
+reversegen/
+├── src/
+│   ├── types.ts              # 全部类型定义
+│   ├── reverse-gen.ts        # ★ CostLadder 算法主体
+│   ├── replay-serializer.ts  # ★ v4 ReplayCode 编解码
+│   ├── dependency-graph.ts   # BFS 传递闭包
+│   ├── triple-builder.ts     # C(n,3) 枚举 + cost 计算
+│   ├── greedy-sim.ts         # 纯贪心模拟验证
+│   ├── terrain-loader.ts     # JSON 地形加载 + 测试地形生成
+│   ├── crc16.ts              # CRC16/MODBUS
+│   ├── logger.ts             # 日志
+│   └── index.ts              # 公共 API + generateBoard()
+├── cli/generate.ts           # CLI 工具
+├── gui/
+│   ├── server.ts             # HTTP 服务器
+│   └── index.html            # Web 前端
+├── test/                     # 29 个单元测试
+├── ARCHITECTURE.md           # 详细架构说明
+└── README.md                 # 本文件
+```
+
+---
+
+## 测试
+
+```bash
+npm test                 # 全部 29 个测试
+npm run test:algo        # 算法测试（10 个）
+npm run test:serializer  # 序列化测试（19 个）
+```
+
+---
+
+## 地形格式
+
+兼容 Unity level JSON 格式：
 
 ```json
 {
-  "levelResId": 100001,
+  "levelResId": 100075,
   "LevelHash": "550ede7fd250e2d4",
   "layers": [
     {
       "tiles": [
-        {
-          "ID": 1,
-          "Layer": 0,
-          "Dependencies": [],
-          "IsConst": false,
-          "ConstElementValue": 0,
-          "PosX": 15,
-          "PosY": 3
-        }
+        { "ID": 1, "Layer": 0, "Dependencies": [], "IsConst": false },
+        { "ID": 15, "Layer": 1, "Dependencies": [1, 2, 5], "IsConst": false }
       ]
     }
   ]
 }
 ```
 
-Key fields per tile:
-- `ID` — unique tile identifier
-- `Layer` — layer index (0 = bottom, higher = on top)
-- `Dependencies` — array of tile IDs this tile sits on top of
-- `IsConst` — whether the tile has a fixed element value
-- `ConstElementValue` — the fixed element value (only when `IsConst` is true)
+---
 
-## Algorithm Details
+## 与 Unity 的已知差异
 
-### ReverseGen CostLadder
+C# 的 `List.Sort` 是不稳定排序，JavaScript 的 `Array.sort` 是稳定排序。同等 cost 的 triple 在排序后相对顺序不同，导致跨平台时可能选中不同的 triple。算法逻辑完全一致，差异仅来自排序实现细节。
 
-The algorithm works by simulating the game in reverse:
+---
 
-1. **Dependency graph**: BFS-based transitive closure for every tile
-2. **Triple enumeration**: C(n,3) combinations of all free tiles, each with a merged dependency set
-3. **Greedy selection**: At each step, pick the triple with minimum dynamic cost (uncollected dependencies)
-4. **Blacklisting**: Candidates with cost ≤ the chosen triple's cost are banned, preventing internal contradictions
-5. **Pooling**: Consecutive same-cost steps (cost ≤ 3) are merged — multiple non-overlapping triples are selected under a single snapshot, sharing dependency sets
-6. **Rescue**: When candidates are exhausted, search backward through the ban list for the most recently banned valid triple
-7. **Color safety**: Each triple's color is chosen to minimize "violations" where banned triples would become same-colored
+## 更多信息
 
-### ReplaySerializer v4
-
-Binary format:
-```
-[0]       version (1B = 4)
-[1]       N tile count (1B)
-[2]       elementCount K (1B)
-[3..10]   levelHash uint64 LE (8B)
-[11..N+10] instanceArray N × 1B (2bit state | 6bit elemIndex)
-[N+11]    dockCount (1B, 0-7)
-[N+12..]  dockEntries dockCount × 2B
-[last-1..] CRC16/MODBUS (2B, LE)
-```
-
-Pipeline: `binary → Deflate → Base64`
-
-## Testing
-
-```bash
-# Run all tests
-npm test
-
-# Run specific test suites
-npm run test:algo
-npm run test:serializer
-```
-
-## Project Structure
-
-```
-reversegen/
-├── src/
-│   ├── types.ts              # Core data types
-│   ├── logger.ts             # Console logger
-│   ├── crc16.ts              # CRC16/MODBUS (table + bitwise)
-│   ├── dependency-graph.ts   # BFS transitive closure
-│   ├── triple-builder.ts     # C(n,3) enumeration + cost calc
-│   ├── reverse-gen.ts        # Main ReverseGen algorithm
-│   ├── greedy-sim.ts         # Post-assignment pure greedy sim
-│   ├── replay-serializer.ts  # v4 encode/decode + Deflate
-│   ├── terrain-loader.ts     # JSON terrain loading + test gen
-│   └── index.ts              # Public API + high-level generateBoard()
-├── cli/
-│   └── generate.ts           # CLI tool
-├── test/
-│   ├── fixtures/
-│   │   └── sample-terrain.json
-│   ├── test-reverse-gen.ts
-│   └── test-serializer.ts
-├── package.json
-├── tsconfig.json
-└── README.md
-```
-
-## ReplayCode Format
-
-The ReplayCode is a self-contained, compact string that encodes a complete board state:
-
-- **Self-describing**: Contains `levelHash` to identify the terrain
-- **Complete restoration**: Color assignments, Dock state, and eliminated tiles are fully recoverable
-- **Cross-platform deterministic**: Deflate compression + CRC16/MODBUS checksum
-- **Compact**: Typically 50-200 characters, suitable for IM, copy-paste, config tables
-
-When decoded and loaded via `TileMatchBattle.LoadLevel_V2`, the ReplayCode reconstructs the exact board state — including which tiles share colors and which are in Dock — without needing the original algorithm or random seed.
-
-## License
-
-Internal tool — extracted from the TileMatch game project for algorithm testing purposes.
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — 架构设计原理、依赖图、数据流、测试策略
+- [gu/server.ts](./gui/server.ts) — 服务器 API 端点
+- [test/](./test/) — 测试用例
