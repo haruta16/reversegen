@@ -74,13 +74,6 @@
     </div>
     <div class="tags" id="quickIds"></div>
 
-    <hr>
-
-    <label>🧪 测试地形（不填关卡ID时使用）</label>
-    <div class="inrow">
-      <input type="number" id="layers" value="3" min="1" max="20" style="width:70px" placeholder="层数">
-      <input type="number" id="tilesPerLayer" value="18" min="3" step="3" style="width:80px" placeholder="牌数/层">
-    </div>
   </div>
 
   <!-- ═══ 参数 ═══ -->
@@ -239,21 +232,20 @@ async function generate(){
 
   var lid=document.getElementById('levelId').value.trim();
   var info=document.getElementById('levelInfo');
-  // 有加载成功的关卡信息就用关卡，否则用测试地形
-  var useLevel=lid && info.innerHTML.indexOf('关卡')>=0;
+  if(!lid || info.innerHTML.indexOf('关卡')<0){
+    err.textContent='请先加载关卡';
+    btn.textContent='🔄 生成牌局';btn.disabled=false;
+    return;
+  }
 
   var body={
     costArray:document.getElementById('costArray').value.trim(),
     colorCount:document.getElementById('colorCount').value,
-    layers:document.getElementById('layers').value,
-    tilesPerLayer:document.getElementById('tilesPerLayer').value,
+    levelId:lid,
     levelHash:document.getElementById('levelHash').value.trim()||undefined
   };
-  if(useLevel){
-    body.levelId=lid;
-    var dir=document.getElementById('levelsDir').value.trim();
-    if(dir)body.levelsDir=dir;
-  }
+  var dir=document.getElementById('levelsDir').value.trim();
+  if(dir)body.levelsDir=dir;
 
   try{
     var r=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -459,21 +451,17 @@ function copyCode(btn){
 // Cost 数组生成器
 // ═══════════════════════════════════
 function getStepCount(){
-  // 优先从已加载的关卡信息中提取步数
   var info=document.getElementById('levelInfo');
   if(info&&info.textContent){
     var m=info.textContent.match(/(\d+)\s*步/);
     if(m)return parseInt(m[1]);
   }
-  // 否则用测试地形参数计算
-  var l=parseInt(document.getElementById('layers').value)||3;
-  var t=parseInt(document.getElementById('tilesPerLayer').value)||18;
-  return Math.floor((l*t)/3);
+  return 0;
 }
 
 function generateCost(){
   var steps=getStepCount();
-  if(!steps||steps<=0){alert('请先加载关卡或设置测试地形参数');return}
+  if(!steps||steps<=0){alert('请先加载关卡');return}
 
   var targetStd=parseFloat(document.getElementById('targetStd').value)||1.0;
   var seed=Date.now()&0x7fffffff;

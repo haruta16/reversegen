@@ -208,7 +208,7 @@ const server = createServer(async (req, res) => {
           totalTiles: allTiles.length,
           freeTiles: allTiles.filter(t => !t.isConst).length,
           constTiles: allTiles.filter(t => t.isConst).length,
-          source: path ? basename(path) : 'test-terrain',
+          source: basename(path),
         },
         tiles: tileSummary,
       });
