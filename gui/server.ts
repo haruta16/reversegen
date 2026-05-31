@@ -161,7 +161,7 @@ const server = createServer(async (req, res) => {
         levelId?: string; levelsDir?: string; terrainPath?: string; levelHash?: string;
       };
 
-      const k = parseInt(colorCount || '8', 10);
+      const k = parseInt(colorCount || '99', 10);
       const l = parseInt(layers || '3', 10);
       const tpl = parseInt(tilesPerLayer || '18', 10);
 

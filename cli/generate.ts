@@ -41,7 +41,7 @@ const { values } = parseArgs({
   options: {
     terrain:       { type: 'string', short: 't' },
     cost:          { type: 'string', short: 'c' },
-    colors:        { type: 'string', short: 'k', default: '8' },
+    colors:        { type: 'string', short: 'k', default: '99' },
     hash:          { type: 'string' },
     'test-terrain': { type: 'boolean', default: false },
     layers:        { type: 'string', default: '3' },
@@ -69,7 +69,7 @@ OPTIONS:
   -t, --terrain <path>   Path to terrain JSON file (Unity level format)
   -c, --cost <array>     Cost array, comma-separated (e.g. "3,3,2,2,2,1")
                           Omit for natural minCost mode
-  -k, --colors <n>       Number of colors (default: 8)
+  -k, --colors <n>       花色数量 (默认: 99)
   --hash <hex>           Level hash override (16-char hex)
   --test-terrain         Generate a test terrain instead of loading from file
   --layers <n>           Test terrain layers (default: 3)
@@ -171,8 +171,8 @@ if (values.decode) {
 
 try {
   const colorCount = parseInt(values.colors!, 10);
-  if (isNaN(colorCount) || colorCount < 1 || colorCount > 64) {
-    console.error('Error: --colors must be between 1 and 64');
+  if (isNaN(colorCount) || colorCount < 1 || colorCount > 99) {
+    console.error('Error: --colors must be between 1 and 99');
     process.exit(1);
   }
 
