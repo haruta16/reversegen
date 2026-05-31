@@ -124,7 +124,7 @@
 
     <h2 style="margin-top:12px">步骤详情 <span style="font-weight:400;font-size:10px;color:var(--m)" id="stepCnt"></span></h2>
     <div style="max-height:260px;overflow-y:auto;border:1px solid var(--b);border-radius:5px">
-      <table><thead><tr><th>步</th><th>选中 ID</th><th>cost</th><th>目标</th><th>候选数</th><th>封杀</th><th>花色</th><th>备注</th></tr></thead>
+      <table><thead><tr><th>步</th><th>选中 ID</th><th>cost</th><th>sim</th><th>目标</th><th>候选</th><th>封杀</th><th>色</th><th>备注</th></tr></thead>
       <tbody id="stepBody"></tbody></table>
     </div>
 
@@ -369,10 +369,15 @@ function renderStepTable(d){
     var costCol=s.target>0&&s.cost!==s.target
       ? '<span style=\"color:#f85149\">'+s.cost+'</span>'
       : '<span style=\"color:#3fb950\">'+s.cost+'</span>';
+    var simVal=s.simCost!==undefined?s.simCost:'-';
+    var simCol=s.target>0&&s.simCost!==s.target
+      ? '<span style=\"color:#f85149\">'+simVal+'</span>'
+      : '<span style=\"color:#3fb950\">'+simVal+'</span>';
     rows+='<tr>'+
       '<td>'+s.step+'</td>'+
       '<td><b>['+s.tileIds.join(',')+']</b></td>'+
       '<td>'+costCol+'</td>'+
+      '<td>'+simCol+'</td>'+
       '<td>'+(s.target>0?s.target:'-')+'</td>'+
       '<td>'+s.candidateCount+'</td>'+
       '<td>'+s.bannedCount+'</td>'+

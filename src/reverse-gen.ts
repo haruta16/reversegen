@@ -372,6 +372,11 @@ export function runReverseGen(input: ReverseGenInput): ReverseGenOutput {
   // ── 纯贪心模拟: 落色后按花色分组，每步严格选 minCost ──
   const { costLog, branchLog } = runPureGreedySimulation(freeTiles, assignments, allDeps, steps);
 
+  // 将贪心模拟的 cost 回填到步骤记录
+  for (let i = 0; i < stepLog.length && i < costLog.length; i++) {
+    stepLog[i].simCost = costLog[i];
+  }
+
   // ── 构建统计信息 ──
   const stats = computeStats(costLog);
 

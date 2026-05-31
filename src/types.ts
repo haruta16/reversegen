@@ -81,6 +81,8 @@ export interface StepRecord {
   bannedCount: number;
   /** 分配的花色索引 */
   colorIndex: number;
+  /** 纯贪心模拟中这一步的 cost（落色后独立验证） */
+  simCost: number;
   /** 是否来自黑名单抢救 */
   rescued: boolean;
   /** 如果是抢救的: 这个 triple 最初在第几步被拉黑（非抢救步为 -1） */

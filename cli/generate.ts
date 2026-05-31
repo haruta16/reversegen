@@ -276,12 +276,16 @@ try {
     // ── 步骤详情表 ──
     if (result.stepLog && result.stepLog.length > 0) {
       console.log(`\n── 步骤详情 ──`);
-      console.log(`  ${'步'.padEnd(4)} ${'ID'.padEnd(24)} ${'cost'.padEnd(5)} ${'目标'.padEnd(5)} ${'候选'.padEnd(6)} ${'封杀'.padEnd(6)} ${'色'.padEnd(3)} ${'备注'}`);
-      console.log(`  ${'─'.repeat(80)}`);
+      console.log(`  ${'步'.padEnd(4)} ${'ID'.padEnd(24)} ${'cost'.padEnd(5)} ${'sim'.padEnd(5)} ${'目标'.padEnd(5)} ${'候选'.padEnd(6)} ${'封杀'.padEnd(6)} ${'色'.padEnd(3)} ${'备注'}`);
+      console.log(`  ${'─'.repeat(90)}`);
       for (const s of result.stepLog) {
         const ids = `[${s.tileIds.join(',')}]`.padEnd(22);
+        const simStr = s.simCost !== undefined ? String(s.simCost).padEnd(5) : '-'.padEnd(5);
+        const costStr = (s.target > 0 && s.cost !== s.target)
+          ? String(s.cost) + '!'
+          : String(s.cost);
         const note = s.rescued ? `⚠抢救(第${s.bannedAtStep}步拉黑)` : '';
-        console.log(`  ${String(s.step).padEnd(4)} ${ids} ${String(s.cost).padEnd(5)} ${String(s.target).padEnd(5)} ${String(s.candidateCount).padEnd(6)} ${String(s.bannedCount).padEnd(6)} ${String(s.colorIndex).padEnd(3)} ${note}`);
+        console.log(`  ${String(s.step).padEnd(4)} ${ids} ${costStr.padEnd(5)} ${simStr} ${String(s.target).padEnd(5)} ${String(s.candidateCount).padEnd(6)} ${String(s.bannedCount).padEnd(6)} ${String(s.colorIndex).padEnd(3)} ${note}`);
       }
     }
 
