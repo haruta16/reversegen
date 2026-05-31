@@ -144,7 +144,8 @@ export function runReverseGen(input: ReverseGenInput): ReverseGenOutput {
     // count=1 或自然 minCost → 标准贪心选 1 个
     // count>1 且有 cost 目标 → 尝试池化多选（从 cost==target 候选中挑互不占牌的）
     const selected: CandidateInfo[] = [];
-    const tryPool = count > 1 && target > 0;
+    // 池化条件: cost 1-3 且连续 ≥2 步。cost≥4 时依赖集大，互不占牌概率低，单步执行更合理
+    const tryPool = target >= 1 && target <= 3 && count >= 2;
 
     if (!tryPool) {
       // 标准贪心: 按 cost 排序，选符合 target 的
