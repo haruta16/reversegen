@@ -59,8 +59,8 @@ export interface ScheduleEntry {
 export interface ReverseGenInput {
   /** 地形中所有牌（含固定牌） */
   tiles: TerrainTile[];
-  /** Cost 目标数组。长度必须 = 自由牌数 ÷ 3。为 null/undefined 时使用自然 minCost 模式 */
-  costArray?: number[] | null;
+  /** Cost 目标数组。长度必须 = 自由牌数 ÷ 3 */
+  costArray: number[];
   /** 可用花色数量 */
   colorCount: number;
 }
@@ -73,7 +73,7 @@ export interface StepRecord {
   tileIds: [number, number, number];
   /** 实际 cost */
   cost: number;
-  /** 目标 cost（自然 minCost 模式时为 -1） */
+  /** 目标 cost */
   target: number;
   /** 该步可用的候选 triple 总数 */
   candidateCount: number;
@@ -103,10 +103,10 @@ export interface ReverseGenOutput {
   stepLog: StepRecord[];
   /** 算法是否成功完成 */
   completed: boolean;
-  /** 偏离 cost 目标的步数（仅传入 costArray 时有值） */
-  deviationCount?: number;
-  /** 匹配率百分比（仅传入 costArray 时有值） */
-  matchRate?: number;
+  /** 偏离 cost 目标的步数 */
+  deviationCount: number;
+  /** 匹配率百分比 */
+  matchRate: number;
   /** 总步数 */
   totalSteps: number;
   /** 黑名单中的 triple 数量 */

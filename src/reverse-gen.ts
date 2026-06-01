@@ -8,8 +8,7 @@
  * 1. Cost 计算: cost = |depSet \ collectedIds| — 消除这个 triple 需要释放多少尚未释放的依赖。
  *    每步重新计算所有候选 triple 的实时 cost。这是算法唯一的决策依据。
  *
- * 2. 贪心选择: 每步选 cost 最小的 triple（或 cost ≥ target 的第一个）。
- *    在有 cost 目标时，选第一个 cost ≥ target 的候选；自然模式选最低。
+ * 2. 贪心选择: 每步选 cost ≥ target 的第一个候选。
  *
  * 3. 黑名单: cost ≤ 选中 triple 的候选全部封杀。
  *    没有黑名单，贪心会退化为每步选最便宜的，全局 cost 链毫无起伏。
@@ -65,11 +64,16 @@ export function runReverseGen(input: ReverseGenInput): ReverseGenOutput {
 
   const triples = buildTriples(freeTiles, allDeps);
   const steps = Math.floor(freeTiles.length / 3);
-  const costTargets = hasCostArray(costArray, steps) ? costArray! : null;
+
+  // 验证 cost 数组
+  if (costArray.length !== steps) throw new Error(`costArray length ${costArray.length} != steps ${steps}`);
+  for (const v of costArray) { if (v < 1) throw new Error(`cost value ${v} < 1`); }
+
+  const costTargets = costArray;
 
   logger.info(
     `[ReverseGen] 开始 | 总牌:${freeTiles.length} 花色:${colorCount} 步数:${steps} triple数:${triples.length}` +
-    (costTargets ? ` cost目标=[${costTargets.join(',')}]` : ' 自然minCost')
+    ` cost目标=[${costTargets.join(',')}]`
   );
 
   // ── 状态 ──
@@ -89,12 +93,8 @@ export function runReverseGen(input: ReverseGenInput): ReverseGenOutput {
   // count=1 的池 = 普通单步；count>1 的池尝试多选。
   interface Pool { cost: number; count: number; }
   const pools: Pool[] = [];
-  if (costTargets) {
-    for (let i = 0; i < costTargets.length; i++) {
-      pools.push({ cost: costTargets[i], count: 1 });
-    }
-  } else {
-    pools.push({ cost: -1, count: steps });
+  for (let i = 0; i < costTargets.length; i++) {
+    pools.push({ cost: costTargets[i], count: 1 });
   }
 
   let currentStep = 0;
@@ -137,21 +137,17 @@ export function runReverseGen(input: ReverseGenInput): ReverseGenOutput {
     }
 
     // 3) 选择
-    // count=1 或自然 minCost → 标准贪心选 1 个
-    // count>1 且有 cost 目标 → 尝试池化多选（从 cost==target 候选中挑互不占牌的）
+    // count=1 → 标准贪心选 1 个
+    // count>1 → 尝试池化多选（从 cost==target 候选中挑互不占牌的）
     const selected: CandidateInfo[] = [];
     // 池化条件: cost 1-3 且连续 ≥2 步。cost≥4 时依赖集大，互不占牌概率低，单步执行更合理
     const tryPool = target >= 1 && target <= 3 && count >= 2;
 
     if (!tryPool) {
-      // 标准贪心: 按 cost 排序，选符合 target 的
+      // 标准贪心: 按 cost 排序，选第一个 cost ≥ target 的候选
       allCandidates.sort((a, b) => a.cost - b.cost);
-      if (target > 0) {
-        const idx = allCandidates.findIndex(c => c.cost >= target);
-        selected.push(idx >= 0 ? allCandidates[idx] : allCandidates[allCandidates.length - 1]);
-      } else {
-        selected.push(allCandidates[0]);
-      }
+      const idx = allCandidates.findIndex(c => c.cost >= target);
+      selected.push(idx >= 0 ? allCandidates[idx] : allCandidates[allCandidates.length - 1]);
     } else {
       // 池化多选: 从 cost == target 的候选中贪心挑互不占牌的
       const poolCandidates = allCandidates.filter(c => c.cost === target);
@@ -199,11 +195,7 @@ export function runReverseGen(input: ReverseGenInput): ReverseGenOutput {
       const chosenColor = selectSafeColor(triple.tileIds, tileToBanTriples, tileColorMap, colorCount);
 
       const poolTag = count > 1 ? `池cost=${target} ` : '';
-      if (target > 0) {
-        logger.info(`[ReverseGen] ${poolTag}第${stepNum}/${steps}步 ID=[${triple.tileIds.join(',')}] cost=${cost} 目标=${target} 候选=${allCandidates.length} 封杀=${banCnt} 色=${chosenColor}`);
-      } else {
-        logger.info(`[ReverseGen] ${poolTag}第${stepNum}/${steps}步 ID=[${triple.tileIds.join(',')}] cost=${cost} 候选=${allCandidates.length} 封杀=${banCnt} 色=${chosenColor}`);
-      }
+      logger.info(`[ReverseGen] ${poolTag}第${stepNum}/${steps}步 ID=[${triple.tileIds.join(',')}] cost=${cost} 目标=${target} 候选=${allCandidates.length} 封杀=${banCnt} 色=${chosenColor}`);
 
       stepLog.push({ step: stepNum, tileIds: triple.tileIds, cost, target, candidateCount: allCandidates.length, bannedCount: banCnt, colorIndex: chosenColor, rescued: false, bannedAtStep: -1, simCost: 0 });
       schedule.push({ tileIds: triple.tileIds, colorIndex: chosenColor });
@@ -244,45 +236,32 @@ export function runReverseGen(input: ReverseGenInput): ReverseGenOutput {
   const stats = computeStats(costLog);
   let devCount = 0;
   const devInfos: string[] = [];
-  if (costTargets) {
-    for (let i = 0; i < costLog.length; i++) {
-      if (costLog[i] !== costTargets[i]) {
-        devCount++;
-        if (devInfos.length < 8) devInfos.push(`#${i + 1}:${costTargets[i]}→${costLog[i]}`);
-      }
+  for (let i = 0; i < costLog.length; i++) {
+    if (costLog[i] !== costTargets[i]) {
+      devCount++;
+      if (devInfos.length < 8) devInfos.push(`#${i + 1}:${costTargets[i]}→${costLog[i]}`);
     }
   }
-  const matchRate = costTargets ? (steps - devCount) * 100 / steps : undefined;
+  const matchRate = (steps - devCount) * 100 / steps;
 
   // ── 日志 ──
   const lines: string[] = [];
   lines.push(`[ReverseGen] 完成 | 步数:${costLog.length}/${steps} | 花色:${colorCount}`);
-  if (costTargets) {
-    lines.push(`  目标cost: [${costTargets.join(',')}]`);
-    lines.push(`  实际cost: [${costLog.join(',')}]`);
-    lines.push(`  偏差: ${devCount}/${steps}`);
-    if (devCount > 0) lines.push(`  匹配率: ${matchRate!.toFixed(0)}% | 偏差位置: [${devInfos.join(', ')}]${devCount > 8 ? ` ...等${devCount}处` : ''}`);
-  } else {
-    lines.push(`  实际cost: [${costLog.join(',')}]`);
-  }
+  lines.push(`  目标cost: [${costTargets.join(',')}]`);
+  lines.push(`  实际cost: [${costLog.join(',')}]`);
+  lines.push(`  偏差: ${devCount}/${steps}`);
+  if (devCount > 0) lines.push(`  匹配率: ${matchRate.toFixed(0)}% | 偏差位置: [${devInfos.join(', ')}]${devCount > 8 ? ` ...等${devCount}处` : ''}`);
   lines.push(`  策略分支数: [${branchLog.join(',')}]`);
   if (costLog.length > 0) lines.push(`  cost统计: min=${stats.min} max=${stats.max} avg=${stats.avg.toFixed(1)}`);
   lines.push(`  黑名单: ${banSet.size}`);
   logger.info(lines.join('\n'));
 
-  return { assignments, constAssignments, costLog, branchLog, stepLog, completed: !aborted, deviationCount: costTargets ? devCount : undefined, matchRate, totalSteps: steps, banSetSize: banSet.size, stats };
+  return { assignments, constAssignments, costLog, branchLog, stepLog, completed: !aborted, deviationCount: devCount, matchRate, totalSteps: steps, banSetSize: banSet.size, stats };
 }
 
 // ═══════════════════════════════════════
 // 辅助函数
 // ═══════════════════════════════════════
-
-function hasCostArray(arr: number[] | null | undefined, expectedSteps: number): arr is number[] {
-  if (!arr || arr.length === 0) return false;
-  if (arr.length !== expectedSteps) { logger.warn(`[ReverseGen] cost数组长度(${arr.length})≠步数(${expectedSteps})，改为自然minCost`); return false; }
-  for (const v of arr) { if (v < 1) { logger.warn(`[ReverseGen] cost数组含非法值${v}(最小=1)，改为自然minCost`); return false; } }
-  return true;
-}
 
 function rescueFromBlacklist(
   usedIds: Set<number>, collectedIds: Set<number>,

@@ -162,6 +162,11 @@ const server = createServer(async (req, res) => {
 
       const k = parseInt(colorCount || '99', 10);
 
+      if (!costArray || !costArray.trim()) {
+        json(res, { ok: false, error: '请提供 Cost 数组' }, 400);
+        return;
+      }
+
       const path = resolveTerrainPath(levelId, levelsDir, terrainPath);
       if (!path) {
         json(res, { ok: false, error: '请提供关卡ID或文件路径' }, 400);
@@ -169,10 +174,10 @@ const server = createServer(async (req, res) => {
       }
       const terrain = loadTerrainFromFile(path);
 
-      let costs: number[] | null = null;
-      if (costArray && costArray.trim()) {
-        costs = costArray.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
-        if (costs.length === 0) costs = null;
+      const costs = costArray.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+      if (costs.length === 0 || costs.some(c => c < 1)) {
+        json(res, { ok: false, error: 'Cost 数组格式无效' }, 400);
+        return;
       }
 
       const result = generateBoard({ terrain, costArray: costs, colorCount: k, levelHash });

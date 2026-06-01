@@ -9,9 +9,6 @@
  *   # Generate from terrain JSON with cost array
  *   npx tsx cli/generate.ts --terrain level.json --cost 3,3,2,2,2,1 --colors 8
  *
- *   # Natural minCost mode (no cost targets)
- *   npx tsx cli/generate.ts --terrain level.json --colors 8
- *
  *   # JSON output for piping
  *   npx tsx cli/generate.ts --terrain level.json --cost 3,3,2 --colors 6 --json
  *
@@ -60,8 +57,7 @@ USAGE:
 
 OPTIONS:
   -t, --terrain <path>   Path to terrain JSON file (Unity level format) (required)
-  -c, --cost <array>     Cost array, comma-separated (e.g. "3,3,2,2,2,1")
-                           Omit for natural minCost mode
+  -c, --cost <array>     Cost array, comma-separated (e.g. "3,3,2,2,2,1") (required)
   -k, --colors <n>       花色数量 (默认: 99)
   --hash <hex>           Level hash override (16-char hex)
   -j, --json             Output results as JSON
@@ -73,9 +69,6 @@ OPTIONS:
 EXAMPLES:
   # Generate from terrain file with cost targets
   npx tsx cli/generate.ts -t level.json -c 3,3,2,2,2,1 -k 8
-
-  # Natural minCost mode
-  npx tsx cli/generate.ts -t level.json -k 6
 
   # JSON output
   npx tsx cli/generate.ts -t level.json -c 3,3,2 -k 6 --json
@@ -163,18 +156,19 @@ try {
     process.exit(1);
   }
 
-  // Parse cost array
-  let costArray: number[] | null = null;
-  if (values.cost) {
-    costArray = values.cost.split(',').map(s => {
-      const n = parseInt(s.trim(), 10);
-      if (isNaN(n) || n < 1) {
-        console.error(`Error: invalid cost value '${s}' in cost array`);
-        process.exit(1);
-      }
-      return n;
-    });
+  // Parse cost array (required)
+  if (!values.cost) {
+    console.error('Error: --cost <array> is required (e.g. --cost 3,3,2,2,2,1)');
+    process.exit(1);
   }
+  const costArray = values.cost.split(',').map(s => {
+    const n = parseInt(s.trim(), 10);
+    if (isNaN(n) || n < 1) {
+      console.error(`Error: invalid cost value '${s}' in cost array`);
+      process.exit(1);
+    }
+    return n;
+  });
 
   // Load terrain
   if (!values.terrain) {
@@ -231,16 +225,12 @@ try {
     console.log(`  Completed:   ${result.completed}`);
     console.log(`  Total steps: ${result.totalSteps}`);
     console.log(`  Color count: ${colorCount}`);
-    if (costArray) {
-      console.log(`  Target cost: [${costArray.join(', ')}]`);
-    }
+    console.log(`  Target cost: [${costArray.join(', ')}]`);
     console.log(`  Actual cost: [${result.costLog.join(', ')}]`);
     console.log(`  Branches:    [${result.branchLog.join(', ')}]`);
     console.log(`  Stats:       min=${result.stats.min} max=${result.stats.max} avg=${result.stats.avg.toFixed(1)}`);
     console.log(`  Blacklist:   ${result.banSetSize}`);
-    if (costArray && result.matchRate !== undefined) {
-      console.log(`  Match rate:  ${result.matchRate.toFixed(0)}% (${result.deviationCount} deviations)`);
-    }
+    console.log(`  Match rate:  ${result.matchRate.toFixed(0)}% (${result.deviationCount} deviations)`);
     console.log(`  Level hash:  ${result.levelHash}`);
 
     // ── 步骤详情表 ──

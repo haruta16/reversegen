@@ -24,8 +24,8 @@ import { logger } from './logger.js';
 export interface GenerateBoardInput {
   /** 地形数据（从 JSON 加载或自动生成） */
   terrain: TerrainData;
-  /** Cost 目标数组，null 表示自然 minCost 模式 */
-  costArray?: number[] | null;
+  /** Cost 目标数组 */
+  costArray: number[];
   /** 可用花色数量 */
   colorCount: number;
   /** 可选的 level hash 覆盖（默认使用地形中的 hash） */
