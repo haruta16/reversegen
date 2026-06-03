@@ -76,12 +76,13 @@
   <div class="sep"></div>
   <button class="btn-s active" id="tabDag" onclick="App.switchTab('dag')">偏序 DAG</button>
   <button class="btn-s" id="tabForce" onclick="App.switchTab('force')">力导向图</button>
-  <span style="font-size:10px;color:var(--m);margin-left:auto">层定义:</span>
-  <select id="layerMode" onchange="App.onLayerModeChange()" style="font-family:inherit;font-size:11px;background:var(--bg);color:var(--t);border:1px solid var(--b);border-radius:4px;padding:4px 6px">
-    <option value="depSetQuantile">depSet分位数</option>
-    <option value="dependencyDepth">依赖深度</option>
-  </select>
-  <span style="font-size:10px;color:var(--m);margin-left:8px" id="topInfo">选择地形 → 加载 → 分析</span>
+  <span style="font-size:10px;color:var(--m);margin:0 2px 0 6px">层:</span>
+  <button class="btn-s active" id="btnLayerQuantile" onclick="App.setLayerMode('depSetQuantile')">分位数</button>
+  <button class="btn-s" id="btnLayerDepth" onclick="App.setLayerMode('dependencyDepth')">依赖深度</button>
+  <input type="text" id="searchTriple" placeholder="搜索 triple 如 2,3,7" style="width:150px;font-size:10px;margin-left:12px"
+    onkeydown="if(event.key==='Enter')App.searchTriple()">
+  <button class="btn-s" onclick="App.searchTriple()" style="font-size:10px">🔍</button>
+  <span style="font-size:10px;color:var(--m);margin-left:auto" id="topInfo">选择地形 → 加载 → 分析</span>
   <div id="quickTags"></div>
 </div>
 
@@ -123,20 +124,20 @@
     <div class="psection">
       <h3>📊 统计</h3>
       <div class="stat-grid" id="statsGrid">
-        <div class="stat-item"><div class="v" id="statTriples">-</div><div class="l">triple总数</div></div>
-        <div class="stat-item"><div class="v" id="statRelated">-</div><div class="l">有关联的</div></div>
-        <div class="stat-item"><div class="v g" id="statEdges">-</div><div class="l">前提边</div></div>
-        <div class="stat-item"><div class="v g" id="statPoEdges">-</div><div class="l">偏序边</div></div>
-        <div class="stat-item"><div class="v o" id="statAvgCost">-</div><div class="l">平均cost</div></div>
-        <div class="stat-item"><div class="v" id="statLayers">-</div><div class="l">拓扑层数</div></div>
+        <div class="stat-item"><div class="v" id="statTriples">-</div><div class="l">triple 总数</div></div>
+        <div class="stat-item"><div class="v" id="statEdges">-</div><div class="l">偏序边总数</div></div>
+        <div class="stat-item"><div class="v g" id="statMaxSucc">-</div><div class="l">最大后继数</div></div>
+        <div class="stat-item"><div class="v g" id="statMaxPred">-</div><div class="l">最大前驱数</div></div>
+        <div class="stat-item"><div class="v o" id="statAvgCost">-</div><div class="l">平均 cost</div></div>
+        <div class="stat-item"><div class="v" id="statLayers">-</div><div class="l" id="statLayersLabel">层数(分位数)</div></div>
       </div>
     </div>
 
     <!-- 过滤 -->
     <div class="psection">
       <h3>🎚️ 过滤</h3>
-      <div class="frow"><label>每层节点</label><input type="range" id="fPerLayer" min="5" max="100" value="35" step="5" oninput="document.getElementById('fvPerLayer').textContent=this.value"><span class="fv" id="fvPerLayer">35</span></div>
-      <div class="frow"><label>边密度</label><input type="range" id="fMaxE" min="3" max="30" value="10" step="1" oninput="document.getElementById('fvMaxE').textContent=this.value"><span class="fv" id="fvMaxE">10</span></div>
+      <div class="frow"><label>每层节点数</label><input type="range" id="fPerLayer" min="5" max="100" value="35" step="5" oninput="document.getElementById('fvPerLayer').textContent=this.value" title="每个依赖层选取多少个代表 triple"><span class="fv" id="fvPerLayer">35</span></div>
+      <div class="frow"><label>每节点边数</label><input type="range" id="fMaxE" min="3" max="30" value="10" step="1" oninput="document.getElementById('fvMaxE').textContent=this.value" title="每个 triple 最多保留多少条入边/出边"><span class="fv" id="fvMaxE">10</span></div>
       <button class="btn-s" onclick="App.applyFilters()" style="width:100%;margin-top:4px">刷新</button>
     </div>
 
@@ -251,20 +252,53 @@ const App = {
 
   async applyFilters() { if (App.state.analysisResult) await App.startAnalysis(); },
 
-  onLayerModeChange() {
-    App.state.layerMode = document.getElementById('layerMode').value;
-    if (App.state.analysisResult && App.state.activeTab === 'dag') DagGraph.render();
-    else if (App.state.analysisResult && App.state.activeTab === 'force') ForceGraph.render();
+  setLayerMode(mode) {
+    App.state.layerMode = mode;
+    document.getElementById('btnLayerQuantile').classList.toggle('active', mode === 'depSetQuantile');
+    document.getElementById('btnLayerDepth').classList.toggle('active', mode === 'dependencyDepth');
+    document.getElementById('statLayersLabel').textContent = mode === 'dependencyDepth' ? '层数(依赖深度)' : '层数(分位数)';
+    if (App.state.analysisResult) {
+      App.updateStats(App.state.analysisResult);
+      if (App.state.activeTab === 'dag') DagGraph.render();
+      else if (App.state.activeTab === 'force') ForceGraph.render();
+    }
+  },
+
+  searchTriple() {
+    const q = document.getElementById('searchTriple').value.trim();
+    if (!q || !App.state.analysisResult) return;
+    // 在当前图中查找
+    const graph = App.state.analysisResult.graph;
+    const found = graph?.triples?.find(t => t.key === q);
+    if (found) {
+      App.selectTriple(q);
+      if (App.state.activeTab === 'dag') DagGraph.highlightNode(q);
+      else if (App.state.activeTab === 'force') ForceGraph.highlightNode(q);
+    } else {
+      // 不在当前图中，查 allTriples
+      const at = App.state.analysisResult.allTriples;
+      const t = at?.find(x => x.k === q);
+      if (t) {
+        alert(`triple ${q} 存在（cost=${t.d}, 后继=${t.s}, 前驱=${t.p}），但不在当前显示的图中。\n\n请调整过滤器（增大每层节点数或降低最小后继数）后刷新。`);
+      } else {
+        alert(`triple ${q} 不存在`);
+      }
+    }
   },
 
   updateStats(data) {
     const s = data.statistics;
+    const at = data.allTriples;
     document.getElementById('statTriples').textContent = s.totalTriples.toLocaleString();
-    document.getElementById('statRelated').textContent = (s.triplesWithSuccessors + s.triplesWithPredecessors - (s.totalTriples - s.isolatedTriples)).toLocaleString();
     document.getElementById('statEdges').textContent = s.totalPrerequisiteEdges.toLocaleString();
-    document.getElementById('statPoEdges').textContent = s.totalPartialOrderEdges.toLocaleString();
+    document.getElementById('statMaxSucc').textContent = s.successorDistribution.max.toLocaleString();
+    document.getElementById('statMaxPred').textContent = (at && at.length ? Math.max(...at.map(t => t.p)) : '-').toLocaleString();
     document.getElementById('statAvgCost').textContent = s.costDistribution.avg;
-    document.getElementById('statLayers').textContent = Math.max(...Object.keys(s.layerDistribution).map(Number), 0);
+    const layers = App.state.layerMode === 'dependencyDepth'
+      ? (at && at.length ? Math.max(...at.map(t => t.dp)) + 1 : '-')
+      : Math.max(...Object.keys(s.layerDistribution).map(Number), 0);
+    document.getElementById('statLayers').textContent = layers;
+    document.getElementById('statLayersLabel').textContent = App.state.layerMode === 'dependencyDepth' ? '深度层数' : '层数(分位数)';
   },
 
   async selectTriple(key) {
@@ -749,6 +783,32 @@ const ForceGraph = {
       });
 
     this.svg.on('click', (e) => { if (e.target === this.svg.node()) App.clearInspector(); });
+  },
+
+  highlightNode(key) {
+    if (!this.nodeMap || !(key in this.nodeMap)) return;
+    const idx = this.nodeMap[key];
+    this.g.selectAll('.nodes g circle')
+      .transition().duration(200)
+      .attr('opacity', d => d.id === key ? 1 : 0.06)
+      .attr('stroke', d => d.id === key ? '#fff' : 'rgba(255,255,255,0.03)')
+      .attr('stroke-width', d => d.id === key ? 2.5 : 0.5);
+    this.g.selectAll('.links line')
+      .transition().duration(200)
+      .attr('opacity', d => {
+        const sk = this.nodes[d.source?.index ?? d.source]?.id;
+        const tk = this.nodes[d.target?.index ?? d.target]?.id;
+        return (sk === key || tk === key) ? 0.7 : 0.02;
+      });
+    const n = this.nodes[idx];
+    if (n && n.x != null) {
+      const W = document.getElementById('viz').clientWidth || 1000;
+      const H = document.getElementById('viz').clientHeight || 700;
+      this.svg.transition().duration(500).call(
+        this.zoom.transform,
+        d3.zoomIdentity.translate(W/2 - n.x, H/2 - n.y).scale(1.5)
+      );
+    }
   },
 
   showTooltip(event, d) {
