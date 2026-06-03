@@ -76,8 +76,12 @@
   <div class="sep"></div>
   <button class="btn-s active" id="tabDag" onclick="App.switchTab('dag')">偏序 DAG</button>
   <button class="btn-s" id="tabForce" onclick="App.switchTab('force')">力导向图</button>
-  <button class="btn-s" id="tabHeatmap" onclick="App.switchTab('heatmap')">瓶颈热力</button>
-  <span style="font-size:10px;color:var(--m);margin-left:auto" id="topInfo">选择地形 → 加载 → 分析</span>
+  <span style="font-size:10px;color:var(--m);margin-left:auto">层定义:</span>
+  <select id="layerMode" onchange="App.onLayerModeChange()" style="font-family:inherit;font-size:11px;background:var(--bg);color:var(--t);border:1px solid var(--b);border-radius:4px;padding:4px 6px">
+    <option value="depSetQuantile">depSet分位数</option>
+    <option value="dependencyDepth">依赖深度</option>
+  </select>
+  <span style="font-size:10px;color:var(--m);margin-left:8px" id="topInfo">选择地形 → 加载 → 分析</span>
   <div id="quickTags"></div>
 </div>
 
@@ -94,7 +98,6 @@
   <div id="viz">
     <svg id="dagSvg"></svg>
     <svg id="forceSvg" style="display:none"></svg>
-    <canvas id="heatmapCanvas" style="display:none"></canvas>
   </div>
   <div id="panel">
     <!-- 概念说明 -->
@@ -164,9 +167,9 @@
 //  App — 主控制器
 // ════════════════════════════════════════════════════════════
 const App = {
-  state: { terrainPath: null, terrainInfo: null, analysisResult: null, selectedTriple: null, activeTab: 'dag', levelsDir: null, progressTimer: null },
+  state: { terrainPath: null, terrainInfo: null, analysisResult: null, selectedTriple: null, activeTab: 'dag', levelsDir: null, progressTimer: null, layerMode: 'depSetQuantile' },
 
-  async init() { DagGraph.init(); ForceGraph.init(); HeatmapView.init(); await this.scanLevels(); },
+  async init() { DagGraph.init(); ForceGraph.init(); await this.scanLevels(); },
 
   // ── Phase 1: 加载地形 ──
   async loadTerrainInfo() {
@@ -209,7 +212,8 @@ const App = {
       const lid = document.getElementById('levelId').value.trim(), tp = document.getElementById('terrainPath').value.trim();
       const resp = await fetch('/api/analyze-triples', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ levelId: lid || undefined, terrainPath: App.state.terrainPath || tp || undefined, levelsDir: App.state.levelsDir || undefined, forceRefresh,
-          stratify: true, perLayer: parseInt(document.getElementById('fPerLayer').value), maxEdgesPerNode: parseInt(document.getElementById('fMaxE').value), minSuccessors: 1 }) });
+          stratify: true, perLayer: parseInt(document.getElementById('fPerLayer').value), maxEdgesPerNode: parseInt(document.getElementById('fMaxE').value), minSuccessors: 1,
+          layerMode: App.state.layerMode }) });
       const data = await resp.json();
       clearInterval(App.state.progressTimer); overlay.classList.remove('show');
       if (!data.ok) throw new Error(data.error);
@@ -236,18 +240,22 @@ const App = {
 
   switchTab(tab) {
     App.state.activeTab = tab;
-    ['tabDag','tabForce','tabHeatmap'].forEach(id => document.getElementById(id).classList.remove('active'));
+    ['tabDag','tabForce'].forEach(id => document.getElementById(id).classList.remove('active'));
     document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
     document.getElementById('dagSvg').style.display = tab === 'dag' ? 'block' : 'none';
     document.getElementById('forceSvg').style.display = tab === 'force' ? 'block' : 'none';
-    document.getElementById('heatmapCanvas').style.display = tab === 'heatmap' ? 'block' : 'none';
     if (!App.state.analysisResult) return;
     if (tab === 'dag') DagGraph.render();
     else if (tab === 'force') ForceGraph.render();
-    else if (tab === 'heatmap') HeatmapView.render();
   },
 
   async applyFilters() { if (App.state.analysisResult) await App.startAnalysis(); },
+
+  onLayerModeChange() {
+    App.state.layerMode = document.getElementById('layerMode').value;
+    if (App.state.analysisResult && App.state.activeTab === 'dag') DagGraph.render();
+    else if (App.state.analysisResult && App.state.activeTab === 'force') ForceGraph.render();
+  },
 
   updateStats(data) {
     const s = data.statistics;
@@ -309,6 +317,11 @@ const DagGraph = {
   svg: null, g: null, zoom: null,
   nodes: [], links: [], nodeMap: {},
   upstream: new Map(), downstream: new Map(),
+
+  /** 根据当前 layerMode 取正确的层号 */
+  getLayer(triple) {
+    return App.state.layerMode === 'dependencyDepth' ? triple.dependencyDepth : triple.topologicalLayer;
+  },
 
   init() {
     this.svg = d3.select('#dagSvg');
@@ -391,10 +404,10 @@ const DagGraph = {
     const H = Math.max(800, document.getElementById('viz').clientHeight || 800);
 
     // Group by layer
-    const maxLayer = Math.max(...nodes.map(n => n.triple.topologicalLayer), 1);
+    const maxLayer = Math.max(...nodes.map(n => this.getLayer(n.triple)), 1);
     const layerNodes = new Map();
     for (const n of nodes) {
-      const l = n.triple.topologicalLayer;
+      const l = this.getLayer(n.triple);
       if (!layerNodes.has(l)) layerNodes.set(l, []);
       layerNodes.get(l).push(n);
     }
@@ -473,7 +486,7 @@ const DagGraph = {
 
     const maxSucc = Math.max(...nodes.map(n => n.triple.successorCount), 1);
     const rScale = d3.scaleSqrt().domain([0, maxSucc]).range([3, 22]);
-    const maxLayer = Math.max(...nodes.map(n => n.triple.topologicalLayer), 1);
+    const maxLayer = Math.max(...nodes.map(n => this.getLayer(n.triple)), 1);
 
     // Layer labels
     if (this._layers && this._layers.length > 1) {
@@ -516,7 +529,7 @@ const DagGraph = {
     const colorScale = d3.scaleSequential(d3.interpolateCool).domain([maxLayer, 0]);
     node.append('circle')
       .attr('r', d => rScale(d.triple.successorCount))
-      .attr('fill', d => colorScale(d.triple.topologicalLayer))
+      .attr('fill', d => colorScale(this.getLayer(d.triple)))
       .attr('stroke', 'rgba(255,255,255,0.15)').attr('stroke-width', 1);
 
     // Label for big nodes
@@ -597,7 +610,7 @@ const DagGraph = {
     tt.style.display = 'block';
     tt.innerHTML = `<div class="tt-key">${d.id}</div>
       <div class="tt-row"><span>depSet大小</span><span class="o">${d.triple.depSetSize}</span></div>
-      <div class="tt-row"><span>拓扑层</span><span>${d.triple.topologicalLayer}</span></div>
+      <div class="tt-row"><span>拓扑层</span><span>${this.getLayer(d.triple)}</span></div>
       <div class="tt-row"><span class="tt-impact">影响(后继)</span><span class="g">${d.triple.successorCount.toLocaleString()}</span></div>
       <div class="tt-row"><span class="tt-dep">被帮助(前驱)</span><span>${d.triple.predecessorCount.toLocaleString()}</span></div>
       <div class="tt-row"><span>瓶颈分</span><span>${d.triple.bottleneckScore.toFixed(3)}</span></div>
@@ -615,6 +628,10 @@ const DagGraph = {
 const ForceGraph = {
   svg: null, g: null, simulation: null, zoom: null,
   nodes: [], links: [], nodeMap: {},
+
+  getLayer(triple) {
+    return App.state.layerMode === 'dependencyDepth' ? triple.dependencyDepth : triple.topologicalLayer;
+  },
 
   init() {
     this.svg = d3.select('#forceSvg');
@@ -654,7 +671,7 @@ const ForceGraph = {
       return;
     }
 
-    const maxLayer = Math.max(...gTriples.map(t => t.topologicalLayer), 1);
+    const maxLayer = Math.max(...gTriples.map(t => ForceGraph.getLayer(t)), 1);
     const maxSucc = Math.max(...gTriples.map(t => t.successorCount), 1);
 
     // 构建节点，带初始位置（按层散布，避免全堆在原点）
@@ -666,7 +683,7 @@ const ForceGraph = {
         index: i,
         triple: t,
         // 初始位置: 按拓扑层 + 随机偏移散布
-        x: W * 0.1 + (t.topologicalLayer / Math.max(maxLayer, 1)) * W * 0.7 + (Math.random() - 0.5) * 100,
+        x: W * 0.1 + (ForceGraph.getLayer(t) / Math.max(maxLayer, 1)) * W * 0.7 + (Math.random() - 0.5) * 100,
         y: H * 0.2 + Math.random() * H * 0.6,
       });
     }
@@ -704,7 +721,7 @@ const ForceGraph = {
 
     node.append('circle')
       .attr('r', d => rScale(d.triple.successorCount))
-      .attr('fill', d => colorScale(d.triple.topologicalLayer))
+      .attr('fill', d => colorScale(this.getLayer(d.triple)))
       .attr('stroke', 'rgba(255,255,255,0.2)').attr('stroke-width', 0.8);
 
     node.append('title')
@@ -718,9 +735,9 @@ const ForceGraph = {
       .force('link', d3.forceLink(links).id(d => d.id).distance(d => 45 + 100 / ((d.overlap || 1) + 1)).strength(0.3))
       .force('charge', d3.forceManyBody().strength(d => -60 - rScale(d.triple.successorCount) * 6))
       .force('center', d3.forceCenter(W / 2, H / 2))
-      .force('layerX', function(alpha) {
+      .force('layerX', alpha => {
         for (const n of nodes) {
-          n.vx += (layerX(n.triple.topologicalLayer) - n.x) * alpha * 0.04;
+          n.vx += (layerX(ForceGraph.getLayer(n.triple)) - n.x) * alpha * 0.04;
         }
       })
       .force('collision', d3.forceCollide(d => rScale(d.triple.successorCount) + 2))
@@ -737,82 +754,9 @@ const ForceGraph = {
   showTooltip(event, d) {
     const tt = document.getElementById('tooltip');
     tt.style.display = 'block';
-    tt.innerHTML = `<div class="tt-key">${d.id}</div><div class="tt-row"><span>depSet</span><span class="o">${d.triple.depSetSize}</span></div><div class="tt-row"><span>层</span><span>${d.triple.topologicalLayer}</span></div><div class="tt-row"><span class="tt-impact">后继</span><span class="g">${d.triple.successorCount.toLocaleString()}</span></div><div class="tt-row"><span class="tt-dep">前驱</span><span>${d.triple.predecessorCount.toLocaleString()}</span></div>`;
+    tt.innerHTML = `<div class="tt-key">${d.id}</div><div class="tt-row"><span>depSet</span><span class="o">${d.triple.depSetSize}</span></div><div class="tt-row"><span>层</span><span>${this.getLayer(d.triple)}</span></div><div class="tt-row"><span class="tt-impact">后继</span><span class="g">${d.triple.successorCount.toLocaleString()}</span></div><div class="tt-row"><span class="tt-dep">前驱</span><span>${d.triple.predecessorCount.toLocaleString()}</span></div>`;
     tt.style.left = Math.min(event.pageX + 14, window.innerWidth - 360) + 'px';
     tt.style.top = (event.pageY - 10) + 'px';
-  },
-};
-
-// ════════════════════════════════════════════════════════════
-//  HeatmapView — Canvas 瓶颈热力图
-// ════════════════════════════════════════════════════════════
-const HeatmapView = {
-  canvas: null, ctx: null,
-  init() { this.canvas = document.getElementById('heatmapCanvas'); this.ctx = this.canvas.getContext('2d'); },
-  render() {
-    const data = App.state.analysisResult;
-    if (!data?.bottleneckTiles) return;
-    const bt = data.bottleneckTiles;
-    const byLayer = {};
-    for (const t of bt) { if (!byLayer[t.layer]) byLayer[t.layer] = []; byLayer[t.layer].push(t); }
-    const W = document.getElementById('viz').clientWidth || 800, H = document.getElementById('viz').clientHeight || 600;
-    this.canvas.width = W * devicePixelRatio; this.canvas.height = H * devicePixelRatio;
-    this.canvas.style.width = W + 'px'; this.canvas.style.height = H + 'px';
-    const ctx = this.ctx;
-    ctx.setTransform(1,0,0,1,0,0); ctx.scale(devicePixelRatio, devicePixelRatio);
-    ctx.clearRect(0, 0, W, H);
-    if (bt.length === 0) { ctx.fillStyle='#8b949e'; ctx.font='14px sans-serif'; ctx.textAlign='center'; ctx.fillText('无数据',W/2,H/2); return; }
-    const layerKeys = Object.keys(byLayer).map(Number).sort((a,b)=>b-a);
-    const layerH = Math.min(80, (H - 40) / layerKeys.length);
-    const margin = { top: 20, left: 40, right: 30, bottom: 10 };
-    const cellW = 10, cellH = layerH * 0.55, gap = 2;
-    const maxCount = Math.max(...bt.map(t => t.tripleCount), 1);
-    const colorScale = d3.scaleSequential(d3.interpolateYlOrRd).domain([0, maxCount]);
-    for (let li = 0; li < layerKeys.length; li++) {
-      const layer = layerKeys[li], tiles = byLayer[layer] || [];
-      const y = margin.top + li * layerH;
-      ctx.fillStyle = '#8b949e'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
-      ctx.fillText(`L${layer}`, margin.left - 6, y + layerH/2 + 3);
-      const maxPerRow = Math.floor((W - margin.left - margin.right) / (cellW + gap));
-      for (let i = 0; i < tiles.length; i++) {
-        const t = tiles[i];
-        const cx = margin.left + (i % maxPerRow) * (cellW + gap);
-        const cy = y + Math.floor(i / maxPerRow) * (cellH + gap) + 4;
-        ctx.fillStyle = colorScale(t.tripleCount); ctx.fillRect(cx, cy, cellW, cellH);
-        ctx.strokeStyle = t.score > 0.85 ? '#f85149' : 'rgba(255,255,255,0.06)';
-        ctx.lineWidth = t.score > 0.85 ? 1.5 : 0.3;
-        ctx.strokeRect(cx, cy, cellW, cellH);
-      }
-    }
-    const barX = W - 20, barY = margin.top, barW = 8, barH = Math.min(180, H - 40);
-    const grad = ctx.createLinearGradient(0, barY + barH, 0, barY);
-    for (let i = 0; i <= 100; i++) grad.addColorStop(i/100, colorScale(maxCount * i / 100));
-    ctx.fillStyle = grad; ctx.fillRect(barX, barY, barW, barH);
-    ctx.strokeStyle = '#30363d'; ctx.lineWidth = 1; ctx.strokeRect(barX, barY, barW, barH);
-    ctx.fillStyle = '#8b949e'; ctx.font = '8px monospace'; ctx.textAlign = 'left';
-    ctx.fillText(maxCount.toLocaleString(), barX + barW + 3, barY + 8);
-    ctx.fillText('0', barX + barW + 3, barY + barH);
-    this.canvas.onclick = (event) => {
-      const rect = this.canvas.getBoundingClientRect();
-      const mx = event.clientX - rect.left, my = event.clientY - rect.top;
-      for (let li = 0; li < layerKeys.length; li++) {
-        const tiles = byLayer[layerKeys[li]] || [];
-        const y = margin.top + li * layerH;
-        const maxPerRow = Math.floor((W - margin.left - margin.right) / (cellW + gap));
-        for (let i = 0; i < tiles.length; i++) {
-          const cx = margin.left + (i % maxPerRow) * (cellW + gap);
-          const cy = y + Math.floor(i / maxPerRow) * (cellH + gap) + 4;
-          if (mx >= cx && mx <= cx + cellW && my >= cy && my <= cy + cellH) {
-            const tt = document.getElementById('tooltip');
-            tt.style.display = 'block';
-            tt.innerHTML = `<div class="tt-key">Tile #${tiles[i].tileId}</div><div class="tt-row"><span>层</span><span>${tiles[i].layer}</span></div><div class="tt-row"><span>依赖triple数</span><span class="r">${tiles[i].tripleCount.toLocaleString()}</span></div><div class="tt-row"><span>瓶颈分</span><span>${tiles[i].score.toFixed(3)}</span></div>`;
-            tt.style.left = (event.pageX + 14) + 'px'; tt.style.top = (event.pageY - 10) + 'px';
-            setTimeout(() => { tt.style.display = 'none'; }, 2000);
-            return;
-          }
-        }
-      }
-    };
   },
 };
 
@@ -821,7 +765,6 @@ window.addEventListener('DOMContentLoaded', () => App.init());
 window.addEventListener('resize', () => {
   if (App.state.activeTab === 'dag') DagGraph.render();
   else if (App.state.activeTab === 'force') ForceGraph.render();
-  else if (App.state.activeTab === 'heatmap') HeatmapView.render();
 });
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape') App.clearInspector(); });
 </script>

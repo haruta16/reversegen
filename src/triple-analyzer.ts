@@ -27,7 +27,8 @@ export interface TripleNode {
   key: string;
   tileIds: [number, number, number];
   depSetSize: number;
-  topologicalLayer: number;    // depSetSize 分位数桶 (0=最小cost基础triple, 越大越深)
+  topologicalLayer: number;    // depSetSize 分位数桶 (0=最小cost, 越大越深)
+  dependencyDepth: number;     // 最大前驱链深度 (0=无前驱, N=最长前驱链长N)
   /** triple 的 depSet 中的 tile ID 列表（已排序）*/
   depSetTiles: number[];
   successorCount: number;
@@ -185,7 +186,8 @@ function forEachCandidatePredecessor(
 /**
  * 计算两个已排序数组的交集大小 (O(n+m))。
  */
-function intersectSize(a: number[], b: number[]): number {
+/** 计算两个已排序数组的交集大小 */
+export function intersectSize(a: number[], b: number[]): number {
   let count = 0;
   let i = 0, j = 0;
   while (i < a.length && j < b.length) {
@@ -424,6 +426,50 @@ export function analyzeTriples(
     return NUM_LAYERS - 1;
   }
 
+  // ── Step 7.5: 计算依赖深度 (最大前驱链长度) ──
+  // 定义: L0=无前驱, Ln=前驱中最深的+1
+  // 按 depSetSize 升序处理，保证前驱一定先处理完
+  report('计算依赖深度', 0, n);
+  const dependencyDepth = new Uint16Array(n);
+  const sortedByDep = Array.from({ length: n }, (_, i) => i)
+    .sort((a, b) => triples[a].depSet.size - triples[b].depSet.size);
+
+  for (let si = 0; si < n; si++) {
+    const i = sortedByDep[si];
+    if (predecessorCounts[i] === 0) {
+      dependencyDepth[i] = 0;
+      if (si % 10000 === 0) report('计算依赖深度', si, n);
+      continue;
+    }
+
+    const depArr = depSetArrays[i];
+    const d = depArr.length;
+    const [at1, at2, at3] = triples[i].tileIds;
+    let maxPredDepth = 0;
+
+    for (let a = 0; a < d - 2; a++) {
+      const t1 = depArr[a];
+      if (t1 === at1 || t1 === at2 || t1 === at3) continue;
+      for (let b = a + 1; b < d - 1; b++) {
+        const t2 = depArr[b];
+        if (t2 === at1 || t2 === at2 || t2 === at3) continue;
+        for (let c = b + 1; c < d; c++) {
+          const t3 = depArr[c];
+          if (t3 === at1 || t3 === at2 || t3 === at3) continue;
+          const predKey = tripleKey(sortTriple(t1, t2, t3));
+          const predIdx = keyToIndex.get(predKey);
+          if (predIdx !== undefined && dependencyDepth[predIdx] > maxPredDepth) {
+            maxPredDepth = dependencyDepth[predIdx];
+          }
+        }
+      }
+    }
+
+    dependencyDepth[i] = maxPredDepth + 1;
+    if (si % 10000 === 0) report('计算依赖深度', si, n);
+  }
+  report('计算依赖深度', n, n);
+
   // ── Step 8: 组装节点 ──
   report('生成结果', 0, n);
   const tripleNodes: TripleNode[] = [];
@@ -452,15 +498,13 @@ export function analyzeTriples(
       tileLayerMap.get(t.tileIds[2]) ?? 0,
     );
 
-    // 拓扑层 = depSetSize 分位数桶 (越小越靠上=先消)
-    const topoLayer = getTopoLayer(t.depSet.size);
-
     tripleNodes.push({
       key: tripleKey(t.tileIds),
       tileIds: t.tileIds,
       depSetSize: t.depSet.size,
       depSetTiles: depSetArrays[i],
-      topologicalLayer: topoLayer,
+      topologicalLayer: getTopoLayer(t.depSet.size),
+      dependencyDepth: dependencyDepth[i],
       successorCount: successorCounts[i],
       predecessorCount: predecessorCounts[i],
       partialOrderSuccessorCount: poSc,
@@ -538,6 +582,8 @@ export interface GraphFilterOptions {
   maxEdgesPerNode?: number;
   layerMin?: number;
   layerMax?: number;
+  /** 'depSetQuantile' (默认) | 'dependencyDepth' */
+  layerMode?: string;
 }
 
 export interface FilteredGraphData {
@@ -559,17 +605,19 @@ export function filterGraphData(
   const maxE = opts.maxEdgesPerNode ?? 12;
   const lMin = opts.layerMin ?? -1;
   const lMax = opts.layerMax ?? Infinity;
+  const useDepth = opts.layerMode === 'dependencyDepth';
+  const getLayer = (t: TripleNode) => useDepth ? t.dependencyDepth : t.topologicalLayer;
 
   let candidateSet: Set<number>;
 
   if (opts.stratify) {
     // 分层采样: 每个拓扑层取 perLayer 个最连接的节点
     candidateSet = new Set<number>();
-    const maxLayer = Math.max(...triples.map(t => t.topologicalLayer), 0);
+    const maxLayer = Math.max(...triples.map(getLayer), 0);
     for (let layer = 0; layer <= maxLayer; layer++) {
       if (layer < lMin || layer > lMax) continue;
       const layerTriples = Array.from({ length: n }, (_, i) => i)
-        .filter(i => triples[i].topologicalLayer === layer
+        .filter(i => getLayer(triples[i]) === layer
           && triples[i].successorCount >= minS
           && triples[i].predecessorCount >= minP)
         .sort((a, b) => {
@@ -594,7 +642,7 @@ export function filterGraphData(
       const t = triples[idx];
       if (t.successorCount < minS) continue;
       if (t.predecessorCount < minP) continue;
-      if (t.topologicalLayer < lMin || t.topologicalLayer > lMax) continue;
+      if (getLayer(t) < lMin || getLayer(t) > lMax) continue;
       candidateSet.add(idx);
       if (candidateSet.size >= topN) break;
     }
@@ -630,37 +678,65 @@ export function getTripleDetail(
   node: TripleNode;
   predecessors: { key: string; overlap: number }[];
   successors: { key: string; overlap: number }[];
-  partialOrderPredecessors: { key: string }[];
-  partialOrderSuccessors: { key: string }[];
   topOverlaps: { key: string; overlap: number }[];
 } | null {
-  const { triples, prerequisiteEdges, partialOrderEdges } = result;
+  const { triples, prerequisiteEdges } = result;
   const idx = triples.findIndex(t => t.key === tripleKeyStr);
   if (idx === -1) return null;
 
   const node = triples[idx];
-  const preds: { key: string; overlap: number }[] = [];
-  const succs: { key: string; overlap: number }[] = [];
-  for (const e of prerequisiteEdges) {
-    if (e.to === idx) preds.push({ key: triples[e.from].key, overlap: e.overlap });
-    if (e.from === idx) succs.push({ key: triples[e.to].key, overlap: e.overlap });
-  }
-  const poPreds: { key: string }[] = [];
-  const poSuccs: { key: string }[] = [];
-  for (const e of partialOrderEdges) {
-    if (e.to === idx) poPreds.push({ key: triples[e.from].key });
-    if (e.from === idx) poSuccs.push({ key: triples[e.to].key });
-  }
-  const all = [...preds, ...succs].sort((a, b) => b.overlap - a.overlap);
 
-  return {
-    node,
-    predecessors: preds.sort((a, b) => b.overlap - a.overlap),
-    successors: succs.sort((a, b) => b.overlap - a.overlap),
-    partialOrderPredecessors: poPreds,
-    partialOrderSuccessors: poSuccs,
-    topOverlaps: all.slice(0, 10),
-  };
+  // 构建 key→index 查找表
+  const keyToIdx = new Map<string, number>();
+  for (let i = 0; i < triples.length; i++) keyToIdx.set(triples[i].key, i);
+
+  // ── 前驱：从 depSetTiles 实时枚举 C(d,3)，完整覆盖 ──
+  const predMap = new Map<string, number>(); // key → overlap
+  const ds = node.depSetTiles; // 已排序
+  const d = ds.length;
+  const [at1, at2, at3] = node.tileIds;
+
+  for (let a = 0; a < d - 2; a++) {
+    const t1 = ds[a];
+    if (t1 === at1 || t1 === at2 || t1 === at3) continue;
+    for (let b = a + 1; b < d - 1; b++) {
+      const t2 = ds[b];
+      if (t2 === at1 || t2 === at2 || t2 === at3) continue;
+      for (let c = b + 1; c < d; c++) {
+        const t3 = ds[c];
+        if (t3 === at1 || t3 === at2 || t3 === at3) continue;
+        const predKey = tripleKey(sortTriple(t1, t2, t3));
+        const predIdx = keyToIdx.get(predKey);
+        if (predIdx === undefined) continue;
+        // 计算 overlap = |pred.depSet ∩ node.depSet|
+        const overlap = intersectSize(triples[predIdx].depSetTiles, ds);
+        predMap.set(predKey, overlap);
+      }
+    }
+  }
+
+  // ── 后继：从存储的边集中查找（存储边覆盖 top 6000，足够表示主要影响方向）──
+  const succMap = new Map<string, number>();
+  for (const e of prerequisiteEdges) {
+    if (e.from === idx) succMap.set(triples[e.to].key, e.overlap);
+  }
+  // 也补上存储边中的前驱（和实时计算结果合并）
+  for (const e of prerequisiteEdges) {
+    if (e.to === idx && !predMap.has(triples[e.from].key)) {
+      predMap.set(triples[e.from].key, e.overlap);
+    }
+  }
+
+  // ── 排序 ──
+  const preds = [...predMap.entries()]
+    .map(([key, overlap]) => ({ key, overlap }))
+    .sort((a, b) => b.overlap - a.overlap);
+  const succs = [...succMap.entries()]
+    .map(([key, overlap]) => ({ key, overlap }))
+    .sort((a, b) => b.overlap - a.overlap);
+  const topOverlaps = [...preds, ...succs].sort((a, b) => b.overlap - a.overlap).slice(0, 10);
+
+  return { node, predecessors: preds, successors: succs, topOverlaps };
 }
 
 export function clearCache(): number {
