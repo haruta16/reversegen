@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Triple 关系分析器 · ReverseGen</title>
+<style>
+  :root{--bg:#0d1117;--s:#161b22;--b:#30363d;--t:#c9d1d9;--m:#8b949e;--a:#58a6ff;--g:#3fb950;--r:#f85149;--o:#d2991d;--p:#a371f7}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--t);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+  #topbar{display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--s);border-bottom:1px solid var(--b);flex-shrink:0;z-index:10;flex-wrap:wrap}
+  #topbar h1{font-size:15px;margin-right:4px}
+  #topbar .sep{width:1px;height:20px;background:var(--b);margin:0 2px}
+  #topbar input,#topbar button{font-family:inherit;font-size:12px}
+  #topbar input{background:var(--bg);border:1px solid var(--b);border-radius:4px;color:var(--t);padding:5px 8px}
+  #topbar input:focus{border-color:var(--a);outline:none}
+  #levelId{width:80px}#terrainPath{width:170px;font-size:10px}
+  #topbar button{cursor:pointer;border:none;border-radius:4px;padding:5px 12px;font-weight:600;transition:all .15s;white-space:nowrap}
+  .btn-a{background:var(--a);color:#fff}.btn-a:hover{background:#4090e0}.btn-a:disabled{opacity:.4;cursor:not-allowed}
+  .btn-g{background:var(--g);color:#000}.btn-g:hover{background:#2ea043}.btn-g:disabled{opacity:.4;cursor:not-allowed}
+  .btn-s{background:var(--b);color:var(--t)}.btn-s:hover{background:#48505a}.btn-s.active{background:var(--a);color:#fff}
+  #terrainBadge{display:none;align-items:center;gap:8px;font-size:11px;color:var(--g);background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.25);border-radius:12px;padding:3px 10px;margin:0 4px}
+  #terrainBadge.error{color:var(--r);background:rgba(248,81,73,.1);border-color:rgba(248,81,73,.25)}
+  #quickTags{display:flex;flex-wrap:wrap;gap:3px;max-width:400px}
+  #quickTags .qt{font-size:10px;padding:2px 7px;border-radius:8px;background:var(--bg);border:1px solid var(--b);color:var(--m);cursor:pointer;font-family:monospace}
+  #quickTags .qt:hover{border-color:var(--a);color:var(--a)}
+  /* Progress overlay */
+  #progressOverlay{display:none;position:fixed;inset:0;background:rgba(13,17,23,.85);z-index:100;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+  #progressOverlay.show{display:flex}
+  #progressOverlay .spinner{width:48px;height:48px;border:4px solid var(--b);border-top-color:var(--a);border-radius:50%;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #progressOverlay .phase{font-size:14px;color:var(--t);font-weight:600}
+  #progressOverlay .elapsed{font-size:12px;color:var(--m);font-family:monospace}
+  #progressOverlay .hint{font-size:11px;color:var(--m);max-width:400px;text-align:center;line-height:1.5}
+  /* Main */
+  #main{display:flex;flex:1;overflow:hidden}
+  #viz{flex:1;position:relative;overflow:hidden;background:var(--bg)}
+  #viz svg,#viz canvas{position:absolute;top:0;left:0;width:100%;height:100%}
+  #panel{width:320px;background:var(--s);border-left:1px solid var(--b);display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0}
+  /* Panel sections */
+  .psection{padding:10px 14px;border-bottom:1px solid var(--b)}
+  .psection h3{font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+  .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+  .stat-item{background:var(--bg);border-radius:4px;padding:5px 8px}
+  .stat-item .v{font-size:14px;font-weight:700}.stat-item .l{font-size:9px;color:var(--m)}
+  .g{color:var(--g)}.r{color:var(--r)}.o{color:var(--o)}.p{color:var(--p)}
+  .frow{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+  .frow label{font-size:10px;color:var(--m);width:65px;flex-shrink:0}
+  .frow input[type=range]{flex:1;accent-color:var(--a)}
+  .frow .fv{font-size:10px;color:var(--m);width:28px;text-align:right;font-family:monospace}
+  /* Inspector */
+  .ilist{font-size:10px;font-family:monospace;max-height:150px;overflow-y:auto;background:var(--bg);border-radius:4px;padding:6px;margin:4px 0}
+  .ilist .row{display:flex;justify-content:space-between;padding:1px 4px;border-radius:2px;cursor:pointer}
+  .ilist .row:hover{background:var(--b)}
+  .ilist .row .ol{color:var(--o)}
+  #legend{display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:var(--m);align-items:center}
+  #legend .ldot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:3px;vertical-align:middle}
+  #tooltip{position:fixed;pointer-events:none;background:var(--s);border:1px solid var(--b);border-radius:6px;padding:8px 10px;font-size:11px;font-family:monospace;z-index:999;display:none;max-width:340px;box-shadow:0 4px 12px rgba(0,0,0,.4);line-height:1.5}
+  #tooltip .tt-key{color:var(--a);font-weight:700;margin-bottom:2px}
+  #tooltip .tt-row{display:flex;justify-content:space-between;gap:20px}
+  .tt-dep{color:var(--g)}.tt-impact{color:var(--o)}
+</style>
+</head>
+<body>
+
+<!-- ═══ Top Bar ═══ -->
+<div id="topbar">
+  <h1>🧬 Triple 依赖图</h1>
+  <span style="color:var(--m);font-size:11px">地形:</span>
+  <input type="number" id="levelId" placeholder="关卡ID">
+  <input type="text" id="terrainPath" placeholder="或文件路径...">
+  <button class="btn-a" onclick="App.loadTerrainInfo()" id="btnLoadTerrain">加载地形</button>
+  <button class="btn-s" onclick="App.scanLevels()">📋</button>
+  <span id="terrainBadge"></span>
+  <button class="btn-g" onclick="App.startAnalysis()" id="btnAnalyze" disabled>▶ 开始分析</button>
+  <div class="sep"></div>
+  <button class="btn-s active" id="tabDag" onclick="App.switchTab('dag')">偏序 DAG</button>
+  <button class="btn-s" id="tabForce" onclick="App.switchTab('force')">力导向图</button>
+  <button class="btn-s" id="tabHeatmap" onclick="App.switchTab('heatmap')">瓶颈热力</button>
+  <span style="font-size:10px;color:var(--m);margin-left:auto" id="topInfo">选择地形 → 加载 → 分析</span>
+  <div id="quickTags"></div>
+</div>
+
+<!-- ═══ Progress Overlay ═══ -->
+<div id="progressOverlay">
+  <div class="spinner"></div>
+  <div class="phase" id="progPhase">正在分析 triple 关系...</div>
+  <div class="elapsed" id="progElapsed">已等待 0 秒</div>
+  <div class="hint">首次分析约需 30-60 秒 · 结果缓存磁盘 · 后续秒开</div>
+</div>
+
+<!-- ═══ Main Layout ═══ -->
+<div id="main">
+  <div id="viz">
+    <svg id="dagSvg"></svg>
+    <svg id="forceSvg" style="display:none"></svg>
+    <canvas id="heatmapCanvas" style="display:none"></canvas>
+  </div>
+  <div id="panel">
+    <!-- 概念说明 -->
+    <div class="psection">
+      <h3>📐 偏序关系 (B ≺ A)</h3>
+      <div style="font-size:11px;color:var(--t);line-height:1.6">
+        <b>定义</b>：B.depSet ⊆ A.depSet<br>
+        <span style="color:var(--m)">B 的所有依赖牌都在 A 的依赖中<br>→ 消除 B 释放的牌全部能帮到 A<br>→ B <b>绝对</b>应该在 A 之前消除</span><br>
+        ────────────────<br>
+        <b>等价性</b>：<br>
+        <span style="color:var(--m)">B 的 3 张牌 ∈ A 的 depSet<br>⟺ B.depSet ⊆ A.depSet<br>（因为 depSet = 传递依赖闭包）<br>所以「前提关系」=「偏序关系」</span><br>
+        ────────────────<br>
+        <b>分层</b>：depSetSize 分位数<br>
+        <span style="color:var(--m)">L0=cost最小(基础triple,先消)<br>→ L7=cost最大(依赖最深,后消)</span><br>
+        ────────────────<br>
+        <b>上→下</b> = 先消→后消<br>
+        <span style="color:#6b9fff">⬤</span> 蓝=上层 · <span style="color:#f85149">⬤</span> 红=下层<br>
+        <b>圆大</b> = 后继多 · <b>悬停</b> = 依赖链 · <b>点击</b> = 详情
+      </div>
+    </div>
+
+    <!-- 统计 -->
+    <div class="psection">
+      <h3>📊 统计</h3>
+      <div class="stat-grid" id="statsGrid">
+        <div class="stat-item"><div class="v" id="statTriples">-</div><div class="l">triple总数</div></div>
+        <div class="stat-item"><div class="v" id="statRelated">-</div><div class="l">有关联的</div></div>
+        <div class="stat-item"><div class="v g" id="statEdges">-</div><div class="l">前提边</div></div>
+        <div class="stat-item"><div class="v g" id="statPoEdges">-</div><div class="l">偏序边</div></div>
+        <div class="stat-item"><div class="v o" id="statAvgCost">-</div><div class="l">平均cost</div></div>
+        <div class="stat-item"><div class="v" id="statLayers">-</div><div class="l">拓扑层数</div></div>
+      </div>
+    </div>
+
+    <!-- 过滤 -->
+    <div class="psection">
+      <h3>🎚️ 过滤</h3>
+      <div class="frow"><label>每层节点</label><input type="range" id="fPerLayer" min="5" max="100" value="35" step="5" oninput="document.getElementById('fvPerLayer').textContent=this.value"><span class="fv" id="fvPerLayer">35</span></div>
+      <div class="frow"><label>边密度</label><input type="range" id="fMaxE" min="3" max="30" value="10" step="1" oninput="document.getElementById('fvMaxE').textContent=this.value"><span class="fv" id="fvMaxE">10</span></div>
+      <button class="btn-s" onclick="App.applyFilters()" style="width:100%;margin-top:4px">刷新</button>
+    </div>
+
+    <!-- 检查器 -->
+    <div class="psection" id="inspector">
+      <h3>🔍 选中节点</h3>
+      <div style="color:var(--m);font-size:11px;text-align:center;padding:10px 0" id="inspectorEmpty">点击图中节点</div>
+      <div id="inspectorContent" style="display:none">
+        <div style="font-family:monospace;font-size:13px;font-weight:700;color:var(--a);word-break:break-all;margin-bottom:4px" id="ikey"></div>
+        <div style="font-size:10px;color:var(--m);margin-bottom:4px" id="isummary"></div>
+        <div style="font-size:10px;color:var(--m);margin:6px 0 2px"><b>depSet</b>（这个triple的依赖包）</div>
+        <div class="ilist" id="iDepSet"></div>
+        <div style="font-size:10px;color:var(--m);margin:6px 0 2px"><span class="tt-dep">↑ 被谁帮助</span>（消除它们降低我的cost）</div>
+        <div class="ilist" id="iPreds"></div>
+        <div style="font-size:10px;color:var(--m);margin:6px 0 2px"><span class="tt-impact">↓ 我帮助谁</span>（消除我降低它们的cost）</div>
+        <div class="ilist" id="iSuccs"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Tooltip ═══ -->
+<div id="tooltip"></div>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+// ════════════════════════════════════════════════════════════
+//  App — 主控制器
+// ════════════════════════════════════════════════════════════
+const App = {
+  state: { terrainPath: null, terrainInfo: null, analysisResult: null, selectedTriple: null, activeTab: 'dag', levelsDir: null, progressTimer: null },
+
+  async init() { DagGraph.init(); ForceGraph.init(); HeatmapView.init(); await this.scanLevels(); },
+
+  // ── Phase 1: 加载地形 ──
+  async loadTerrainInfo() {
+    const levelId = document.getElementById('levelId').value.trim();
+    const terrainPath = document.getElementById('terrainPath').value.trim();
+    if (!levelId && !terrainPath) return alert('请输入关卡ID或文件路径');
+    const badge = document.getElementById('terrainBadge'), btn = document.getElementById('btnAnalyze');
+    badge.style.display = 'flex'; badge.className = '';
+    badge.innerHTML = '<span style="color:var(--o)">⏳</span> 加载中...';
+    btn.disabled = true; document.getElementById('btnLoadTerrain').disabled = true;
+    try {
+      const resp = await fetch('/api/terrain-info', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ levelId: levelId || undefined, terrainPath: terrainPath || undefined, levelsDir: App.state.levelsDir || undefined }) });
+      const data = await resp.json();
+      if (!data.ok) throw new Error(data.error);
+      App.state.terrainPath = data.resolvedPath; App.state.terrainInfo = data; App.state.analysisResult = null;
+      badge.innerHTML = `✅ 关卡 <b>${data.levelResId||'?'}</b> · ${data.freeTiles}牌 · ${data.layers}层 · ${data.steps}步`;
+      btn.disabled = false; btn.textContent = '▶ 开始分析';
+      document.getElementById('topInfo').textContent = '地形就绪';
+      window.location.hash = levelId || terrainPath;
+    } catch(err) {
+      badge.className = 'error'; badge.innerHTML = `❌ ${err.message}`;
+      document.getElementById('topInfo').textContent = '加载失败';
+    } finally { document.getElementById('btnLoadTerrain').disabled = false; }
+  },
+
+  // ── Phase 2: 分析 ──
+  async startAnalysis(forceRefresh = false) {
+    if (!App.state.terrainPath && !App.state.terrainInfo) { await App.loadTerrainInfo(); if (!App.state.terrainPath) return; }
+    const overlay = document.getElementById('progressOverlay'), phaseEl = document.getElementById('progPhase'), elapsedEl = document.getElementById('progElapsed'), btn = document.getElementById('btnAnalyze');
+    overlay.classList.add('show'); phaseEl.textContent = '正在分析 triple 关系...'; btn.disabled = true; btn.textContent = '⏳ 分析中...';
+    const startTime = Date.now(), phases = ['构建 triples','计数前提关系','瓶颈分析','构建依赖边','偏序分析'];
+    let phaseIdx = 0;
+    App.state.progressTimer = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      elapsedEl.textContent = `已等待 ${elapsed} 秒`;
+      if (elapsed > 0 && elapsed % 8 === 0) { phaseIdx = (phaseIdx + 1) % phases.length; phaseEl.textContent = phases[phaseIdx] + '...'; }
+    }, 1000);
+    try {
+      const lid = document.getElementById('levelId').value.trim(), tp = document.getElementById('terrainPath').value.trim();
+      const resp = await fetch('/api/analyze-triples', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ levelId: lid || undefined, terrainPath: App.state.terrainPath || tp || undefined, levelsDir: App.state.levelsDir || undefined, forceRefresh,
+          stratify: true, perLayer: parseInt(document.getElementById('fPerLayer').value), maxEdgesPerNode: parseInt(document.getElementById('fMaxE').value), minSuccessors: 1 }) });
+      const data = await resp.json();
+      clearInterval(App.state.progressTimer); overlay.classList.remove('show');
+      if (!data.ok) throw new Error(data.error);
+      App.state.analysisResult = data; App.state.selectedTriple = null;
+      App.updateStats(data);
+      const s = data.statistics;
+      document.getElementById('topInfo').innerHTML = `<b>${s.totalTriples.toLocaleString()}</b> triples · <b>${s.totalPrerequisiteEdges.toLocaleString()}</b> 前提边 · <b>${s.triplesWithSuccessors.toLocaleString()}</b> 有关联`;
+      btn.textContent = '✅ 完成'; btn.disabled = false;
+      App.switchTab(App.state.activeTab); App.clearInspector();
+    } catch(err) { clearInterval(App.state.progressTimer); overlay.classList.remove('show'); btn.disabled = false; btn.textContent = '▶ 开始分析'; alert('分析失败: ' + err.message); }
+  },
+
+  async scanLevels() {
+    try {
+      const resp = await fetch('/api/levels'); const data = await resp.json();
+      if (data.ok && data.levels?.length) {
+        App.state.levelsDir = data.dir;
+        document.getElementById('quickTags').innerHTML = data.levels.slice(0, 15).map(l =>
+          `<span class="qt" onclick="document.getElementById('levelId').value='${l.id}';App.loadTerrainInfo()" title="${l.name}·${l.tiles}tiles">#${l.id}</span>`).join('');
+        if (!document.getElementById('levelId').value && data.levels.length) document.getElementById('levelId').value = data.levels[0].id;
+      }
+    } catch {}
+  },
+
+  switchTab(tab) {
+    App.state.activeTab = tab;
+    ['tabDag','tabForce','tabHeatmap'].forEach(id => document.getElementById(id).classList.remove('active'));
+    document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
+    document.getElementById('dagSvg').style.display = tab === 'dag' ? 'block' : 'none';
+    document.getElementById('forceSvg').style.display = tab === 'force' ? 'block' : 'none';
+    document.getElementById('heatmapCanvas').style.display = tab === 'heatmap' ? 'block' : 'none';
+    if (!App.state.analysisResult) return;
+    if (tab === 'dag') DagGraph.render();
+    else if (tab === 'force') ForceGraph.render();
+    else if (tab === 'heatmap') HeatmapView.render();
+  },
+
+  async applyFilters() { if (App.state.analysisResult) await App.startAnalysis(); },
+
+  updateStats(data) {
+    const s = data.statistics;
+    document.getElementById('statTriples').textContent = s.totalTriples.toLocaleString();
+    document.getElementById('statRelated').textContent = (s.triplesWithSuccessors + s.triplesWithPredecessors - (s.totalTriples - s.isolatedTriples)).toLocaleString();
+    document.getElementById('statEdges').textContent = s.totalPrerequisiteEdges.toLocaleString();
+    document.getElementById('statPoEdges').textContent = s.totalPartialOrderEdges.toLocaleString();
+    document.getElementById('statAvgCost').textContent = s.costDistribution.avg;
+    document.getElementById('statLayers').textContent = Math.max(...Object.keys(s.layerDistribution).map(Number), 0);
+  },
+
+  async selectTriple(key) {
+    App.state.selectedTriple = key;
+    const at = App.state.analysisResult?.allTriples;
+    if (!at) return;
+    const t = at.find(x => x.k === key);
+    if (!t) return;
+    document.getElementById('inspectorEmpty').style.display = 'none';
+    document.getElementById('inspectorContent').style.display = 'block';
+    document.getElementById('ikey').textContent = key;
+    document.getElementById('isummary').innerHTML = `cost=<b class="o">${t.d}</b> · 层=<b>${t.l}</b> · 影响 <b class="g">${t.s}</b> 个triple · 被 <b>${t.p}</b> 个帮助`;
+    // 简化版详情(本地数据)
+    document.getElementById('iDepSet').innerHTML = `<div class="row"><span>加载中...</span></div>`;
+    document.getElementById('iPreds').innerHTML = `<div class="row"><span>${t.p} 个前驱 (加载中...)</span></div>`;
+    document.getElementById('iSuccs').innerHTML = `<div class="row"><span>${t.s} 个后继</span></div>`;
+    // 异步加载完整详情
+    try {
+      const resp = await fetch('/api/triple-detail', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tripleKey: key, levelHash: App.state.analysisResult?.terrainInfo?.levelHash, freeTileCount: App.state.analysisResult?.terrainInfo?.freeTiles }) });
+      const detail = await resp.json();
+      if (detail.ok) {
+        const fmt = (arr, max) => arr.length === 0 ? '<div class="row">(无)</div>' :
+          arr.slice(0, max).map(x => `<div class="row" onmouseenter="DagGraph.highlightNode('${x.key}')" onmouseleave="DagGraph.unhighlight()" onclick="App.selectTriple('${x.key}')"><span>${x.key}</span>${x.overlap!==undefined?`<span class="ol">重叠${x.overlap}</span>`:''}</div>`).join('') +
+          (arr.length > max ? `<div class="row">... 还有 ${arr.length - max} 个</div>` : '');
+        document.getElementById('iPreds').innerHTML = fmt(detail.detail.predecessors, 12);
+        document.getElementById('iSuccs').innerHTML = fmt(detail.detail.successors, 12);
+        // depSet 内容
+        const ds = detail.detail.node.depSetTiles;
+        if (ds && ds.length > 0) {
+          document.getElementById('iDepSet').innerHTML =
+            `<div class="row"><span style="color:var(--o)">${ds.length} tiles:</span> <span>${ds.slice(0,30).join(', ')}${ds.length>30?'...':''}</span></div>`;
+        } else {
+          document.getElementById('iDepSet').innerHTML = `<div class="row">(无数据)</div>`;
+        }
+      }
+    } catch {}
+  },
+
+  clearInspector() { document.getElementById('inspectorEmpty').style.display = 'block'; document.getElementById('inspectorContent').style.display = 'none'; App.state.selectedTriple = null; },
+};
+
+// ════════════════════════════════════════════════════════════
+//  DagGraph — 分层 DAG 图 (Sugiyama-style)
+//  ── 核心理念 ──
+//  上 = 被依赖 (前提, 先消) → 下 = 依赖别人 (后消)
+//  箭头 = 前提关系方向 (B帮助A → B在上, A在下)
+// ════════════════════════════════════════════════════════════
+const DagGraph = {
+  svg: null, g: null, zoom: null,
+  nodes: [], links: [], nodeMap: {},
+  upstream: new Map(), downstream: new Map(),
+
+  init() {
+    this.svg = d3.select('#dagSvg');
+    this.svg.selectAll('*').remove();
+    this.zoom = d3.zoom().scaleExtent([0.15, 6]).on('zoom', (e) => { this.g.attr('transform', e.transform); });
+    this.svg.call(this.zoom);
+    this.g = this.svg.append('g');
+    // Arrow marker (pointing down)
+    this.svg.append('defs').append('marker')
+      .attr('id', 'dag-arrow').attr('viewBox', '0 -5 10 10').attr('refX', 13).attr('refY', 5).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
+      .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', 'rgba(139,148,158,0.35)');
+    this.svg.select('defs').append('marker')
+      .attr('id', 'dag-arrow-hl').attr('viewBox', '0 -5 10 10').attr('refX', 13).attr('refY', 5).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
+      .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', 'rgba(88,166,255,0.7)');
+  },
+
+  /** 构建上下游 BFS 缓存（在 render 时调用一次） */
+  buildReachability() {
+    this.upstream.clear(); this.downstream.clear();
+    // Build adjacency: pred→succ and succ→pred
+    const predOf = new Map(); // key → set of keys that are its predecessors
+    const succOf = new Map(); // key → set of keys that are its successors
+    for (const l of this.links) {
+      const sk = this.nodes[l.source]?.id, tk = this.nodes[l.target]?.id;
+      if (!sk || !tk) continue;
+      if (!succOf.has(sk)) succOf.set(sk, new Set());
+      succOf.get(sk).add(tk);
+      if (!predOf.has(tk)) predOf.set(tk, new Set());
+      predOf.get(tk).add(sk);
+    }
+    // For each node, BFS upstream and downstream
+    for (const n of this.nodes) {
+      // Upstream: BFS following predecessors
+      const up = new Set();
+      const q = [n.id]; let h = 0;
+      while (h < q.length) {
+        const cur = q[h++];
+        for (const p of (predOf.get(cur) || [])) { if (!up.has(p)) { up.add(p); q.push(p); } }
+      }
+      this.upstream.set(n.id, up);
+      // Downstream: BFS following successors
+      const down = new Set();
+      const q2 = [n.id]; h = 0;
+      while (h < q2.length) {
+        const cur = q2[h++];
+        for (const s of (succOf.get(cur) || [])) { if (!down.has(s)) { down.add(s); q2.push(s); } }
+      }
+      this.downstream.set(n.id, down);
+    }
+  },
+
+  render() {
+    const graph = App.state.analysisResult?.graph;
+    if (!graph) return;
+    const gTriples = graph.triples;
+    const edges = graph.prerequisiteEdges || [];
+
+    // Build node array
+    this.nodeMap = {};
+    this.nodes = gTriples.map((t, i) => { this.nodeMap[t.key] = i; return { id: t.key, index: i, triple: t, x: 0, y: 0 }; });
+    // Build link array (only edges between nodes in the set)
+    this.links = [];
+    for (const e of edges) {
+      const si = this.nodeMap[e.from], ti = this.nodeMap[e.to];
+      if (si !== undefined && ti !== undefined) this.links.push({ source: si, target: ti, overlap: e.overlap });
+    }
+
+    // Compute reachability for dependency chain highlight
+    this.buildReachability();
+
+    // Layout
+    this.layoutDAG();
+    this.draw();
+  },
+
+  /** 分层 DAG 布局: y=层深, x=barycenter 排序 */
+  layoutDAG() {
+    const nodes = this.nodes, links = this.links;
+    const W = Math.max(1200, document.getElementById('viz').clientWidth || 1200);
+    const H = Math.max(800, document.getElementById('viz').clientHeight || 800);
+
+    // Group by layer
+    const maxLayer = Math.max(...nodes.map(n => n.triple.topologicalLayer), 1);
+    const layerNodes = new Map();
+    for (const n of nodes) {
+      const l = n.triple.topologicalLayer;
+      if (!layerNodes.has(l)) layerNodes.set(l, []);
+      layerNodes.get(l).push(n);
+    }
+    const layers = [...layerNodes.keys()].sort((a, b) => a - b);
+    const nLayers = layers.length;
+
+    // Y positions
+    const margin = { top: 40, bottom: 40, left: 60, right: 60 };
+    const usableH = H - margin.top - margin.bottom;
+    const layerH = nLayers > 1 ? usableH / (nLayers - 1) : usableH / 2;
+    for (let li = 0; li < nLayers; li++) {
+      const l = layers[li];
+      for (const n of layerNodes.get(l)) n.y = margin.top + li * layerH;
+    }
+
+    // Build adjacency for barycenter
+    const predOf = new Map(), succOf = new Map();
+    for (const n of nodes) { predOf.set(n.id, []); succOf.set(n.id, []); }
+    for (const l of links) {
+      const sk = nodes[l.source].id, tk = nodes[l.target].id;
+      succOf.get(sk).push(tk);
+      predOf.get(tk).push(sk);
+    }
+
+    // Initial x: sort by successorCount within each layer
+    for (const [l, arr] of layerNodes) {
+      arr.sort((a, b) => b.triple.successorCount - a.triple.successorCount);
+    }
+
+    // 3 passes of barycenter sorting (down, up, down)
+    for (let pass = 0; pass < 3; pass++) {
+      const dir = pass % 2 === 0 ? 1 : -1; // 1=down, -1=up
+      const lRange = dir === 1 ? layers : [...layers].reverse();
+      for (const l of lRange) {
+        const arr = layerNodes.get(l);
+        if (!arr) continue;
+        const bary = new Map();
+        for (const n of arr) {
+          const neighbors = dir === 1 ? predOf.get(n.id) : succOf.get(n.id);
+          if (neighbors.length === 0) { bary.set(n.id, 0); continue; }
+          let sum = 0, cnt = 0;
+          for (const nb of neighbors) {
+            const nbNode = nodes[this.nodeMap[nb]];
+            if (nbNode && nbNode.x !== undefined) { sum += nbNode.x; cnt++; }
+          }
+          bary.set(n.id, cnt > 0 ? sum / cnt : 0);
+        }
+        arr.sort((a, b) => (bary.get(a.id) || 0) - (bary.get(b.id) || 0));
+      }
+      // After each pass, assign x positions and spread
+      for (const l of layers) {
+        const arr = layerNodes.get(l);
+        if (!arr || arr.length === 0) continue;
+        const usableW = W - margin.left - margin.right;
+        const spacing = usableW / (arr.length + 1);
+        for (let i = 0; i < arr.length; i++) arr[i].x = margin.left + spacing * (i + 1);
+      }
+    }
+
+    // Store layer info for rendering
+    this._layers = layers;
+    this._layerNodes = layerNodes;
+    this._margin = margin;
+  },
+
+  draw() {
+    const nodes = this.nodes, links = this.links;
+    const g = this.g;
+    g.selectAll('*').remove();
+
+    if (nodes.length === 0) {
+      g.append('text').attr('x', 400).attr('y', 300).attr('text-anchor', 'middle').attr('fill', '#8b949e').attr('font-size', 14)
+        .text('无数据 — 请先加载地形并开始分析');
+      return;
+    }
+
+    const maxSucc = Math.max(...nodes.map(n => n.triple.successorCount), 1);
+    const rScale = d3.scaleSqrt().domain([0, maxSucc]).range([3, 22]);
+    const maxLayer = Math.max(...nodes.map(n => n.triple.topologicalLayer), 1);
+
+    // Layer labels
+    if (this._layers && this._layers.length > 1) {
+      g.selectAll('text.layer-label').data(this._layers).join('text')
+        .attr('class', 'layer-label')
+        .attr('x', 8).attr('y', l => (this._layerNodes.get(l)?.[0]?.y) || 0)
+        .attr('fill', '#8b949e').attr('font-size', 10).attr('font-family', 'monospace')
+        .text(l => `L${l}`);
+    }
+
+    // Edges: curve from top to bottom
+    const linkG = g.append('g').attr('class', 'links');
+    const link = linkG.selectAll('path').data(links).join('path')
+      .attr('d', d => {
+        const sy = nodes[d.source].y, ty = nodes[d.target].y;
+        const sx = nodes[d.source].x, tx = nodes[d.target].x;
+        const cy = (sy + ty) / 2;
+        return `M${sx},${sy} C${sx},${cy} ${tx},${cy} ${tx},${ty}`;
+      })
+      .attr('fill', 'none')
+      .attr('stroke', 'rgba(139,148,158,0.18)')
+      .attr('stroke-width', d => Math.max(0.5, Math.min(3, d.overlap / 4)))
+      .attr('marker-end', 'url(#dag-arrow)');
+
+    // Nodes
+    const nodeG = g.append('g').attr('class', 'nodes');
+    const node = nodeG.selectAll('g').data(nodes).join('g')
+      .attr('transform', d => `translate(${d.x},${d.y})`)
+      .attr('cursor', 'pointer')
+      .on('click', (event, d) => { event.stopPropagation(); App.selectTriple(d.id); })
+      .on('mouseenter', (event, d) => { this.showTooltip(event, d); this.highlightNode(d.id); })
+      .on('mouseleave', () => { this.hideTooltip(); this.unhighlight(); });
+
+    // Glow for important nodes
+    node.filter(d => d.triple.successorCount > maxSucc * 0.7).append('circle')
+      .attr('r', d => rScale(d.triple.successorCount) + 3)
+      .attr('fill', 'none').attr('stroke', 'rgba(248,129,73,0.3)').attr('stroke-width', 2);
+
+    // Color: blue (top/被依赖) → red (bottom/依赖别人)
+    const colorScale = d3.scaleSequential(d3.interpolateCool).domain([maxLayer, 0]);
+    node.append('circle')
+      .attr('r', d => rScale(d.triple.successorCount))
+      .attr('fill', d => colorScale(d.triple.topologicalLayer))
+      .attr('stroke', 'rgba(255,255,255,0.15)').attr('stroke-width', 1);
+
+    // Label for big nodes
+    node.filter(d => d.triple.successorCount > maxSucc * 0.5).append('text')
+      .attr('y', d => rScale(d.triple.successorCount) + 12)
+      .attr('text-anchor', 'middle').attr('fill', '#8b949e').attr('font-size', 8).attr('font-family', 'monospace')
+      .text(d => d.id.length > 12 ? d.id.substring(0, 10) + '..' : d.id);
+
+    // Click background to deselect
+    this.svg.on('click', (event) => { if (event.target === this.svg.node()) App.clearInspector(); });
+
+    // Auto-zoom to fit
+    const allX = nodes.map(n => n.x), allY = nodes.map(n => n.y);
+    if (allX.length > 0) {
+      const minX = Math.min(...allX) - 60, maxX = Math.max(...allX) + 60;
+      const minY = Math.min(...allY) - 40, maxY = Math.max(...allY) + 40;
+      const vizW = document.getElementById('viz').clientWidth || 1200;
+      const vizH = document.getElementById('viz').clientHeight || 800;
+      const scale = Math.min(vizW / (maxX - minX), vizH / (maxY - minY), 1.2);
+      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+      this.svg.transition().duration(600).call(
+        this.zoom.transform,
+        d3.zoomIdentity.translate(vizW / 2 - cx * scale, vizH / 2 - cy * scale).scale(scale)
+      );
+    }
+  },
+
+  /** 高亮某节点的完整依赖链 (上游 + 下游) */
+  highlightNode(key) {
+    if (!this.nodeMap || !(key in this.nodeMap)) return;
+    const up = this.upstream.get(key) || new Set();
+    const down = this.downstream.get(key) || new Set();
+    const all = new Set([key, ...up, ...down]);
+
+    // Nodes
+    this.g.selectAll('.nodes g').select('circle')
+      .transition().duration(150)
+      .attr('opacity', d => all.has(d.id) ? 1 : 0.06)
+      .attr('stroke', d => d.id === key ? '#fff' : (all.has(d.id) ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.02)'))
+      .attr('stroke-width', d => d.id === key ? 2.5 : 1);
+
+    // Labels
+    this.g.selectAll('.nodes g text')
+      .transition().duration(150)
+      .attr('opacity', d => all.has(d.id) ? 1 : 0);
+
+    // Edges: highlight only edges in the dependency chain
+    this.g.selectAll('.links path')
+      .transition().duration(150)
+      .attr('opacity', d => {
+        const sk = this.nodes[d.source]?.id, tk = this.nodes[d.target]?.id;
+        if (!sk || !tk) return 0.03;
+        const inUpstream = up.has(sk) && up.has(tk); // edge entirely in upstream
+        const inDownstream = down.has(sk) && down.has(tk); // edge entirely in downstream
+        const crosses = (sk === key || up.has(sk)) && (tk === key || down.has(tk)); // edge crosses the hovered node
+        return (inUpstream || inDownstream || crosses) ? 0.7 : 0.02;
+      })
+      .attr('stroke-width', d => {
+        const sk = this.nodes[d.source]?.id, tk = this.nodes[d.target]?.id;
+        const related = (up.has(sk) || sk === key) && (down.has(tk) || tk === key || up.has(tk));
+        return related ? Math.max(1.5, Math.min(4, d.overlap / 2)) : 0.3;
+      });
+  },
+
+  unhighlight() {
+    this.g.selectAll('.nodes g circle')
+      .transition().duration(200)
+      .attr('opacity', 1).attr('stroke', 'rgba(255,255,255,0.15)').attr('stroke-width', 1);
+    this.g.selectAll('.nodes g text').transition().duration(200).attr('opacity', 1);
+    this.g.selectAll('.links path')
+      .transition().duration(200)
+      .attr('opacity', 1)
+      .attr('stroke-width', d => Math.max(0.5, Math.min(3, d.overlap / 4)));
+  },
+
+  showTooltip(event, d) {
+    const tt = document.getElementById('tooltip');
+    tt.style.display = 'block';
+    tt.innerHTML = `<div class="tt-key">${d.id}</div>
+      <div class="tt-row"><span>depSet大小</span><span class="o">${d.triple.depSetSize}</span></div>
+      <div class="tt-row"><span>拓扑层</span><span>${d.triple.topologicalLayer}</span></div>
+      <div class="tt-row"><span class="tt-impact">影响(后继)</span><span class="g">${d.triple.successorCount.toLocaleString()}</span></div>
+      <div class="tt-row"><span class="tt-dep">被帮助(前驱)</span><span>${d.triple.predecessorCount.toLocaleString()}</span></div>
+      <div class="tt-row"><span>瓶颈分</span><span>${d.triple.bottleneckScore.toFixed(3)}</span></div>
+      <div style="font-size:9px;color:var(--m);margin-top:2px">悬停=高亮依赖链 | 点击=详情</div>`;
+    tt.style.left = Math.min(event.pageX + 14, window.innerWidth - 360) + 'px';
+    tt.style.top = (event.pageY - 10) + 'px';
+  },
+
+  hideTooltip() { document.getElementById('tooltip').style.display = 'none'; },
+};
+
+// ════════════════════════════════════════════════════════════
+//  ForceGraph — D3 力导向图 (探索性视角)
+// ════════════════════════════════════════════════════════════
+const ForceGraph = {
+  svg: null, g: null, simulation: null, zoom: null,
+  nodes: [], links: [], nodeMap: {},
+
+  init() {
+    this.svg = d3.select('#forceSvg');
+    this.svg.selectAll('*').remove();
+    this.zoom = d3.zoom().scaleExtent([0.1, 8]).on('zoom', (e) => { this.g.attr('transform', e.transform); });
+    this.svg.call(this.zoom);
+    this.g = this.svg.append('g');
+    const defs = this.svg.append('defs');
+    defs.append('marker').attr('id', 'force-arrow').attr('viewBox', '0 -5 10 10').attr('refX', 20).attr('refY', 0)
+      .attr('markerWidth', 5).attr('markerHeight', 5).attr('orient', 'auto')
+      .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', 'rgba(139,148,158,0.3)');
+  },
+
+  render() {
+    // 先停掉旧的 simulation
+    if (this.simulation) { this.simulation.stop(); this.simulation = null; }
+
+    const graph = App.state.analysisResult?.graph;
+    if (!graph) return;
+
+    const gTriples = graph.triples;
+    const edges = graph.prerequisiteEdges || [];
+
+    // 先拿到画布尺寸
+    const W = document.getElementById('viz').clientWidth || 1000;
+    const H = document.getElementById('viz').clientHeight || 700;
+
+    // 清空
+    this.g.selectAll('*').remove();
+    this.nodeMap = {};
+    this.nodes = [];
+    this.links = [];
+
+    if (gTriples.length === 0) {
+      this.g.append('text').attr('x', W/2).attr('y', H/2).attr('text-anchor', 'middle')
+        .attr('fill', '#8b949e').attr('font-size', 14).text('无数据');
+      return;
+    }
+
+    const maxLayer = Math.max(...gTriples.map(t => t.topologicalLayer), 1);
+    const maxSucc = Math.max(...gTriples.map(t => t.successorCount), 1);
+
+    // 构建节点，带初始位置（按层散布，避免全堆在原点）
+    for (let i = 0; i < gTriples.length; i++) {
+      const t = gTriples[i];
+      this.nodeMap[t.key] = i;
+      this.nodes.push({
+        id: t.key,
+        index: i,
+        triple: t,
+        // 初始位置: 按拓扑层 + 随机偏移散布
+        x: W * 0.1 + (t.topologicalLayer / Math.max(maxLayer, 1)) * W * 0.7 + (Math.random() - 0.5) * 100,
+        y: H * 0.2 + Math.random() * H * 0.6,
+      });
+    }
+
+    // 构建边 — 用字符串 key，配合 forceLink.id() 解析
+    for (const e of edges) {
+      if (this.nodeMap[e.from] !== undefined && this.nodeMap[e.to] !== undefined) {
+        this.links.push({ source: e.from, target: e.to, overlap: e.overlap });
+      }
+    }
+
+    // Scales
+    const rScale = d3.scaleSqrt().domain([0, maxSucc]).range([3, 18]);
+    const colorScale = d3.scaleSequential(d3.interpolateCool).domain([maxLayer, 0]);
+    const layerX = d3.scaleLinear().domain([0, maxLayer]).range([100, W - 100]);
+
+    // 边
+    const linkG = this.g.append('g');
+    const link = linkG.selectAll('line').data(this.links).join('line')
+      .attr('stroke', 'rgba(139,148,158,0.15)')
+      .attr('stroke-width', d => Math.max(0.5, Math.min(2.5, d.overlap / 6)))
+      .attr('marker-end', 'url(#force-arrow)');
+
+    // 节点
+    const nodeG = this.g.append('g');
+    const node = nodeG.selectAll('g').data(this.nodes).join('g')
+      .attr('cursor', 'pointer')
+      .call(d3.drag()
+        .on('start', (e, d) => { if (!e.active) ForceGraph.simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+        .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
+        .on('end', (e, d) => { if (!e.active) ForceGraph.simulation.alphaTarget(0); d.fx = null; d.fy = null; }))
+      .on('click', (e, d) => { e.stopPropagation(); App.selectTriple(d.id); })
+      .on('mouseenter', (e, d) => { this.showTooltip(e, d); })
+      .on('mouseleave', () => { document.getElementById('tooltip').style.display = 'none'; });
+
+    node.append('circle')
+      .attr('r', d => rScale(d.triple.successorCount))
+      .attr('fill', d => colorScale(d.triple.topologicalLayer))
+      .attr('stroke', 'rgba(255,255,255,0.2)').attr('stroke-width', 0.8);
+
+    node.append('title')
+      .text(d => `${d.id} | cost:${d.triple.depSetSize} succ:${d.triple.successorCount} pred:${d.triple.predecessorCount}`);
+
+    // Force simulation — 使用 this.nodes, this.links 引用
+    const nodes = this.nodes;
+    const links = this.links;
+
+    this.simulation = d3.forceSimulation(nodes)
+      .force('link', d3.forceLink(links).id(d => d.id).distance(d => 45 + 100 / ((d.overlap || 1) + 1)).strength(0.3))
+      .force('charge', d3.forceManyBody().strength(d => -60 - rScale(d.triple.successorCount) * 6))
+      .force('center', d3.forceCenter(W / 2, H / 2))
+      .force('layerX', function(alpha) {
+        for (const n of nodes) {
+          n.vx += (layerX(n.triple.topologicalLayer) - n.x) * alpha * 0.04;
+        }
+      })
+      .force('collision', d3.forceCollide(d => rScale(d.triple.successorCount) + 2))
+      .alpha(0.5) // 从高 alpha 开始，确保有足够的运动
+      .on('tick', () => {
+        link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+            .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+        node.attr('transform', d => `translate(${d.x},${d.y})`);
+      });
+
+    this.svg.on('click', (e) => { if (e.target === this.svg.node()) App.clearInspector(); });
+  },
+
+  showTooltip(event, d) {
+    const tt = document.getElementById('tooltip');
+    tt.style.display = 'block';
+    tt.innerHTML = `<div class="tt-key">${d.id}</div><div class="tt-row"><span>depSet</span><span class="o">${d.triple.depSetSize}</span></div><div class="tt-row"><span>层</span><span>${d.triple.topologicalLayer}</span></div><div class="tt-row"><span class="tt-impact">后继</span><span class="g">${d.triple.successorCount.toLocaleString()}</span></div><div class="tt-row"><span class="tt-dep">前驱</span><span>${d.triple.predecessorCount.toLocaleString()}</span></div>`;
+    tt.style.left = Math.min(event.pageX + 14, window.innerWidth - 360) + 'px';
+    tt.style.top = (event.pageY - 10) + 'px';
+  },
+};
+
+// ════════════════════════════════════════════════════════════
+//  HeatmapView — Canvas 瓶颈热力图
+// ════════════════════════════════════════════════════════════
+const HeatmapView = {
+  canvas: null, ctx: null,
+  init() { this.canvas = document.getElementById('heatmapCanvas'); this.ctx = this.canvas.getContext('2d'); },
+  render() {
+    const data = App.state.analysisResult;
+    if (!data?.bottleneckTiles) return;
+    const bt = data.bottleneckTiles;
+    const byLayer = {};
+    for (const t of bt) { if (!byLayer[t.layer]) byLayer[t.layer] = []; byLayer[t.layer].push(t); }
+    const W = document.getElementById('viz').clientWidth || 800, H = document.getElementById('viz').clientHeight || 600;
+    this.canvas.width = W * devicePixelRatio; this.canvas.height = H * devicePixelRatio;
+    this.canvas.style.width = W + 'px'; this.canvas.style.height = H + 'px';
+    const ctx = this.ctx;
+    ctx.setTransform(1,0,0,1,0,0); ctx.scale(devicePixelRatio, devicePixelRatio);
+    ctx.clearRect(0, 0, W, H);
+    if (bt.length === 0) { ctx.fillStyle='#8b949e'; ctx.font='14px sans-serif'; ctx.textAlign='center'; ctx.fillText('无数据',W/2,H/2); return; }
+    const layerKeys = Object.keys(byLayer).map(Number).sort((a,b)=>b-a);
+    const layerH = Math.min(80, (H - 40) / layerKeys.length);
+    const margin = { top: 20, left: 40, right: 30, bottom: 10 };
+    const cellW = 10, cellH = layerH * 0.55, gap = 2;
+    const maxCount = Math.max(...bt.map(t => t.tripleCount), 1);
+    const colorScale = d3.scaleSequential(d3.interpolateYlOrRd).domain([0, maxCount]);
+    for (let li = 0; li < layerKeys.length; li++) {
+      const layer = layerKeys[li], tiles = byLayer[layer] || [];
+      const y = margin.top + li * layerH;
+      ctx.fillStyle = '#8b949e'; ctx.font = '9px monospace'; ctx.textAlign = 'right';
+      ctx.fillText(`L${layer}`, margin.left - 6, y + layerH/2 + 3);
+      const maxPerRow = Math.floor((W - margin.left - margin.right) / (cellW + gap));
+      for (let i = 0; i < tiles.length; i++) {
+        const t = tiles[i];
+        const cx = margin.left + (i % maxPerRow) * (cellW + gap);
+        const cy = y + Math.floor(i / maxPerRow) * (cellH + gap) + 4;
+        ctx.fillStyle = colorScale(t.tripleCount); ctx.fillRect(cx, cy, cellW, cellH);
+        ctx.strokeStyle = t.score > 0.85 ? '#f85149' : 'rgba(255,255,255,0.06)';
+        ctx.lineWidth = t.score > 0.85 ? 1.5 : 0.3;
+        ctx.strokeRect(cx, cy, cellW, cellH);
+      }
+    }
+    const barX = W - 20, barY = margin.top, barW = 8, barH = Math.min(180, H - 40);
+    const grad = ctx.createLinearGradient(0, barY + barH, 0, barY);
+    for (let i = 0; i <= 100; i++) grad.addColorStop(i/100, colorScale(maxCount * i / 100));
+    ctx.fillStyle = grad; ctx.fillRect(barX, barY, barW, barH);
+    ctx.strokeStyle = '#30363d'; ctx.lineWidth = 1; ctx.strokeRect(barX, barY, barW, barH);
+    ctx.fillStyle = '#8b949e'; ctx.font = '8px monospace'; ctx.textAlign = 'left';
+    ctx.fillText(maxCount.toLocaleString(), barX + barW + 3, barY + 8);
+    ctx.fillText('0', barX + barW + 3, barY + barH);
+    this.canvas.onclick = (event) => {
+      const rect = this.canvas.getBoundingClientRect();
+      const mx = event.clientX - rect.left, my = event.clientY - rect.top;
+      for (let li = 0; li < layerKeys.length; li++) {
+        const tiles = byLayer[layerKeys[li]] || [];
+        const y = margin.top + li * layerH;
+        const maxPerRow = Math.floor((W - margin.left - margin.right) / (cellW + gap));
+        for (let i = 0; i < tiles.length; i++) {
+          const cx = margin.left + (i % maxPerRow) * (cellW + gap);
+          const cy = y + Math.floor(i / maxPerRow) * (cellH + gap) + 4;
+          if (mx >= cx && mx <= cx + cellW && my >= cy && my <= cy + cellH) {
+            const tt = document.getElementById('tooltip');
+            tt.style.display = 'block';
+            tt.innerHTML = `<div class="tt-key">Tile #${tiles[i].tileId}</div><div class="tt-row"><span>层</span><span>${tiles[i].layer}</span></div><div class="tt-row"><span>依赖triple数</span><span class="r">${tiles[i].tripleCount.toLocaleString()}</span></div><div class="tt-row"><span>瓶颈分</span><span>${tiles[i].score.toFixed(3)}</span></div>`;
+            tt.style.left = (event.pageX + 14) + 'px'; tt.style.top = (event.pageY - 10) + 'px';
+            setTimeout(() => { tt.style.display = 'none'; }, 2000);
+            return;
+          }
+        }
+      }
+    };
+  },
+};
+
+// Init
+window.addEventListener('DOMContentLoaded', () => App.init());
+window.addEventListener('resize', () => {
+  if (App.state.activeTab === 'dag') DagGraph.render();
+  else if (App.state.activeTab === 'force') ForceGraph.render();
+  else if (App.state.activeTab === 'heatmap') HeatmapView.render();
+});
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') App.clearInspector(); });
+</script>
+</body>
+</html>

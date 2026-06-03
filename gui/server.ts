@@ -6,7 +6,7 @@
  */
 
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exec } from 'node:child_process';
@@ -21,6 +21,14 @@ import {
   setLogLevel,
   LogLevel,
 } from '../src/index.js';
+import {
+  analyzeTriples,
+  filterGraphData,
+  getTripleDetail,
+} from '../src/triple-analyzer.js';
+
+/** 内存中的分析结果缓存 (keyed by terrainHash) */
+const analysisCache = new Map<string, ReturnType<typeof analyzeTriples>>();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const GUI_DIR = __dirname;
@@ -239,6 +247,132 @@ const server = createServer(async (req, res) => {
         elementCount: data.elementCount, levelHash: formatHash(data.levelHash),
         dockEntries: data.dockEntries.map(e => ({ tileId: e.tileId, element: e.element })),
         tiles,
+      });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
+  // ── API: analyze triples ──
+  if (url.pathname === '/api/analyze-triples' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const { levelId, levelsDir, terrainPath, terrainJson, forceRefresh } = body as {
+        levelId?: string; levelsDir?: string; terrainPath?: string;
+        terrainJson?: string; forceRefresh?: boolean;
+      };
+      const { topN, minSuccessors, maxEdgesPerNode, layerMin, layerMax, stratify, perLayer } = body as {
+        topN?: number; minSuccessors?: number; maxEdgesPerNode?: number;
+        layerMin?: number; layerMax?: number; stratify?: boolean; perLayer?: number;
+      };
+
+      let terrain;
+      if (terrainJson && typeof terrainJson === 'string') {
+        // 写入临时文件再加载 (利用 terrain-loader 的 normalize 逻辑)
+        const tmpDir = join(GUI_DIR, '..', '.reversegen-cache');
+        const tmpPath = join(tmpDir, '_tmp_terrain.json');
+        if (!existsSync(tmpDir)) mkdirSync(tmpDir, { recursive: true });
+        writeFileSync(tmpPath, terrainJson, 'utf-8');
+        try {
+          terrain = loadTerrainFromFile(tmpPath);
+        } finally {
+          try { unlinkSync(tmpPath); } catch {}
+        }
+      } else {
+        const path = resolveTerrainPath(levelId, levelsDir, terrainPath);
+        if (!path) throw new Error('请提供关卡ID、文件路径或地形JSON');
+        terrain = loadTerrainFromFile(path);
+      }
+
+      // 计算或从缓存获取分析结果 (首次构建边用 generous 默认值)
+      const cacheKey = `${terrain.levelHash || 'no-hash'}-${getAllTiles(terrain).filter(t => !t.isConst).length}`;
+      let analysisResult = analysisCache.get(cacheKey);
+      if (!analysisResult || forceRefresh) {
+        analysisResult = analyzeTriples(terrain, {
+          force: !!forceRefresh,
+          edgeTopN: 6000,        // 预构建足够多的边，覆盖更多层
+          maxEdgesPerNode: 20,
+        });
+        analysisCache.set(cacheKey, analysisResult);
+      }
+
+      // 过滤图数据
+      const graphData = filterGraphData(analysisResult, {
+        stratify: stratify ?? true,   // 默认分层采样，图更连通
+        perLayer: perLayer ?? 80,
+        topN: topN ?? 1000,
+        minSuccessors: minSuccessors ?? 1,
+        maxEdgesPerNode: maxEdgesPerNode ?? 15,
+        layerMin,
+        layerMax,
+      });
+
+      // 构建响应: 用 triple key 标识边（前端无需关心原始索引）
+      const allTriples = analysisResult.triples;
+      const graphTriples = graphData.nodeIndices.map(i => allTriples[i]);
+
+      json(res, {
+        ok: true,
+        terrainInfo: analysisResult.terrainInfo,
+        statistics: analysisResult.statistics,
+        bottleneckTiles: analysisResult.bottleneckTiles,
+        graph: {
+          triples: graphTriples,
+          prerequisiteEdges: graphData.prerequisiteEdges.map(e => ({
+            from: allTriples[e.from].key,
+            to: allTriples[e.to].key,
+            overlap: e.overlap,
+          })),
+          partialOrderEdges: graphData.partialOrderEdges.map(e => ({
+            from: allTriples[e.from].key,
+            to: allTriples[e.to].key,
+            overlap: e.overlap,
+          })),
+        },
+        // 全部 triple 元数据 (紧凑格式，供前端过滤器和检查器使用)
+        allTriples: allTriples.map(t => ({
+          k: t.key,
+          t: t.tileIds,
+          d: t.depSetSize,
+          l: t.topologicalLayer,
+          s: t.successorCount,
+          p: t.predecessorCount,
+          poS: t.partialOrderSuccessorCount,
+          poP: t.partialOrderPredecessorCount,
+          b: t.bottleneckScore,
+          ly: [t.layerMin, t.layerMax],
+        })),
+      });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
+  // ── API: triple detail ──
+  if (url.pathname === '/api/triple-detail' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const { tripleKey: tk, levelHash, freeTileCount } = body as {
+        tripleKey?: string; levelHash?: string; freeTileCount?: number;
+      };
+      if (!tk) throw new Error('Missing tripleKey');
+
+      // 从缓存中查找
+      const cacheKey = `${levelHash || 'no-hash'}-${freeTileCount || 0}`;
+      const analysisResult = analysisCache.get(cacheKey);
+      if (!analysisResult) throw new Error('请先运行分析 (/api/analyze-triples)');
+
+      const detail = getTripleDetail(analysisResult, tk);
+      if (!detail) throw new Error(`Triple ${tk} 不存在`);
+
+      json(res, {
+        ok: true,
+        detail: {
+          node: detail.node,
+          predecessors: detail.predecessors,
+          successors: detail.successors,
+          partialOrderPredecessors: detail.partialOrderPredecessors,
+          partialOrderSuccessors: detail.partialOrderSuccessors,
+          topOverlaps: detail.topOverlaps,
+        },
       });
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
     return;
