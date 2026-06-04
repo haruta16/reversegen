@@ -8,22 +8,56 @@
   :root{--bg:#0d1117;--s:#161b22;--b:#30363d;--t:#c9d1d9;--m:#8b949e;--a:#58a6ff;--g:#3fb950;--r:#f85149;--o:#d2991d;--p:#a371f7}
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--t);height:100vh;display:flex;flex-direction:column;overflow:hidden}
-  #topbar{display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--s);border-bottom:1px solid var(--b);flex-shrink:0;z-index:10;flex-wrap:wrap}
-  #topbar h1{font-size:15px;margin-right:4px}
-  #topbar .sep{width:1px;height:20px;background:var(--b);margin:0 2px}
-  #topbar input,#topbar button{font-family:inherit;font-size:12px}
-  #topbar input{background:var(--bg);border:1px solid var(--b);border-radius:4px;color:var(--t);padding:5px 8px}
-  #topbar input:focus{border-color:var(--a);outline:none}
-  #levelId{width:80px}#terrainPath{width:170px;font-size:10px}
-  #topbar button{cursor:pointer;border:none;border-radius:4px;padding:5px 12px;font-weight:600;transition:all .15s;white-space:nowrap}
-  .btn-a{background:var(--a);color:#fff}.btn-a:hover{background:#4090e0}.btn-a:disabled{opacity:.4;cursor:not-allowed}
-  .btn-g{background:var(--g);color:#000}.btn-g:hover{background:#2ea043}.btn-g:disabled{opacity:.4;cursor:not-allowed}
-  .btn-s{background:var(--b);color:var(--t)}.btn-s:hover{background:#48505a}.btn-s.active{background:var(--a);color:#fff}
-  #terrainBadge{display:none;align-items:center;gap:8px;font-size:11px;color:var(--g);background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.25);border-radius:12px;padding:3px 10px;margin:0 4px}
-  #terrainBadge.error{color:var(--r);background:rgba(248,81,73,.1);border-color:rgba(248,81,73,.25)}
-  #quickTags{display:flex;flex-wrap:wrap;gap:3px;max-width:400px}
-  #quickTags .qt{font-size:10px;padding:2px 7px;border-radius:8px;background:var(--bg);border:1px solid var(--b);color:var(--m);cursor:pointer;font-family:monospace}
+
+  /* ═══ Header: 三模块 ═══ */
+  #header{background:var(--s);border-bottom:1px solid var(--b);flex-shrink:0;z-index:10}
+  #header .module-row{display:flex;gap:0}
+  #header .module-row .module{flex:1;padding:6px 12px;min-width:0}
+  #header .module-row .module+.module{border-left:1px solid rgba(48,54,61,.5)}
+  #header .module-full{padding:6px 12px;border-top:1px solid rgba(48,54,61,.5)}
+  #header .m-title{font-size:10px;color:var(--m);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+  #header .m-title span{width:6px;height:6px;border-radius:50%;display:inline-block}
+  #header .m-title .dot-in{background:var(--o)}#header .m-title .dot-info{background:var(--g)}#header .m-title .dot-set{background:var(--a)}
+
+  /* Module 1: 输入行 */
+  .input-row{display:flex;align-items:center;gap:8px;margin-bottom:3px}
+  .input-row:last-child{margin-bottom:0}
+  .input-row label{font-size:11px;color:var(--m);width:70px;flex-shrink:0;text-align:right}
+  .input-row input{background:var(--bg);border:1px solid var(--b);border-radius:4px;color:var(--t);padding:4px 8px;font-family:inherit;font-size:11px;flex:1}
+  .input-row input:focus{border-color:var(--a);outline:none}
+  .input-row input.mono{font-family:monospace;font-size:10px}
+  .input-row button{cursor:pointer;border:none;border-radius:4px;padding:4px 14px;font-weight:600;font-size:11px;font-family:inherit;transition:all .15s;white-space:nowrap;flex-shrink:0}
+  .btn-terrain{background:#1a3a5c;color:#6b9fff}.btn-terrain:hover{background:#254b75}
+  .btn-replay{background:#3d1f5c;color:#a371f7}.btn-replay:hover{background:#502a75}
+  .btn-terrain.active,.btn-replay.active{outline:2px solid var(--t);outline-offset:1px}
+
+  /* Module 2: 信息 + 操作 */
+  .info-area{display:flex;align-items:center;gap:8px;min-height:30px;flex-wrap:wrap}
+  .info-area .status{flex:1;font-size:11px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+  .info-area .status .badge{font-size:10px;padding:2px 8px;border-radius:10px;white-space:nowrap}
+  .badge-ok{color:var(--g);background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.2)}
+  .badge-err{color:var(--r);background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.2)}
+  .badge-pending{color:var(--o);background:rgba(210,153,29,.1);border:1px solid rgba(210,153,29,.2)}
+  .badge-mode{font-size:10px;padding:2px 6px;border-radius:3px}
+  .mode-terrain{background:#1a3a5c;color:#6b9fff}.mode-replay{background:#3d1f5c;color:#a371f7}
+
+  .btn-go{cursor:pointer;border:none;border-radius:4px;padding:5px 18px;font-weight:700;font-size:12px;font-family:inherit;transition:all .15s;white-space:nowrap;flex-shrink:0}
+  .btn-go{background:var(--g);color:#000}.btn-go:hover{background:#2ea043}.btn-go:disabled{opacity:.3;cursor:not-allowed}
+
+  /* Module 3: 图设置 */
+  .settings-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .settings-row .seg{display:flex;align-items:center;gap:4px}
+  .settings-row .seg-label{font-size:10px;color:var(--m);margin-right:2px}
+  .btn-sm{cursor:pointer;border:1px solid var(--b);border-radius:3px;padding:3px 8px;font-size:10px;font-family:inherit;background:var(--bg);color:var(--m);transition:all .15s}
+  .btn-sm:hover{border-color:var(--a);color:var(--t)}
+  .btn-sm.active{background:var(--a);color:#fff;border-color:var(--a)}
+  .settings-row input[type=range]{width:80px;accent-color:var(--a);margin:0 2px}
+  .settings-row .fv{font-size:10px;color:var(--m);width:22px;text-align:center;font-family:monospace}
+  .settings-row .sep{width:1px;height:16px;background:var(--b);margin:0 2px}
+  #quickTags{display:flex;flex-wrap:wrap;gap:2px;max-width:500px}
+  #quickTags .qt{font-size:9px;padding:1px 6px;border-radius:6px;background:var(--bg);border:1px solid var(--b);color:var(--m);cursor:pointer;font-family:monospace}
   #quickTags .qt:hover{border-color:var(--a);color:var(--a)}
+
   /* Progress overlay */
   #progressOverlay{display:none;position:fixed;inset:0;background:rgba(13,17,23,.85);z-index:100;flex-direction:column;align-items:center;justify-content:center;gap:16px}
   #progressOverlay.show{display:flex}
@@ -32,14 +66,18 @@
   #progressOverlay .phase{font-size:14px;color:var(--t);font-weight:600}
   #progressOverlay .elapsed{font-size:12px;color:var(--m);font-family:monospace}
   #progressOverlay .hint{font-size:11px;color:var(--m);max-width:400px;text-align:center;line-height:1.5}
-  /* Main */
+
+  /* Main layout */
   #main{display:flex;flex:1;overflow:hidden}
   #viz{flex:1;position:relative;overflow:hidden;background:var(--bg)}
-  #viz svg,#viz canvas{position:absolute;top:0;left:0;width:100%;height:100%}
+  #viz svg{position:absolute;top:0;left:0;width:100%;height:100%}
   #panel{width:320px;background:var(--s);border-left:1px solid var(--b);display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0}
+
   /* Panel sections */
   .psection{padding:10px 14px;border-bottom:1px solid var(--b)}
-  .psection h3{font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+  .psection h3{font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;cursor:pointer;user-select:none}
+  .psection h3:hover{color:var(--t)}
+  .psection .sbody{transition:max-height .2s}
   .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
   .stat-item{background:var(--bg);border-radius:4px;padding:5px 8px}
   .stat-item .v{font-size:14px;font-weight:700}.stat-item .l{font-size:9px;color:var(--m)}
@@ -53,37 +91,81 @@
   .ilist .row{display:flex;justify-content:space-between;padding:1px 4px;border-radius:2px;cursor:pointer}
   .ilist .row:hover{background:var(--b)}
   .ilist .row .ol{color:var(--o)}
-  #legend{display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:var(--m);align-items:center}
-  #legend .ldot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:3px;vertical-align:middle}
   #tooltip{position:fixed;pointer-events:none;background:var(--s);border:1px solid var(--b);border-radius:6px;padding:8px 10px;font-size:11px;font-family:monospace;z-index:999;display:none;max-width:340px;box-shadow:0 4px 12px rgba(0,0,0,.4);line-height:1.5}
   #tooltip .tt-key{color:var(--a);font-weight:700;margin-bottom:2px}
   #tooltip .tt-row{display:flex;justify-content:space-between;gap:20px}
   .tt-dep{color:var(--g)}.tt-impact{color:var(--o)}
+  .suit-bar{display:inline-block;height:8px;border-radius:1px;margin:0 1px;vertical-align:middle}
 </style>
 </head>
 <body>
 
-<!-- ═══ Top Bar ═══ -->
-<div id="topbar">
-  <h1>🧬 Triple 依赖图</h1>
-  <span style="color:var(--m);font-size:11px">地形:</span>
-  <input type="number" id="levelId" placeholder="关卡ID">
-  <input type="text" id="terrainPath" placeholder="或文件路径...">
-  <button class="btn-a" onclick="App.loadTerrainInfo()" id="btnLoadTerrain">加载地形</button>
-  <button class="btn-s" onclick="App.scanLevels()">📋</button>
-  <span id="terrainBadge"></span>
-  <button class="btn-g" onclick="App.startAnalysis()" id="btnAnalyze" disabled>▶ 开始分析</button>
-  <div class="sep"></div>
-  <button class="btn-s active" id="tabDag" onclick="App.switchTab('dag')">偏序 DAG</button>
-  <button class="btn-s" id="tabForce" onclick="App.switchTab('force')">力导向图</button>
-  <span style="font-size:10px;color:var(--m);margin:0 2px 0 6px">层:</span>
-  <button class="btn-s active" id="btnLayerQuantile" onclick="App.setLayerMode('depSetQuantile')">分位数</button>
-  <button class="btn-s" id="btnLayerDepth" onclick="App.setLayerMode('dependencyDepth')">依赖深度</button>
-  <input type="text" id="searchTriple" placeholder="搜索 triple 如 2,3,7" style="width:150px;font-size:10px;margin-left:12px"
-    onkeydown="if(event.key==='Enter')App.searchTriple()">
-  <button class="btn-s" onclick="App.searchTriple()" style="font-size:10px">🔍</button>
-  <span style="font-size:10px;color:var(--m);margin-left:auto" id="topInfo">选择地形 → 加载 → 分析</span>
-  <div id="quickTags"></div>
+<!-- ═══ Header: 三模块 ═══ -->
+<div id="header">
+
+  <!-- ── ① + ② 并排 ── -->
+  <div class="module-row">
+    <!-- ① 数据输入 -->
+    <div class="module">
+      <div class="m-title"><span class="dot-in"></span> 数据输入</div>
+      <div class="input-row">
+        <label>关卡目录</label>
+        <input type="text" id="levelsDir" placeholder="关卡 JSON 所在目录（留空=默认）" style="font-size:10px">
+      </div>
+      <div class="input-row">
+        <label>地形 ID</label>
+        <input type="number" id="levelId" placeholder="如 100075" style="width:100px;flex:none">
+        <span style="font-size:10px;color:var(--m)">或路径</span>
+        <input type="text" id="terrainPath" placeholder="test/fixtures/100075.json" class="mono" style="flex:1">
+        <button class="btn-terrain" onclick="App.loadTerrain()" id="btnLoadTerrain">🏔 加载地形</button>
+      </div>
+      <div class="input-row">
+        <label>ReplayCode</label>
+        <input type="text" id="replayCode" placeholder="粘贴 Base64 ReplayCode..." class="mono">
+        <button class="btn-replay" onclick="App.loadReplay()" id="btnLoadReplay">🎮 加载牌局</button>
+      </div>
+      <div id="quickTags"></div>
+    </div>
+
+    <!-- ② 状态 -->
+    <div class="module">
+      <div class="m-title"><span class="dot-info"></span> 状态</div>
+      <div class="info-area">
+        <div class="status" id="statusBar">
+          <span class="badge badge-pending" id="statusBadge">等待输入</span>
+          <span style="font-size:11px;color:var(--m)" id="statusText">请加载地形或 ReplayCode</span>
+        </div>
+        <button class="btn-go" onclick="App.startAnalysis()" id="btnAnalyze" disabled>▶ 开始分析</button>
+      </div>
+      <div style="font-size:10px;color:var(--m);margin-top:2px" id="statusDetail"></div>
+    </div>
+  </div>
+
+  <!-- ── ③ 图设置 ── -->
+  <div class="module-full">
+    <div class="m-title"><span class="dot-set"></span> 图设置</div>
+    <div class="settings-row">
+      <span class="seg-label">图</span>
+      <button class="btn-sm active" id="tabDag" onclick="App.switchTab('dag')">偏序 DAG</button>
+      <button class="btn-sm" id="tabForce" onclick="App.switchTab('force')">力导向</button>
+      <span class="sep"></span>
+      <span class="seg-label">层</span>
+      <button class="btn-sm active" id="btnLayerQuantile" onclick="App.setLayerMode('depSetQuantile')">分位数</button>
+      <button class="btn-sm" id="btnLayerDepth" onclick="App.setLayerMode('dependencyDepth')">依赖深度</button>
+      <span class="sep"></span>
+      <span class="seg-label">每层</span>
+      <input type="range" id="fPerLayer" min="5" max="100" value="35" step="5" oninput="document.getElementById('fvPerLayer').textContent=this.value">
+      <span class="fv" id="fvPerLayer">35</span>
+      <span class="seg-label">边</span>
+      <input type="range" id="fMaxE" min="3" max="30" value="10" step="1" oninput="document.getElementById('fvMaxE').textContent=this.value">
+      <span class="fv" id="fvMaxE">10</span>
+      <button class="btn-sm" onclick="App.applyFilters()" title="用新过滤参数刷新图">刷新</button>
+      <span class="sep"></span>
+      <input type="text" id="searchTriple" placeholder="搜索 triple..." style="width:130px;font-size:10px;font-family:monospace;background:var(--bg);border:1px solid var(--b);border-radius:3px;color:var(--t);padding:3px 6px"
+        onkeydown="if(event.key==='Enter')App.searchTriple()">
+      <button class="btn-sm" onclick="App.searchTriple()">🔍</button>
+    </div>
+  </div>
 </div>
 
 <!-- ═══ Progress Overlay ═══ -->
@@ -101,44 +183,37 @@
     <svg id="forceSvg" style="display:none"></svg>
   </div>
   <div id="panel">
-    <!-- 概念说明 -->
-    <div class="psection">
-      <h3>📐 偏序关系 (B ≺ A)</h3>
-      <div style="font-size:11px;color:var(--t);line-height:1.6">
-        <b>定义</b>：B.depSet ⊆ A.depSet<br>
-        <span style="color:var(--m)">B 的所有依赖牌都在 A 的依赖中<br>→ 消除 B 释放的牌全部能帮到 A<br>→ B <b>绝对</b>应该在 A 之前消除</span><br>
-        ────────────────<br>
-        <b>等价性</b>：<br>
-        <span style="color:var(--m)">B 的 3 张牌 ∈ A 的 depSet<br>⟺ B.depSet ⊆ A.depSet<br>（因为 depSet = 传递依赖闭包）<br>所以「前提关系」=「偏序关系」</span><br>
-        ────────────────<br>
-        <b>分层</b>：depSetSize 分位数<br>
-        <span style="color:var(--m)">L0=cost最小(基础triple,先消)<br>→ L7=cost最大(依赖最深,后消)</span><br>
-        ────────────────<br>
-        <b>上→下</b> = 先消→后消<br>
-        <span style="color:#6b9fff">⬤</span> 蓝=上层 · <span style="color:#f85149">⬤</span> 红=下层<br>
-        <b>圆大</b> = 后继多 · <b>悬停</b> = 依赖链 · <b>点击</b> = 详情
-      </div>
-    </div>
-
     <!-- 统计 -->
     <div class="psection">
-      <h3>📊 统计</h3>
-      <div class="stat-grid" id="statsGrid">
-        <div class="stat-item"><div class="v" id="statTriples">-</div><div class="l">triple 总数</div></div>
-        <div class="stat-item"><div class="v" id="statEdges">-</div><div class="l">偏序边总数</div></div>
-        <div class="stat-item"><div class="v g" id="statMaxSucc">-</div><div class="l">最大后继数</div></div>
-        <div class="stat-item"><div class="v g" id="statMaxPred">-</div><div class="l">最大前驱数</div></div>
-        <div class="stat-item"><div class="v o" id="statAvgCost">-</div><div class="l">平均 cost</div></div>
-        <div class="stat-item"><div class="v" id="statLayers">-</div><div class="l" id="statLayersLabel">层数(分位数)</div></div>
+      <h3 onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">📊 统计 ▾</h3>
+      <div class="sbody">
+        <div class="stat-grid" id="statsGrid">
+          <div class="stat-item"><div class="v" id="statTriples">-</div><div class="l">triple 总数</div></div>
+          <div class="stat-item"><div class="v" id="statEdges">-</div><div class="l">偏序边总数</div></div>
+          <div class="stat-item"><div class="v g" id="statMaxSucc">-</div><div class="l">最大后继数</div></div>
+          <div class="stat-item"><div class="v g" id="statMaxPred">-</div><div class="l">最大前驱数</div></div>
+          <div class="stat-item"><div class="v o" id="statAvgCost">-</div><div class="l">平均 cost</div></div>
+          <div class="stat-item"><div class="v" id="statLayers">-</div><div class="l" id="statLayersLabel">层数(分位数)</div></div>
+        </div>
       </div>
     </div>
 
-    <!-- 过滤 -->
+    <!-- 概念说明（可折叠） -->
     <div class="psection">
-      <h3>🎚️ 过滤</h3>
-      <div class="frow"><label>每层节点数</label><input type="range" id="fPerLayer" min="5" max="100" value="35" step="5" oninput="document.getElementById('fvPerLayer').textContent=this.value" title="每个依赖层选取多少个代表 triple"><span class="fv" id="fvPerLayer">35</span></div>
-      <div class="frow"><label>每节点边数</label><input type="range" id="fMaxE" min="3" max="30" value="10" step="1" oninput="document.getElementById('fvMaxE').textContent=this.value" title="每个 triple 最多保留多少条入边/出边"><span class="fv" id="fvMaxE">10</span></div>
-      <button class="btn-s" onclick="App.applyFilters()" style="width:100%;margin-top:4px">刷新</button>
+      <h3 onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">📐 偏序关系 (B ≺ A) ▾</h3>
+      <div class="sbody" style="display:none">
+        <div style="font-size:11px;color:var(--t);line-height:1.6">
+          <b>B.depSet ⊆ A.depSet</b><br>
+          <span style="color:var(--m)">B 的所有依赖牌都在 A 的依赖中<br>→ B 消除对 A 有最大帮助<br>→ B <b>绝对</b>应该在 A 之前消除</span><br>
+          ──<br>
+          <b>分层：</b>depSetSize 分位数<br>
+          <span style="color:var(--m)">L0=基础 · L7=最深</span><br>
+          ──<br>
+          <b>上→下</b> = 先消→后消<br>
+          <span style="color:#6b9fff">⬤</span> 蓝=浅层 · <span style="color:#f85149">⬤</span> 红=深层<br>
+          <b>圆大</b>=后继多 · <b>悬停</b>=依赖链 · <b>点击</b>=详情
+        </div>
+      </div>
     </div>
 
     <!-- 检查器 -->
@@ -148,11 +223,11 @@
       <div id="inspectorContent" style="display:none">
         <div style="font-family:monospace;font-size:13px;font-weight:700;color:var(--a);word-break:break-all;margin-bottom:4px" id="ikey"></div>
         <div style="font-size:10px;color:var(--m);margin-bottom:4px" id="isummary"></div>
-        <div style="font-size:10px;color:var(--m);margin:6px 0 2px"><b>depSet</b>（这个triple的依赖包）</div>
+        <div style="font-size:10px;color:var(--m);margin:6px 0 2px"><b>depSet</b>（依赖包）</div>
         <div class="ilist" id="iDepSet"></div>
-        <div style="font-size:10px;color:var(--m);margin:6px 0 2px"><span class="tt-dep">↑ 被谁帮助</span>（消除它们降低我的cost）</div>
+        <div style="font-size:10px;color:var(--m);margin:6px 0 2px"><span class="tt-dep">↑ 被谁帮助</span></div>
         <div class="ilist" id="iPreds"></div>
-        <div style="font-size:10px;color:var(--m);margin:6px 0 2px"><span class="tt-impact">↓ 我帮助谁</span>（消除我降低它们的cost）</div>
+        <div style="font-size:10px;color:var(--m);margin:6px 0 2px"><span class="tt-impact">↓ 我帮助谁</span></div>
         <div class="ilist" id="iSuccs"></div>
       </div>
     </div>
@@ -168,39 +243,118 @@
 //  App — 主控制器
 // ════════════════════════════════════════════════════════════
 const App = {
-  state: { terrainPath: null, terrainInfo: null, analysisResult: null, selectedTriple: null, activeTab: 'dag', levelsDir: null, progressTimer: null, layerMode: 'depSetQuantile' },
+  state: {
+    terrainPath: null,      // 已解析的地形路径
+    terrainInfo: null,      // /api/terrain-info 返回
+    analysisResult: null,
+    selectedTriple: null,
+    activeTab: 'dag',
+    levelsDir: null,
+    progressTimer: null,
+    layerMode: 'depSetQuantile',
+    replayCode: null,
+    mode: null,             // 'terrain' | 'replay' — 当前激活的分析模式
+  },
 
-  async init() { DagGraph.init(); ForceGraph.init(); await this.scanLevels(); },
+  async init() {
+    DagGraph.init(); ForceGraph.init();
+    await this.scanLevels();
+    // 默认关卡目录
+    if (!document.getElementById('levelsDir').value && App.state.levelsDir) {
+      document.getElementById('levelsDir').value = App.state.levelsDir;
+    }
+  },
 
-  // ── Phase 1: 加载地形 ──
-  async loadTerrainInfo() {
+  /** 更新 Module 2 的状态显示 */
+  setStatus(type, text, detail) {
+    const badge = document.getElementById('statusBadge');
+    const stext = document.getElementById('statusText');
+    const sdetail = document.getElementById('statusDetail');
+    badge.className = 'badge';
+    if (type === 'loading') { badge.classList.add('badge-pending'); badge.textContent = '⏳ 加载中'; }
+    else if (type === 'ready') { badge.classList.add('badge-ok'); badge.textContent = '✅ 就绪'; }
+    else if (type === 'error') { badge.classList.add('badge-err'); badge.textContent = '❌ 失败'; }
+    else { badge.classList.add('badge-pending'); badge.textContent = '等待输入'; }
+    stext.textContent = text || '';
+    sdetail.innerHTML = detail || '';
+  },
+
+  /** 高亮当前模式按钮 */
+  setModeButton(mode) {
+    App.state.mode = mode;
+    const tb = document.getElementById('btnLoadTerrain');
+    const rb = document.getElementById('btnLoadReplay');
+    tb.classList.toggle('active', mode === 'terrain');
+    rb.classList.toggle('active', mode === 'replay');
+  },
+
+  // ══ 模式 1: 加载地形（空地形全范围） ══
+  async loadTerrain() {
     const levelId = document.getElementById('levelId').value.trim();
     const terrainPath = document.getElementById('terrainPath').value.trim();
-    if (!levelId && !terrainPath) return alert('请输入关卡ID或文件路径');
-    const badge = document.getElementById('terrainBadge'), btn = document.getElementById('btnAnalyze');
-    badge.style.display = 'flex'; badge.className = '';
-    badge.innerHTML = '<span style="color:var(--o)">⏳</span> 加载中...';
-    btn.disabled = true; document.getElementById('btnLoadTerrain').disabled = true;
+    const levelsDir = document.getElementById('levelsDir').value.trim();
+    if (!levelId && !terrainPath) return alert('请输入地形 ID 或文件路径');
+    App.state.replayCode = null; // 清掉 replay 模式
+    App.setModeButton('terrain');
+    App.setStatus('loading', '正在加载地形...');
+    document.getElementById('btnAnalyze').disabled = true;
     try {
       const resp = await fetch('/api/terrain-info', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ levelId: levelId || undefined, terrainPath: terrainPath || undefined, levelsDir: App.state.levelsDir || undefined }) });
+        body: JSON.stringify({ levelId: levelId || undefined, terrainPath: terrainPath || undefined, levelsDir: levelsDir || undefined }) });
       const data = await resp.json();
       if (!data.ok) throw new Error(data.error);
       App.state.terrainPath = data.resolvedPath; App.state.terrainInfo = data; App.state.analysisResult = null;
-      badge.innerHTML = `✅ 关卡 <b>${data.levelResId||'?'}</b> · ${data.freeTiles}牌 · ${data.layers}层 · ${data.steps}步`;
-      btn.disabled = false; btn.textContent = '▶ 开始分析';
-      document.getElementById('topInfo').textContent = '地形就绪';
-      window.location.hash = levelId || terrainPath;
+      App.state.levelsDir = levelsDir || App.state.levelsDir;
+      App.setStatus('ready',
+        `🏔 空地形模式 — 全范围 triple 分析`,
+        `关卡 ${data.levelResId||'?'} · ${data.freeTiles} 自由牌 · ${data.layers} 层 · ${data.steps} 步 · ${data.resolvedPath}`);
+      document.getElementById('btnAnalyze').disabled = false;
     } catch(err) {
-      badge.className = 'error'; badge.innerHTML = `❌ ${err.message}`;
-      document.getElementById('topInfo').textContent = '加载失败';
-    } finally { document.getElementById('btnLoadTerrain').disabled = false; }
+      App.setStatus('error', err.message);
+    }
   },
 
-  // ── Phase 2: 分析 ──
+  // ══ 模式 2: 加载 ReplayCode（牌局同花色） ══
+  async loadReplay() {
+    const rc = document.getElementById('replayCode').value.trim();
+    if (!rc) return alert('请粘贴 ReplayCode');
+    App.state.replayCode = rc;
+    App.setModeButton('replay');
+    App.setStatus('loading', '正在解码 ReplayCode...');
+    document.getElementById('btnAnalyze').disabled = true;
+    try {
+      const resp = await fetch('/api/terrain-info', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ replayCode: rc, levelsDir: App.state.levelsDir || document.getElementById('levelsDir').value.trim() || undefined }) });
+      const data = await resp.json();
+      if (!data.ok) throw new Error(data.error);
+      App.state.terrainPath = data.resolvedPath; App.state.terrainInfo = data; App.state.analysisResult = null;
+      let detail = `关卡 ${data.levelResId||'?'} · ${data.freeTiles} 自由牌 · ${data.layers} 层 · ${data.steps} 步`;
+      if (data.suitPreview) {
+        const sp = data.suitPreview;
+        const bars = sp.tilesPerSuit.map((x,i) => {
+          const colors = ['#f85149','#3fb950','#58a6ff','#d2991d','#a371f7','#ff7b72','#7ee787','#79c0ff'];
+          return `<span class="suit-bar" style="width:${Math.max(4,x.count*2)}px;background:${colors[i%8]}"></span>`;
+        }).join('');
+        detail += ` · 🎨 ${sp.suitCount}花色 [${sp.tilesPerSuit.map(x=>x.count).join(',')}] ${bars}`;
+      }
+      const autoNote = data.resolvedPath?.includes('自动匹配') ? '' : (data.resolvedPath ? '' : '');
+      App.setStatus('ready', `🎮 牌局模式 — 同花色 triple 分析`, detail);
+      document.getElementById('btnAnalyze').disabled = false;
+    } catch(err) {
+      App.setStatus('error', err.message);
+    }
+  },
+
+  // ══ 开始分析 ══
   async startAnalysis(forceRefresh = false) {
-    if (!App.state.terrainPath && !App.state.terrainInfo) { await App.loadTerrainInfo(); if (!App.state.terrainPath) return; }
-    const overlay = document.getElementById('progressOverlay'), phaseEl = document.getElementById('progPhase'), elapsedEl = document.getElementById('progElapsed'), btn = document.getElementById('btnAnalyze');
+    if (!App.state.terrainInfo) {
+      if (App.state.mode === 'replay') await App.loadReplay();
+      else await App.loadTerrain();
+    }
+    if (!App.state.terrainInfo) return;
+
+    const overlay = document.getElementById('progressOverlay'), phaseEl = document.getElementById('progPhase'),
+      elapsedEl = document.getElementById('progElapsed'), btn = document.getElementById('btnAnalyze');
     overlay.classList.add('show'); phaseEl.textContent = '正在分析 triple 关系...'; btn.disabled = true; btn.textContent = '⏳ 分析中...';
     const startTime = Date.now(), phases = ['构建 triples','计数前提关系','瓶颈分析','构建依赖边','偏序分析'];
     let phaseIdx = 0;
@@ -209,22 +363,43 @@ const App = {
       elapsedEl.textContent = `已等待 ${elapsed} 秒`;
       if (elapsed > 0 && elapsed % 8 === 0) { phaseIdx = (phaseIdx + 1) % phases.length; phaseEl.textContent = phases[phaseIdx] + '...'; }
     }, 1000);
+    App.setStatus('loading', '分析中...');
+
     try {
-      const lid = document.getElementById('levelId').value.trim(), tp = document.getElementById('terrainPath').value.trim();
+      const lid = document.getElementById('levelId').value.trim(),
+        tp = document.getElementById('terrainPath').value.trim(),
+        rc = App.state.replayCode,
+        ld = App.state.levelsDir || document.getElementById('levelsDir').value.trim();
       const resp = await fetch('/api/analyze-triples', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ levelId: lid || undefined, terrainPath: App.state.terrainPath || tp || undefined, levelsDir: App.state.levelsDir || undefined, forceRefresh,
-          stratify: true, perLayer: parseInt(document.getElementById('fPerLayer').value), maxEdgesPerNode: parseInt(document.getElementById('fMaxE').value), minSuccessors: 0,
-          layerMode: App.state.layerMode }) });
+        body: JSON.stringify({
+          levelId: App.state.mode === 'terrain' ? (lid || undefined) : undefined,
+          terrainPath: App.state.mode === 'terrain' ? (App.state.terrainPath || tp || undefined) : undefined,
+          levelsDir: ld || undefined,
+          replayCode: App.state.mode === 'replay' ? (rc || undefined) : undefined,
+          forceRefresh,
+          stratify: true,
+          perLayer: parseInt(document.getElementById('fPerLayer').value),
+          maxEdgesPerNode: parseInt(document.getElementById('fMaxE').value),
+          minSuccessors: 0,
+          layerMode: App.state.layerMode,
+        }) });
       const data = await resp.json();
       clearInterval(App.state.progressTimer); overlay.classList.remove('show');
       if (!data.ok) throw new Error(data.error);
       App.state.analysisResult = data; App.state.selectedTriple = null;
       App.updateStats(data);
+
       const s = data.statistics;
-      document.getElementById('topInfo').innerHTML = `<b>${s.totalTriples.toLocaleString()}</b> triples · <b>${s.totalPrerequisiteEdges.toLocaleString()}</b> 前提边 · <b>${s.triplesWithSuccessors.toLocaleString()}</b> 有关联`;
+      const modeLabel = data.mode === 'replay' ? '🎮 牌局' : '🏔 空地形';
+      App.setStatus('ready',
+        `${modeLabel} · ${s.totalTriples.toLocaleString()} triples · ${s.totalPrerequisiteEdges.toLocaleString()} 边 · ${s.triplesWithSuccessors.toLocaleString()} 有关联`);
       btn.textContent = '✅ 完成'; btn.disabled = false;
       App.switchTab(App.state.activeTab); App.clearInspector();
-    } catch(err) { clearInterval(App.state.progressTimer); overlay.classList.remove('show'); btn.disabled = false; btn.textContent = '▶ 开始分析'; alert('分析失败: ' + err.message); }
+    } catch(err) {
+      clearInterval(App.state.progressTimer); overlay.classList.remove('show');
+      btn.disabled = false; btn.textContent = '▶ 开始分析';
+      App.setStatus('error', err.message);
+    }
   },
 
   async scanLevels() {
@@ -232,8 +407,8 @@ const App = {
       const resp = await fetch('/api/levels'); const data = await resp.json();
       if (data.ok && data.levels?.length) {
         App.state.levelsDir = data.dir;
-        document.getElementById('quickTags').innerHTML = data.levels.slice(0, 15).map(l =>
-          `<span class="qt" onclick="document.getElementById('levelId').value='${l.id}';App.loadTerrainInfo()" title="${l.name}·${l.tiles}tiles">#${l.id}</span>`).join('');
+        document.getElementById('quickTags').innerHTML = data.levels.slice(0, 12).map(l =>
+          `<span class="qt" onclick="document.getElementById('levelId').value='${l.id}';App.loadTerrain()" title="${l.name}·${l.tiles}tiles">#${l.id}</span>`).join('');
         if (!document.getElementById('levelId').value && data.levels.length) document.getElementById('levelId').value = data.levels[0].id;
       }
     } catch {}
@@ -267,7 +442,6 @@ const App = {
   searchTriple() {
     const q = document.getElementById('searchTriple').value.trim();
     if (!q || !App.state.analysisResult) return;
-    // 在当前图中查找
     const graph = App.state.analysisResult.graph;
     const found = graph?.triples?.find(t => t.key === q);
     if (found) {
@@ -275,7 +449,6 @@ const App = {
       if (App.state.activeTab === 'dag') DagGraph.highlightNode(q);
       else if (App.state.activeTab === 'force') ForceGraph.highlightNode(q);
     } else {
-      // 不在当前图中，查 allTriples
       const at = App.state.analysisResult.allTriples;
       const t = at?.find(x => x.k === q);
       if (t) {
@@ -311,14 +484,12 @@ const App = {
     document.getElementById('inspectorContent').style.display = 'block';
     document.getElementById('ikey').textContent = key;
     document.getElementById('isummary').innerHTML = `cost=<b class="o">${t.d}</b> · 层=<b>${t.l}</b> · 影响 <b class="g">${t.s}</b> 个triple · 被 <b>${t.p}</b> 个帮助`;
-    // 简化版详情(本地数据)
     document.getElementById('iDepSet').innerHTML = `<div class="row"><span>加载中...</span></div>`;
     document.getElementById('iPreds').innerHTML = `<div class="row"><span>${t.p} 个前驱 (加载中...)</span></div>`;
     document.getElementById('iSuccs').innerHTML = `<div class="row"><span>${t.s} 个后继</span></div>`;
-    // 异步加载完整详情
     try {
       const resp = await fetch('/api/triple-detail', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tripleKey: key, levelHash: App.state.analysisResult?.terrainInfo?.levelHash, freeTileCount: App.state.analysisResult?.terrainInfo?.freeTiles }) });
+        body: JSON.stringify({ tripleKey: key, levelHash: App.state.analysisResult?.terrainInfo?.levelHash, freeTileCount: App.state.analysisResult?.terrainInfo?.freeTiles, mode: App.state.analysisResult?.mode }) });
       const detail = await resp.json();
       if (detail.ok) {
         const fmt = (arr, max) => arr.length === 0 ? '<div class="row">(无)</div>' :
@@ -326,7 +497,6 @@ const App = {
           (arr.length > max ? `<div class="row">... 还有 ${arr.length - max} 个</div>` : '');
         document.getElementById('iPreds').innerHTML = fmt(detail.detail.predecessors, 12);
         document.getElementById('iSuccs').innerHTML = fmt(detail.detail.successors, 12);
-        // depSet 内容
         const ds = detail.detail.node.depSetTiles;
         if (ds && ds.length > 0) {
           document.getElementById('iDepSet').innerHTML =
@@ -343,16 +513,12 @@ const App = {
 
 // ════════════════════════════════════════════════════════════
 //  DagGraph — 分层 DAG 图 (Sugiyama-style)
-//  ── 核心理念 ──
-//  上 = 被依赖 (前提, 先消) → 下 = 依赖别人 (后消)
-//  箭头 = 前提关系方向 (B帮助A → B在上, A在下)
 // ════════════════════════════════════════════════════════════
 const DagGraph = {
   svg: null, g: null, zoom: null,
   nodes: [], links: [], nodeMap: {},
   upstream: new Map(), downstream: new Map(),
 
-  /** 根据当前 layerMode 取正确的层号 */
   getLayer(triple) {
     return App.state.layerMode === 'dependencyDepth' ? triple.dependencyDepth : triple.topologicalLayer;
   },
@@ -363,7 +529,6 @@ const DagGraph = {
     this.zoom = d3.zoom().scaleExtent([0.15, 6]).on('zoom', (e) => { this.g.attr('transform', e.transform); });
     this.svg.call(this.zoom);
     this.g = this.svg.append('g');
-    // Arrow marker (pointing down)
     this.svg.append('defs').append('marker')
       .attr('id', 'dag-arrow').attr('viewBox', '0 -5 10 10').attr('refX', 13).attr('refY', 5).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
       .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', 'rgba(139,148,158,0.35)');
@@ -372,12 +537,9 @@ const DagGraph = {
       .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', 'rgba(88,166,255,0.7)');
   },
 
-  /** 构建上下游 BFS 缓存（在 render 时调用一次） */
   buildReachability() {
     this.upstream.clear(); this.downstream.clear();
-    // Build adjacency: pred→succ and succ→pred
-    const predOf = new Map(); // key → set of keys that are its predecessors
-    const succOf = new Map(); // key → set of keys that are its successors
+    const predOf = new Map(), succOf = new Map();
     for (const l of this.links) {
       const sk = this.nodes[l.source]?.id, tk = this.nodes[l.target]?.id;
       if (!sk || !tk) continue;
@@ -386,23 +548,12 @@ const DagGraph = {
       if (!predOf.has(tk)) predOf.set(tk, new Set());
       predOf.get(tk).add(sk);
     }
-    // For each node, BFS upstream and downstream
     for (const n of this.nodes) {
-      // Upstream: BFS following predecessors
-      const up = new Set();
-      const q = [n.id]; let h = 0;
-      while (h < q.length) {
-        const cur = q[h++];
-        for (const p of (predOf.get(cur) || [])) { if (!up.has(p)) { up.add(p); q.push(p); } }
-      }
+      const up = new Set(), q = [n.id]; let h = 0;
+      while (h < q.length) { const cur = q[h++]; for (const p of (predOf.get(cur) || [])) { if (!up.has(p)) { up.add(p); q.push(p); } } }
       this.upstream.set(n.id, up);
-      // Downstream: BFS following successors
-      const down = new Set();
-      const q2 = [n.id]; h = 0;
-      while (h < q2.length) {
-        const cur = q2[h++];
-        for (const s of (succOf.get(cur) || [])) { if (!down.has(s)) { down.add(s); q2.push(s); } }
-      }
+      const down = new Set(), q2 = [n.id]; h = 0;
+      while (h < q2.length) { const cur = q2[h++]; for (const s of (succOf.get(cur) || [])) { if (!down.has(s)) { down.add(s); q2.push(s); } } }
       this.downstream.set(n.id, down);
     }
   },
@@ -410,422 +561,184 @@ const DagGraph = {
   render() {
     const graph = App.state.analysisResult?.graph;
     if (!graph) return;
-    const gTriples = graph.triples;
-    const edges = graph.prerequisiteEdges || [];
-
-    // Build node array
+    const gTriples = graph.triples, edges = graph.prerequisiteEdges || [];
     this.nodeMap = {};
     this.nodes = gTriples.map((t, i) => { this.nodeMap[t.key] = i; return { id: t.key, index: i, triple: t, x: 0, y: 0 }; });
-    // Build link array (only edges between nodes in the set)
     this.links = [];
     for (const e of edges) {
       const si = this.nodeMap[e.from], ti = this.nodeMap[e.to];
       if (si !== undefined && ti !== undefined) this.links.push({ source: si, target: ti, overlap: e.overlap });
     }
-
-    // Compute reachability for dependency chain highlight
     this.buildReachability();
-
-    // Layout
     this.layoutDAG();
     this.draw();
   },
 
-  /** 分层 DAG 布局: y=层深, x=barycenter 排序 */
   layoutDAG() {
     const nodes = this.nodes, links = this.links;
     const W = Math.max(1200, document.getElementById('viz').clientWidth || 1200);
     const H = Math.max(800, document.getElementById('viz').clientHeight || 800);
-
-    // Group by layer
     const maxLayer = Math.max(...nodes.map(n => this.getLayer(n.triple)), 1);
     const layerNodes = new Map();
-    for (const n of nodes) {
-      const l = this.getLayer(n.triple);
-      if (!layerNodes.has(l)) layerNodes.set(l, []);
-      layerNodes.get(l).push(n);
-    }
+    for (const n of nodes) { const l = this.getLayer(n.triple); if (!layerNodes.has(l)) layerNodes.set(l, []); layerNodes.get(l).push(n); }
     const layers = [...layerNodes.keys()].sort((a, b) => a - b);
     const nLayers = layers.length;
-
-    // Y positions
     const margin = { top: 40, bottom: 40, left: 60, right: 60 };
     const usableH = H - margin.top - margin.bottom;
     const layerH = nLayers > 1 ? usableH / (nLayers - 1) : usableH / 2;
-    for (let li = 0; li < nLayers; li++) {
-      const l = layers[li];
-      for (const n of layerNodes.get(l)) n.y = margin.top + li * layerH;
-    }
-
-    // Build adjacency for barycenter
+    for (let li = 0; li < nLayers; li++) { const l = layers[li]; for (const n of layerNodes.get(l)) n.y = margin.top + li * layerH; }
     const predOf = new Map(), succOf = new Map();
     for (const n of nodes) { predOf.set(n.id, []); succOf.set(n.id, []); }
-    for (const l of links) {
-      const sk = nodes[l.source].id, tk = nodes[l.target].id;
-      succOf.get(sk).push(tk);
-      predOf.get(tk).push(sk);
-    }
-
-    // Initial x: sort by successorCount within each layer
-    for (const [l, arr] of layerNodes) {
-      arr.sort((a, b) => b.triple.successorCount - a.triple.successorCount);
-    }
-
-    // 3 passes of barycenter sorting (down, up, down)
+    for (const l of links) { const sk = nodes[l.source].id, tk = nodes[l.target].id; succOf.get(sk).push(tk); predOf.get(tk).push(sk); }
+    for (const [l, arr] of layerNodes) { arr.sort((a, b) => b.triple.successorCount - a.triple.successorCount); }
     for (let pass = 0; pass < 3; pass++) {
-      const dir = pass % 2 === 0 ? 1 : -1; // 1=down, -1=up
+      const dir = pass % 2 === 0 ? 1 : -1;
       const lRange = dir === 1 ? layers : [...layers].reverse();
       for (const l of lRange) {
-        const arr = layerNodes.get(l);
-        if (!arr) continue;
+        const arr = layerNodes.get(l); if (!arr) continue;
         const bary = new Map();
-        for (const n of arr) {
-          const neighbors = dir === 1 ? predOf.get(n.id) : succOf.get(n.id);
-          if (neighbors.length === 0) { bary.set(n.id, 0); continue; }
-          let sum = 0, cnt = 0;
-          for (const nb of neighbors) {
-            const nbNode = nodes[this.nodeMap[nb]];
-            if (nbNode && nbNode.x !== undefined) { sum += nbNode.x; cnt++; }
-          }
-          bary.set(n.id, cnt > 0 ? sum / cnt : 0);
-        }
+        for (const n of arr) { const neighbors = dir === 1 ? predOf.get(n.id) : succOf.get(n.id); if (neighbors.length === 0) { bary.set(n.id, 0); continue; } let sum = 0, cnt = 0; for (const nb of neighbors) { const nbNode = nodes[this.nodeMap[nb]]; if (nbNode && nbNode.x !== undefined) { sum += nbNode.x; cnt++; } } bary.set(n.id, cnt > 0 ? sum / cnt : 0); }
         arr.sort((a, b) => (bary.get(a.id) || 0) - (bary.get(b.id) || 0));
       }
-      // After each pass, assign x positions and spread
-      for (const l of layers) {
-        const arr = layerNodes.get(l);
-        if (!arr || arr.length === 0) continue;
-        const usableW = W - margin.left - margin.right;
-        const spacing = usableW / (arr.length + 1);
-        for (let i = 0; i < arr.length; i++) arr[i].x = margin.left + spacing * (i + 1);
-      }
+      for (const l of layers) { const arr = layerNodes.get(l); if (!arr || arr.length === 0) continue; const usableW = W - margin.left - margin.right; const spacing = usableW / (arr.length + 1); for (let i = 0; i < arr.length; i++) arr[i].x = margin.left + spacing * (i + 1); }
     }
-
-    // Store layer info for rendering
-    this._layers = layers;
-    this._layerNodes = layerNodes;
-    this._margin = margin;
+    this._layers = layers; this._layerNodes = layerNodes; this._margin = margin;
   },
 
   draw() {
     const nodes = this.nodes, links = this.links;
-    const g = this.g;
-    g.selectAll('*').remove();
-
-    if (nodes.length === 0) {
-      g.append('text').attr('x', 400).attr('y', 300).attr('text-anchor', 'middle').attr('fill', '#8b949e').attr('font-size', 14)
-        .text('无数据 — 请先加载地形并开始分析');
-      return;
-    }
-
+    const g = this.g; g.selectAll('*').remove();
+    if (nodes.length === 0) { g.append('text').attr('x', 400).attr('y', 300).attr('text-anchor', 'middle').attr('fill', '#8b949e').attr('font-size', 14).text('无数据 — 请先加载并开始分析'); return; }
     const maxSucc = Math.max(...nodes.map(n => n.triple.successorCount), 1);
     const rScale = d3.scaleSqrt().domain([0, maxSucc]).range([3, 22]);
     const maxLayer = Math.max(...nodes.map(n => this.getLayer(n.triple)), 1);
-
-    // Layer labels
     if (this._layers && this._layers.length > 1) {
-      g.selectAll('text.layer-label').data(this._layers).join('text')
-        .attr('class', 'layer-label')
-        .attr('x', 8).attr('y', l => (this._layerNodes.get(l)?.[0]?.y) || 0)
-        .attr('fill', '#8b949e').attr('font-size', 10).attr('font-family', 'monospace')
-        .text(l => `L${l}`);
+      g.selectAll('text.layer-label').data(this._layers).join('text').attr('class', 'layer-label').attr('x', 8).attr('y', l => (this._layerNodes.get(l)?.[0]?.y) || 0).attr('fill', '#8b949e').attr('font-size', 10).attr('font-family', 'monospace').text(l => `L${l}`);
     }
-
-    // Edges: curve from top to bottom
     const linkG = g.append('g').attr('class', 'links');
-    const link = linkG.selectAll('path').data(links).join('path')
-      .attr('d', d => {
-        const sy = nodes[d.source].y, ty = nodes[d.target].y;
-        const sx = nodes[d.source].x, tx = nodes[d.target].x;
-        const cy = (sy + ty) / 2;
-        return `M${sx},${sy} C${sx},${cy} ${tx},${cy} ${tx},${ty}`;
-      })
-      .attr('fill', 'none')
-      .attr('stroke', 'rgba(139,148,158,0.18)')
-      .attr('stroke-width', d => Math.max(0.5, Math.min(3, d.overlap / 4)))
-      .attr('marker-end', 'url(#dag-arrow)');
-
-    // Nodes
+    linkG.selectAll('path').data(links).join('path')
+      .attr('d', d => { const sy = nodes[d.source].y, ty = nodes[d.target].y, sx = nodes[d.source].x, tx = nodes[d.target].x, cy = (sy + ty) / 2; return `M${sx},${sy} C${sx},${cy} ${tx},${cy} ${tx},${ty}`; })
+      .attr('fill', 'none').attr('stroke', 'rgba(139,148,158,0.18)').attr('stroke-width', d => Math.max(0.5, Math.min(3, d.overlap / 4))).attr('marker-end', 'url(#dag-arrow)');
     const nodeG = g.append('g').attr('class', 'nodes');
     const node = nodeG.selectAll('g').data(nodes).join('g')
-      .attr('transform', d => `translate(${d.x},${d.y})`)
-      .attr('cursor', 'pointer')
+      .attr('transform', d => `translate(${d.x},${d.y})`).attr('cursor', 'pointer')
       .on('click', (event, d) => { event.stopPropagation(); App.selectTriple(d.id); })
       .on('mouseenter', (event, d) => { this.showTooltip(event, d); this.highlightNode(d.id); })
       .on('mouseleave', () => { this.hideTooltip(); this.unhighlight(); });
-
-    // Glow for important nodes
-    node.filter(d => d.triple.successorCount > maxSucc * 0.7).append('circle')
-      .attr('r', d => rScale(d.triple.successorCount) + 3)
-      .attr('fill', 'none').attr('stroke', 'rgba(248,129,73,0.3)').attr('stroke-width', 2);
-
-    // Color: blue (top/被依赖) → red (bottom/依赖别人)
+    node.filter(d => d.triple.successorCount > maxSucc * 0.7).append('circle').attr('r', d => rScale(d.triple.successorCount) + 3).attr('fill', 'none').attr('stroke', 'rgba(248,129,73,0.3)').attr('stroke-width', 2);
     const colorScale = d3.scaleSequential(d3.interpolateCool).domain([maxLayer, 0]);
-    node.append('circle')
-      .attr('r', d => rScale(d.triple.successorCount))
-      .attr('fill', d => colorScale(this.getLayer(d.triple)))
-      .attr('stroke', 'rgba(255,255,255,0.15)').attr('stroke-width', 1);
-
-    // Label for big nodes
-    node.filter(d => d.triple.successorCount > maxSucc * 0.5).append('text')
-      .attr('y', d => rScale(d.triple.successorCount) + 12)
-      .attr('text-anchor', 'middle').attr('fill', '#8b949e').attr('font-size', 8).attr('font-family', 'monospace')
-      .text(d => d.id.length > 12 ? d.id.substring(0, 10) + '..' : d.id);
-
-    // Click background to deselect
+    node.append('circle').attr('r', d => rScale(d.triple.successorCount)).attr('fill', d => colorScale(this.getLayer(d.triple))).attr('stroke', 'rgba(255,255,255,0.15)').attr('stroke-width', 1);
+    node.filter(d => d.triple.successorCount > maxSucc * 0.5).append('text').attr('y', d => rScale(d.triple.successorCount) + 12).attr('text-anchor', 'middle').attr('fill', '#8b949e').attr('font-size', 8).attr('font-family', 'monospace').text(d => d.id.length > 12 ? d.id.substring(0, 10) + '..' : d.id);
     this.svg.on('click', (event) => { if (event.target === this.svg.node()) App.clearInspector(); });
-
-    // Auto-zoom to fit
     const allX = nodes.map(n => n.x), allY = nodes.map(n => n.y);
     if (allX.length > 0) {
-      const minX = Math.min(...allX) - 60, maxX = Math.max(...allX) + 60;
-      const minY = Math.min(...allY) - 40, maxY = Math.max(...allY) + 40;
-      const vizW = document.getElementById('viz').clientWidth || 1200;
-      const vizH = document.getElementById('viz').clientHeight || 800;
+      const minX = Math.min(...allX) - 60, maxX = Math.max(...allX) + 60, minY = Math.min(...allY) - 40, maxY = Math.max(...allY) + 40;
+      const vizW = document.getElementById('viz').clientWidth || 1200, vizH = document.getElementById('viz').clientHeight || 800;
       const scale = Math.min(vizW / (maxX - minX), vizH / (maxY - minY), 1.2);
       const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-      this.svg.transition().duration(600).call(
-        this.zoom.transform,
-        d3.zoomIdentity.translate(vizW / 2 - cx * scale, vizH / 2 - cy * scale).scale(scale)
-      );
+      this.svg.transition().duration(600).call(this.zoom.transform, d3.zoomIdentity.translate(vizW / 2 - cx * scale, vizH / 2 - cy * scale).scale(scale));
     }
   },
 
-  /** 高亮某节点的完整依赖链 (上游 + 下游) */
   highlightNode(key) {
     if (!this.nodeMap || !(key in this.nodeMap)) return;
-    const up = this.upstream.get(key) || new Set();
-    const down = this.downstream.get(key) || new Set();
-    const all = new Set([key, ...up, ...down]);
-
-    // Nodes
-    this.g.selectAll('.nodes g').select('circle')
-      .transition().duration(150)
+    const up = this.upstream.get(key) || new Set(), down = this.downstream.get(key) || new Set(), all = new Set([key, ...up, ...down]);
+    this.g.selectAll('.nodes g').select('circle').transition().duration(150)
       .attr('opacity', d => all.has(d.id) ? 1 : 0.06)
       .attr('stroke', d => d.id === key ? '#fff' : (all.has(d.id) ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.02)'))
       .attr('stroke-width', d => d.id === key ? 2.5 : 1);
-
-    // Labels
-    this.g.selectAll('.nodes g text')
-      .transition().duration(150)
-      .attr('opacity', d => all.has(d.id) ? 1 : 0);
-
-    // Edges: highlight only edges in the dependency chain
-    this.g.selectAll('.links path')
-      .transition().duration(150)
-      .attr('opacity', d => {
-        const sk = this.nodes[d.source]?.id, tk = this.nodes[d.target]?.id;
-        if (!sk || !tk) return 0.03;
-        const inUpstream = up.has(sk) && up.has(tk); // edge entirely in upstream
-        const inDownstream = down.has(sk) && down.has(tk); // edge entirely in downstream
-        const crosses = (sk === key || up.has(sk)) && (tk === key || down.has(tk)); // edge crosses the hovered node
-        return (inUpstream || inDownstream || crosses) ? 0.7 : 0.02;
-      })
-      .attr('stroke-width', d => {
-        const sk = this.nodes[d.source]?.id, tk = this.nodes[d.target]?.id;
-        const related = (up.has(sk) || sk === key) && (down.has(tk) || tk === key || up.has(tk));
-        return related ? Math.max(1.5, Math.min(4, d.overlap / 2)) : 0.3;
-      });
+    this.g.selectAll('.nodes g text').transition().duration(150).attr('opacity', d => all.has(d.id) ? 1 : 0);
+    this.g.selectAll('.links path').transition().duration(150)
+      .attr('opacity', d => { const sk = this.nodes[d.source]?.id, tk = this.nodes[d.target]?.id; if (!sk || !tk) return 0.03; const inUp = up.has(sk) && up.has(tk), inDown = down.has(sk) && down.has(tk), crosses = (sk === key || up.has(sk)) && (tk === key || down.has(tk)); return (inUp || inDown || crosses) ? 0.7 : 0.02; })
+      .attr('stroke-width', d => { const sk = this.nodes[d.source]?.id, tk = this.nodes[d.target]?.id; const related = (up.has(sk) || sk === key) && (down.has(tk) || tk === key || up.has(tk)); return related ? Math.max(1.5, Math.min(4, d.overlap / 2)) : 0.3; });
   },
 
   unhighlight() {
-    this.g.selectAll('.nodes g circle')
-      .transition().duration(200)
-      .attr('opacity', 1).attr('stroke', 'rgba(255,255,255,0.15)').attr('stroke-width', 1);
+    this.g.selectAll('.nodes g circle').transition().duration(200).attr('opacity', 1).attr('stroke', 'rgba(255,255,255,0.15)').attr('stroke-width', 1);
     this.g.selectAll('.nodes g text').transition().duration(200).attr('opacity', 1);
-    this.g.selectAll('.links path')
-      .transition().duration(200)
-      .attr('opacity', 1)
-      .attr('stroke-width', d => Math.max(0.5, Math.min(3, d.overlap / 4)));
+    this.g.selectAll('.links path').transition().duration(200).attr('opacity', 1).attr('stroke-width', d => Math.max(0.5, Math.min(3, d.overlap / 4)));
   },
 
   showTooltip(event, d) {
-    const tt = document.getElementById('tooltip');
-    tt.style.display = 'block';
-    tt.innerHTML = `<div class="tt-key">${d.id}</div>
-      <div class="tt-row"><span>depSet大小</span><span class="o">${d.triple.depSetSize}</span></div>
-      <div class="tt-row"><span>拓扑层</span><span>${this.getLayer(d.triple)}</span></div>
-      <div class="tt-row"><span class="tt-impact">影响(后继)</span><span class="g">${d.triple.successorCount.toLocaleString()}</span></div>
-      <div class="tt-row"><span class="tt-dep">被帮助(前驱)</span><span>${d.triple.predecessorCount.toLocaleString()}</span></div>
-      <div class="tt-row"><span>瓶颈分</span><span>${d.triple.bottleneckScore.toFixed(3)}</span></div>
-      <div style="font-size:9px;color:var(--m);margin-top:2px">悬停=高亮依赖链 | 点击=详情</div>`;
-    tt.style.left = Math.min(event.pageX + 14, window.innerWidth - 360) + 'px';
-    tt.style.top = (event.pageY - 10) + 'px';
+    const tt = document.getElementById('tooltip'); tt.style.display = 'block';
+    tt.innerHTML = `<div class="tt-key">${d.id}</div><div class="tt-row"><span>depSet大小</span><span class="o">${d.triple.depSetSize}</span></div><div class="tt-row"><span>拓扑层</span><span>${this.getLayer(d.triple)}</span></div><div class="tt-row"><span class="tt-impact">影响(后继)</span><span class="g">${d.triple.successorCount.toLocaleString()}</span></div><div class="tt-row"><span class="tt-dep">被帮助(前驱)</span><span>${d.triple.predecessorCount.toLocaleString()}</span></div><div class="tt-row"><span>瓶颈分</span><span>${d.triple.bottleneckScore.toFixed(3)}</span></div><div style="font-size:9px;color:var(--m);margin-top:2px">悬停=高亮依赖链 | 点击=详情</div>`;
+    tt.style.left = Math.min(event.pageX + 14, window.innerWidth - 360) + 'px'; tt.style.top = (event.pageY - 10) + 'px';
   },
 
   hideTooltip() { document.getElementById('tooltip').style.display = 'none'; },
 };
 
 // ════════════════════════════════════════════════════════════
-//  ForceGraph — D3 力导向图 (探索性视角)
+//  ForceGraph — D3 力导向图
 // ════════════════════════════════════════════════════════════
 const ForceGraph = {
   svg: null, g: null, simulation: null, zoom: null,
   nodes: [], links: [], nodeMap: {},
 
-  getLayer(triple) {
-    return App.state.layerMode === 'dependencyDepth' ? triple.dependencyDepth : triple.topologicalLayer;
-  },
+  getLayer(triple) { return App.state.layerMode === 'dependencyDepth' ? triple.dependencyDepth : triple.topologicalLayer; },
 
   init() {
-    this.svg = d3.select('#forceSvg');
-    this.svg.selectAll('*').remove();
+    this.svg = d3.select('#forceSvg'); this.svg.selectAll('*').remove();
     this.zoom = d3.zoom().scaleExtent([0.1, 8]).on('zoom', (e) => { this.g.attr('transform', e.transform); });
-    this.svg.call(this.zoom);
-    this.g = this.svg.append('g');
+    this.svg.call(this.zoom); this.g = this.svg.append('g');
     const defs = this.svg.append('defs');
-    defs.append('marker').attr('id', 'force-arrow').attr('viewBox', '0 -5 10 10').attr('refX', 20).attr('refY', 0)
-      .attr('markerWidth', 5).attr('markerHeight', 5).attr('orient', 'auto')
-      .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', 'rgba(139,148,158,0.3)');
+    defs.append('marker').attr('id', 'force-arrow').attr('viewBox', '0 -5 10 10').attr('refX', 20).attr('refY', 0).attr('markerWidth', 5).attr('markerHeight', 5).attr('orient', 'auto').append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', 'rgba(139,148,158,0.3)');
   },
 
   render() {
-    // 先停掉旧的 simulation
     if (this.simulation) { this.simulation.stop(); this.simulation = null; }
-
-    const graph = App.state.analysisResult?.graph;
-    if (!graph) return;
-
-    const gTriples = graph.triples;
-    const edges = graph.prerequisiteEdges || [];
-
-    // 先拿到画布尺寸
-    const W = document.getElementById('viz').clientWidth || 1000;
-    const H = document.getElementById('viz').clientHeight || 700;
-
-    // 清空
-    this.g.selectAll('*').remove();
-    this.nodeMap = {};
-    this.nodes = [];
-    this.links = [];
-
-    if (gTriples.length === 0) {
-      this.g.append('text').attr('x', W/2).attr('y', H/2).attr('text-anchor', 'middle')
-        .attr('fill', '#8b949e').attr('font-size', 14).text('无数据');
-      return;
-    }
-
-    const maxLayer = Math.max(...gTriples.map(t => ForceGraph.getLayer(t)), 1);
-    const maxSucc = Math.max(...gTriples.map(t => t.successorCount), 1);
-
-    // 构建节点，带初始位置（按层散布，避免全堆在原点）
+    const graph = App.state.analysisResult?.graph; if (!graph) return;
+    const gTriples = graph.triples, edges = graph.prerequisiteEdges || [];
+    const W = document.getElementById('viz').clientWidth || 1000, H = document.getElementById('viz').clientHeight || 700;
+    this.g.selectAll('*').remove(); this.nodeMap = {}; this.nodes = []; this.links = [];
+    if (gTriples.length === 0) { this.g.append('text').attr('x', W/2).attr('y', H/2).attr('text-anchor', 'middle').attr('fill', '#8b949e').attr('font-size', 14).text('无数据'); return; }
+    const maxLayer = Math.max(...gTriples.map(t => ForceGraph.getLayer(t)), 1), maxSucc = Math.max(...gTriples.map(t => t.successorCount), 1);
     for (let i = 0; i < gTriples.length; i++) {
-      const t = gTriples[i];
-      this.nodeMap[t.key] = i;
-      this.nodes.push({
-        id: t.key,
-        index: i,
-        triple: t,
-        // 初始位置: 按拓扑层 + 随机偏移散布
-        x: W * 0.1 + (ForceGraph.getLayer(t) / Math.max(maxLayer, 1)) * W * 0.7 + (Math.random() - 0.5) * 100,
-        y: H * 0.2 + Math.random() * H * 0.6,
-      });
+      const t = gTriples[i]; this.nodeMap[t.key] = i;
+      this.nodes.push({ id: t.key, index: i, triple: t, x: W * 0.1 + (ForceGraph.getLayer(t) / Math.max(maxLayer, 1)) * W * 0.7 + (Math.random() - 0.5) * 100, y: H * 0.2 + Math.random() * H * 0.6 });
     }
-
-    // 构建边 — 用字符串 key，配合 forceLink.id() 解析
-    for (const e of edges) {
-      if (this.nodeMap[e.from] !== undefined && this.nodeMap[e.to] !== undefined) {
-        this.links.push({ source: e.from, target: e.to, overlap: e.overlap });
-      }
-    }
-
-    // Scales
+    for (const e of edges) { if (this.nodeMap[e.from] !== undefined && this.nodeMap[e.to] !== undefined) { this.links.push({ source: e.from, target: e.to, overlap: e.overlap }); } }
     const rScale = d3.scaleSqrt().domain([0, maxSucc]).range([3, 18]);
     const colorScale = d3.scaleSequential(d3.interpolateCool).domain([maxLayer, 0]);
     const layerX = d3.scaleLinear().domain([0, maxLayer]).range([100, W - 100]);
-
-    // 边
     const linkG = this.g.append('g');
-    const link = linkG.selectAll('line').data(this.links).join('line')
-      .attr('stroke', 'rgba(139,148,158,0.15)')
-      .attr('stroke-width', d => Math.max(0.5, Math.min(2.5, d.overlap / 6)))
-      .attr('marker-end', 'url(#force-arrow)');
-
-    // 节点
+    const link = linkG.selectAll('line').data(this.links).join('line').attr('stroke', 'rgba(139,148,158,0.15)').attr('stroke-width', d => Math.max(0.5, Math.min(2.5, d.overlap / 6))).attr('marker-end', 'url(#force-arrow)');
     const nodeG = this.g.append('g');
-    const node = nodeG.selectAll('g').data(this.nodes).join('g')
-      .attr('cursor', 'pointer')
-      .call(d3.drag()
-        .on('start', (e, d) => { if (!e.active) ForceGraph.simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
-        .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
-        .on('end', (e, d) => { if (!e.active) ForceGraph.simulation.alphaTarget(0); d.fx = null; d.fy = null; }))
+    const node = nodeG.selectAll('g').data(this.nodes).join('g').attr('cursor', 'pointer')
+      .call(d3.drag().on('start', (e, d) => { if (!e.active) ForceGraph.simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }).on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; }).on('end', (e, d) => { if (!e.active) ForceGraph.simulation.alphaTarget(0); d.fx = null; d.fy = null; }))
       .on('click', (e, d) => { e.stopPropagation(); App.selectTriple(d.id); })
-      .on('mouseenter', (e, d) => { this.showTooltip(e, d); })
-      .on('mouseleave', () => { document.getElementById('tooltip').style.display = 'none'; });
-
-    node.append('circle')
-      .attr('r', d => rScale(d.triple.successorCount))
-      .attr('fill', d => colorScale(this.getLayer(d.triple)))
-      .attr('stroke', 'rgba(255,255,255,0.2)').attr('stroke-width', 0.8);
-
-    node.append('title')
-      .text(d => `${d.id} | cost:${d.triple.depSetSize} succ:${d.triple.successorCount} pred:${d.triple.predecessorCount}`);
-
-    // Force simulation — 使用 this.nodes, this.links 引用
-    const nodes = this.nodes;
-    const links = this.links;
-
+      .on('mouseenter', (e, d) => { this.showTooltip(e, d); }).on('mouseleave', () => { document.getElementById('tooltip').style.display = 'none'; });
+    node.append('circle').attr('r', d => rScale(d.triple.successorCount)).attr('fill', d => colorScale(this.getLayer(d.triple))).attr('stroke', 'rgba(255,255,255,0.2)').attr('stroke-width', 0.8);
+    node.append('title').text(d => `${d.id} | cost:${d.triple.depSetSize} succ:${d.triple.successorCount} pred:${d.triple.predecessorCount}`);
+    const nodes = this.nodes, links = this.links;
     this.simulation = d3.forceSimulation(nodes)
       .force('link', d3.forceLink(links).id(d => d.id).distance(d => 45 + 100 / ((d.overlap || 1) + 1)).strength(0.3))
       .force('charge', d3.forceManyBody().strength(d => -60 - rScale(d.triple.successorCount) * 6))
       .force('center', d3.forceCenter(W / 2, H / 2))
-      .force('layerX', alpha => {
-        for (const n of nodes) {
-          n.vx += (layerX(ForceGraph.getLayer(n.triple)) - n.x) * alpha * 0.04;
-        }
-      })
-      .force('collision', d3.forceCollide(d => rScale(d.triple.successorCount) + 2))
-      .alpha(0.5) // 从高 alpha 开始，确保有足够的运动
-      .on('tick', () => {
-        link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-            .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
-        node.attr('transform', d => `translate(${d.x},${d.y})`);
-      });
-
+      .force('layerX', alpha => { for (const n of nodes) { n.vx += (layerX(ForceGraph.getLayer(n.triple)) - n.x) * alpha * 0.04; } })
+      .force('collision', d3.forceCollide(d => rScale(d.triple.successorCount) + 2)).alpha(0.5)
+      .on('tick', () => { link.attr('x1', d => d.source.x).attr('y1', d => d.source.y).attr('x2', d => d.target.x).attr('y2', d => d.target.y); node.attr('transform', d => `translate(${d.x},${d.y})`); });
     this.svg.on('click', (e) => { if (e.target === this.svg.node()) App.clearInspector(); });
   },
 
   highlightNode(key) {
     if (!this.nodeMap || !(key in this.nodeMap)) return;
     const idx = this.nodeMap[key];
-    this.g.selectAll('.nodes g circle')
-      .transition().duration(200)
-      .attr('opacity', d => d.id === key ? 1 : 0.06)
-      .attr('stroke', d => d.id === key ? '#fff' : 'rgba(255,255,255,0.03)')
-      .attr('stroke-width', d => d.id === key ? 2.5 : 0.5);
-    this.g.selectAll('.links line')
-      .transition().duration(200)
-      .attr('opacity', d => {
-        const sk = this.nodes[d.source?.index ?? d.source]?.id;
-        const tk = this.nodes[d.target?.index ?? d.target]?.id;
-        return (sk === key || tk === key) ? 0.7 : 0.02;
-      });
-    const n = this.nodes[idx];
-    if (n && n.x != null) {
-      const W = document.getElementById('viz').clientWidth || 1000;
-      const H = document.getElementById('viz').clientHeight || 700;
-      this.svg.transition().duration(500).call(
-        this.zoom.transform,
-        d3.zoomIdentity.translate(W/2 - n.x, H/2 - n.y).scale(1.5)
-      );
-    }
+    this.g.selectAll('.nodes g circle').transition().duration(200).attr('opacity', d => d.id === key ? 1 : 0.06).attr('stroke', d => d.id === key ? '#fff' : 'rgba(255,255,255,0.03)').attr('stroke-width', d => d.id === key ? 2.5 : 0.5);
+    this.g.selectAll('.links line').transition().duration(200).attr('opacity', d => { const sk = this.nodes[d.source?.index ?? d.source]?.id, tk = this.nodes[d.target?.index ?? d.target]?.id; return (sk === key || tk === key) ? 0.7 : 0.02; });
+    const n = this.nodes[idx]; if (n && n.x != null) { const W = document.getElementById('viz').clientWidth || 1000, H = document.getElementById('viz').clientHeight || 700; this.svg.transition().duration(500).call(this.zoom.transform, d3.zoomIdentity.translate(W/2 - n.x, H/2 - n.y).scale(1.5)); }
   },
 
   showTooltip(event, d) {
-    const tt = document.getElementById('tooltip');
-    tt.style.display = 'block';
+    const tt = document.getElementById('tooltip'); tt.style.display = 'block';
     tt.innerHTML = `<div class="tt-key">${d.id}</div><div class="tt-row"><span>depSet</span><span class="o">${d.triple.depSetSize}</span></div><div class="tt-row"><span>层</span><span>${this.getLayer(d.triple)}</span></div><div class="tt-row"><span class="tt-impact">后继</span><span class="g">${d.triple.successorCount.toLocaleString()}</span></div><div class="tt-row"><span class="tt-dep">前驱</span><span>${d.triple.predecessorCount.toLocaleString()}</span></div>`;
-    tt.style.left = Math.min(event.pageX + 14, window.innerWidth - 360) + 'px';
-    tt.style.top = (event.pageY - 10) + 'px';
+    tt.style.left = Math.min(event.pageX + 14, window.innerWidth - 360) + 'px'; tt.style.top = (event.pageY - 10) + 'px';
   },
 };
 
 // Init
 window.addEventListener('DOMContentLoaded', () => App.init());
-window.addEventListener('resize', () => {
-  if (App.state.activeTab === 'dag') DagGraph.render();
-  else if (App.state.activeTab === 'force') ForceGraph.render();
-});
+window.addEventListener('resize', () => { if (App.state.activeTab === 'dag') DagGraph.render(); else if (App.state.activeTab === 'force') ForceGraph.render(); });
 window.addEventListener('keydown', (e) => { if (e.key === 'Escape') App.clearInspector(); });
 </script>
 </body>

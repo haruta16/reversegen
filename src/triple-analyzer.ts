@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { buildTriples } from './triple-builder.js';
+import { buildTriples, buildTriplesBySuit } from './triple-builder.js';
 import { computeAllDependencies } from './dependency-graph.js';
 import type { TerrainTile, TerrainData, Triple } from './types.js';
 import { tripleKey, sortTriple } from './types.js';
@@ -79,6 +79,13 @@ export interface TripleAnalysisResult {
   partialOrderEdges: AnalysisEdge[];
   bottleneckTiles: BottleneckTile[];
   statistics: TripleAnalysisStatistics;
+  /** 分析模式: 'terrain' = 空地形全范围, 'replay' = ReplayCode 同花色 */
+  mode?: 'terrain' | 'replay';
+  /** ReplayCode 模式下的花色统计 */
+  suitStats?: {
+    suitCount: number;
+    tilesPerSuit: { suit: number; count: number }[];
+  };
 }
 
 // ═══════════════════════════════════════════════════
@@ -91,12 +98,12 @@ function ensureCacheDir(): void {
   if (!existsSync(CACHE_DIR)) mkdirSync(CACHE_DIR, { recursive: true });
 }
 
-function getCachePath(terrainHash: string): string {
-  return join(CACHE_DIR, `triple-analysis-${terrainHash}.json`);
+function getCachePath(cacheKey: string): string {
+  return join(CACHE_DIR, `triple-analysis-${cacheKey}.json`);
 }
 
-function loadFromCache(terrainHash: string): TripleAnalysisResult | null {
-  const cachePath = getCachePath(terrainHash);
+function loadFromCache(cacheKey: string): TripleAnalysisResult | null {
+  const cachePath = getCachePath(cacheKey);
   if (!existsSync(cachePath)) return null;
   try {
     return JSON.parse(readFileSync(cachePath, 'utf-8')) as TripleAnalysisResult;
@@ -105,10 +112,10 @@ function loadFromCache(terrainHash: string): TripleAnalysisResult | null {
   }
 }
 
-function saveToCache(result: TripleAnalysisResult): void {
+function saveToCache(cacheKey: string, result: TripleAnalysisResult): void {
   ensureCacheDir();
   try {
-    writeFileSync(getCachePath(result.terrainHash), JSON.stringify(result));
+    writeFileSync(getCachePath(cacheKey), JSON.stringify(result));
   } catch (e) {
     console.warn(`[triple-analyzer] 缓存写入失败: ${e}`);
   }
@@ -256,6 +263,9 @@ export interface AnalyzeOptions {
   edgeTopN?: number;
   /** 每个节点最多保留的边数 */
   maxEdgesPerNode?: number;
+  /** tileId → suitIndex 映射。提供时按花色分组构建 triple（ReplayCode 模式）；
+   *  省略时全局 C(n,3) 构建（空地形模式）。 */
+  suitMap?: Map<number, number>;
 }
 
 /**
@@ -268,10 +278,23 @@ export function analyzeTriples(
   const allTiles = getAllTiles(terrain);
   const freeTiles = allTiles.filter(t => !t.isConst);
   const terrainHash = hashTerrain(terrain, allTiles);
+  const useSuitMode = opts.suitMap !== undefined && opts.suitMap.size > 0;
+
+  // 缓存 key: 地形 hash + 自由牌数（空地形模式）或 + suit hash（ReplayCode 模式）
+  let cacheKeySuffix = `${freeTiles.length}`;
+  if (useSuitMode) {
+    const suitHash = createHash('md5')
+      .update([...opts.suitMap!.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([id, s]) => `${id}:${s}`).join(','))
+      .digest('hex').substring(0, 8);
+    cacheKeySuffix += `-suit-${suitHash}`;
+  }
+  const cacheKey = `${terrainHash}-${cacheKeySuffix}`;
 
   // 检查缓存
   if (!opts.force) {
-    const cached = loadFromCache(terrainHash);
+    const cached = loadFromCache(cacheKey);
     if (cached) return cached;
   }
 
@@ -282,7 +305,9 @@ export function analyzeTriples(
   // ── Step 1: 构建 triples ──
   report('构建 triples', 0, 1);
   const allDeps = computeAllDependencies(freeTiles);
-  const triples = buildTriples(freeTiles, allDeps);
+  const triples = useSuitMode
+    ? buildTriplesBySuit(freeTiles, allDeps, opts.suitMap!)
+    : buildTriples(freeTiles, allDeps);
   const n = triples.length;
 
   // ── Step 2: 构建辅助数据结构 ──
@@ -547,6 +572,23 @@ export function analyzeTriples(
     layerDistribution: layerDist,
   };
 
+  // ── suit 统计（仅 ReplayCode 模式）──
+  let suitStats: TripleAnalysisResult['suitStats'] = undefined;
+  if (useSuitMode) {
+    const suitCounts = new Map<number, number>();
+    for (const t of freeTiles) {
+      const s = opts.suitMap!.get(t.id) ?? 0;
+      suitCounts.set(s, (suitCounts.get(s) ?? 0) + 1);
+    }
+    const tilesPerSuit = [...suitCounts.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([suit, count]) => ({ suit, count }));
+    suitStats = {
+      suitCount: suitCounts.size,
+      tilesPerSuit,
+    };
+  }
+
   const result: TripleAnalysisResult = {
     terrainHash,
     terrainInfo: {
@@ -561,9 +603,11 @@ export function analyzeTriples(
     partialOrderEdges,
     bottleneckTiles,
     statistics,
+    mode: useSuitMode ? 'replay' : 'terrain',
+    suitStats,
   };
 
-  saveToCache(result);
+  saveToCache(cacheKey, result);
   return result;
 }
 

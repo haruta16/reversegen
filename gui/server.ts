@@ -26,6 +26,7 @@ import {
   filterGraphData,
   getTripleDetail,
 } from '../src/triple-analyzer.js';
+import { decodeFromString, getCanonicalTileOrder } from '../src/replay-serializer.js';
 
 /** 内存中的分析结果缓存 (keyed by terrainHash) */
 const analysisCache = new Map<string, ReturnType<typeof analyzeTriples>>();
@@ -97,6 +98,38 @@ function resolveTerrainPath(levelId: string | undefined, levelsDir: string | und
   return null;
 }
 
+/** levelHash → 文件路径 的内存缓存（避免重复扫描） */
+const hashToPath = new Map<string, string>();
+
+/** 按 levelHash 在 levels 目录中查找匹配的地形文件。
+ *  加载完整地形以获取计算后的 levelHash（兼容无 levelHash 字段的旧关卡文件）。 */
+function findTerrainByLevelHash(levelHash: string, levelsDir?: string): string | null {
+  if (!levelHash) return null;
+  // 命中缓存
+  const cached = hashToPath.get(levelHash);
+  if (cached && existsSync(cached)) return cached;
+
+  const dir = levelsDir || defaultLevelsDir;
+  if (!existsSync(dir)) return null;
+
+  try {
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith('.json')) continue;
+      const p = join(dir, f);
+      try {
+        const terrain = loadTerrainFromFile(p);
+        const h = terrain.levelHash;
+        if (h) hashToPath.set(h, p);
+        if (h === levelHash) {
+          console.log(`[auto-resolve] ReplayCode levelHash=${levelHash} → ${basename(p)}`);
+          return p;
+        }
+      } catch { /* 跳过损坏的 JSON */ }
+    }
+  } catch { return null; }
+  return null;
+}
+
 /** List level IDs from a directory */
 function listLevels(dir: string): Array<{ id: number; name: string; tiles: number }> {
   if (!existsSync(dir)) return [];
@@ -133,14 +166,46 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/terrain-info' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { levelId, levelsDir, terrainPath } = body as { levelId?: string; levelsDir?: string; terrainPath?: string };
-      const path = resolveTerrainPath(levelId, levelsDir, terrainPath);
-      if (!path) throw new Error('请提供关卡ID或文件路径');
+      const { levelId, levelsDir, terrainPath, replayCode } = body as {
+        levelId?: string; levelsDir?: string; terrainPath?: string; replayCode?: string;
+      };
+      let path = resolveTerrainPath(levelId, levelsDir, terrainPath);
+
+      // ReplayCode 自动解析地形：解码获取 levelHash → 在 levels 目录中匹配
+      if (!path && replayCode) {
+        const replayData = decodeFromString(replayCode);
+        if (replayData && replayData.levelHash !== 0n) {
+          const hashStr = replayData.levelHash.toString(16).padStart(16, '0');
+          path = findTerrainByLevelHash(hashStr, levelsDir);
+        }
+      }
+      if (!path) throw new Error('请提供关卡ID、文件路径或有效的 ReplayCode');
 
       const terrain = loadTerrainFromFile(path);
       const allTiles = getAllTiles(terrain);
       const freeTiles = allTiles.filter(t => !t.isConst);
       const constTiles = allTiles.filter(t => t.isConst);
+
+      // 如果提供了 ReplayCode，解码返回花色分布
+      let suitPreview: { suitCount: number; tilesPerSuit: { suit: number; count: number }[] } | undefined;
+      if (replayCode) {
+        const replayData = decodeFromString(replayCode);
+        if (replayData) {
+          const ordered = getCanonicalTileOrder(allTiles);
+          const sc = new Map<number, number>();
+          for (let i = 0; i < ordered.length && i < replayData.instanceArray.length; i++) {
+            const tile = ordered[i];
+            if (!tile.isConst) {
+              const s = replayData.instanceArray[i] & 0x3F;
+              sc.set(s, (sc.get(s) ?? 0) + 1);
+            }
+          }
+          suitPreview = {
+            suitCount: sc.size,
+            tilesPerSuit: [...sc.entries()].sort((a, b) => a[0] - b[0]).map(([suit, count]) => ({ suit, count })),
+          };
+        }
+      }
 
       json(res, {
         ok: true,
@@ -154,6 +219,7 @@ const server = createServer(async (req, res) => {
         width: terrain.LevelWidth,
         height: terrain.LevelHeight,
         resolvedPath: path,
+        suitPreview: suitPreview ?? null,
       });
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
     return;
@@ -256,9 +322,9 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/analyze-triples' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { levelId, levelsDir, terrainPath, terrainJson, forceRefresh } = body as {
+      const { levelId, levelsDir, terrainPath, terrainJson, forceRefresh, replayCode } = body as {
         levelId?: string; levelsDir?: string; terrainPath?: string;
-        terrainJson?: string; forceRefresh?: boolean;
+        terrainJson?: string; forceRefresh?: boolean; replayCode?: string;
       };
       const { topN, minSuccessors, maxEdgesPerNode, layerMin, layerMax, stratify, perLayer, layerMode } = body as {
         topN?: number; minSuccessors?: number; maxEdgesPerNode?: number;
@@ -279,21 +345,44 @@ const server = createServer(async (req, res) => {
           try { unlinkSync(tmpPath); } catch {}
         }
       } else {
-        const path = resolveTerrainPath(levelId, levelsDir, terrainPath);
-        if (!path) throw new Error('请提供关卡ID、文件路径或地形JSON');
+        let path = resolveTerrainPath(levelId, levelsDir, terrainPath);
+        // ReplayCode 自动解析地形
+        if (!path && replayCode) {
+          const replayData = decodeFromString(replayCode);
+          if (replayData && replayData.levelHash !== 0n) {
+            const hashStr = replayData.levelHash.toString(16).padStart(16, '0');
+            path = findTerrainByLevelHash(hashStr, levelsDir);
+          }
+        }
+        if (!path) throw new Error('请提供关卡ID、文件路径、地形JSON或有效的 ReplayCode');
         terrain = loadTerrainFromFile(path);
       }
 
-      // 计算或从缓存获取分析结果 (首次构建边用 generous 默认值)
-      const cacheKey = `${terrain.levelHash || 'no-hash'}-${getAllTiles(terrain).filter(t => !t.isConst).length}`;
-      let analysisResult = analysisCache.get(cacheKey);
+      // ── 解码 ReplayCode，构建 suitMap ──
+      let suitMap: Map<number, number> | undefined;
+      if (replayCode) {
+        const replayData = decodeFromString(replayCode);
+        if (!replayData) throw new Error('ReplayCode 解码失败');
+        const ordered = getCanonicalTileOrder(getAllTiles(terrain));
+        suitMap = new Map<number, number>();
+        for (let i = 0; i < ordered.length && i < replayData.instanceArray.length; i++) {
+          suitMap.set(ordered[i].id, replayData.instanceArray[i] & 0x3F);
+        }
+      }
+
+      // 计算或从缓存获取分析结果
+      const freeCount = getAllTiles(terrain).filter(t => !t.isConst).length;
+      const mcKey = `${terrain.levelHash || 'no-hash'}-${freeCount}` +
+        (suitMap ? `-replay` : '');
+      let analysisResult = analysisCache.get(mcKey);
       if (!analysisResult || forceRefresh) {
         analysisResult = analyzeTriples(terrain, {
           force: !!forceRefresh,
-          edgeTopN: 6000,        // 预构建足够多的边，覆盖更多层
+          edgeTopN: 6000,
           maxEdgesPerNode: 20,
+          suitMap,
         });
-        analysisCache.set(cacheKey, analysisResult);
+        analysisCache.set(mcKey, analysisResult);
       }
 
       // 过滤图数据
@@ -312,10 +401,6 @@ const server = createServer(async (req, res) => {
       const allTriples = analysisResult.triples;
       const graphTriples = graphData.nodeIndices.map(i => allTriples[i]);
 
-      // 构建响应: 用 triple key 标识边（filterGraphData 已返回完整边集，直接转换索引→key）
-      const allTriples = analysisResult.triples;
-      const graphTriples = graphData.nodeIndices.map(i => allTriples[i]);
-
       const allEdges: { from: string; to: string; overlap: number }[] =
         graphData.prerequisiteEdges.map(e => ({
           from: allTriples[e.from].key,
@@ -325,7 +410,9 @@ const server = createServer(async (req, res) => {
 
       json(res, {
         ok: true,
+        mode: analysisResult.mode ?? 'terrain',
         terrainInfo: analysisResult.terrainInfo,
+        suitStats: analysisResult.suitStats ?? null,
         statistics: analysisResult.statistics,
         bottleneckTiles: analysisResult.bottleneckTiles,
         graph: {
@@ -355,14 +442,15 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/triple-detail' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { tripleKey: tk, levelHash, freeTileCount } = body as {
-        tripleKey?: string; levelHash?: string; freeTileCount?: number;
+      const { tripleKey: tk, levelHash, freeTileCount, mode } = body as {
+        tripleKey?: string; levelHash?: string; freeTileCount?: number; mode?: string;
       };
       if (!tk) throw new Error('Missing tripleKey');
 
-      // 从缓存中查找
-      const cacheKey = `${levelHash || 'no-hash'}-${freeTileCount || 0}`;
-      const analysisResult = analysisCache.get(cacheKey);
+      // 缓存 key 必须与 /api/analyze-triples 一致（replay 模式带 -replay 后缀）
+      const baseKey = `${levelHash || 'no-hash'}-${freeTileCount || 0}`;
+      const mcKey = mode === 'replay' ? `${baseKey}-replay` : baseKey;
+      const analysisResult = analysisCache.get(mcKey);
       if (!analysisResult) throw new Error('请先运行分析 (/api/analyze-triples)');
 
       const detail = getTripleDetail(analysisResult, tk);

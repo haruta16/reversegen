@@ -56,6 +56,39 @@ export function buildTriples(
 }
 
 /**
+ * 从牌列表中按花色分组枚举合法 triple。
+ * 每张牌的花色由 suitMap 指定，同花色的三张牌才能组成 triple。
+ *
+ * 用于 ReplayCode 牌局分析模式（生产后校验）。
+ */
+export function buildTriplesBySuit(
+  tiles: TerrainTile[],
+  allDeps: Map<number, Set<number>>,
+  suitMap: Map<number, number>,
+): Triple[] {
+  // 按花色分组
+  const suitGroups = new Map<number, TerrainTile[]>();
+  for (const tile of tiles) {
+    const suit = suitMap.get(tile.id) ?? 0;
+    let group = suitGroups.get(suit);
+    if (!group) {
+      group = [];
+      suitGroups.set(suit, group);
+    }
+    group.push(tile);
+  }
+
+  // 对每个花色组内独立构建 C(k,3) 个 triple
+  const result: Triple[] = [];
+  for (const group of suitGroups.values()) {
+    if (group.length >= 3) {
+      result.push(...buildTriples(group, allDeps));
+    }
+  }
+  return result;
+}
+
+/**
  * 检查 triple 是否与已使用的牌有重叠。
  * 直接对应 C# 版: Overlaps(Triple t, HashSet<int> used)
  */
