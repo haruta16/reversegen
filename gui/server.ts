@@ -10,6 +10,7 @@ import { readFileSync, existsSync, readdirSync, writeFileSync, unlinkSync, mkdir
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exec } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 import {
   generateBoard,
@@ -372,8 +373,13 @@ const server = createServer(async (req, res) => {
 
       // 计算或从缓存获取分析结果
       const freeCount = getAllTiles(terrain).filter(t => !t.isConst).length;
-      const mcKey = `${terrain.levelHash || 'no-hash'}-${freeCount}` +
-        (suitMap ? `-replay` : '');
+      let mcKey = `${terrain.levelHash || 'no-hash'}-${freeCount}`;
+      if (suitMap) {
+        const suitHash = createHash('md5')
+          .update([...suitMap.entries()].sort((a, b) => a[0] - b[0]).map(([id, s]) => `${id}:${s}`).join(','))
+          .digest('hex').substring(0, 8);
+        mcKey += `-replay-${suitHash}`;
+      }
       let analysisResult = analysisCache.get(mcKey);
       if (!analysisResult || forceRefresh) {
         analysisResult = analyzeTriples(terrain, {
@@ -410,6 +416,7 @@ const server = createServer(async (req, res) => {
 
       json(res, {
         ok: true,
+        cacheKey: mcKey,
         mode: analysisResult.mode ?? 'terrain',
         terrainInfo: analysisResult.terrainInfo,
         suitStats: analysisResult.suitStats ?? null,
@@ -442,14 +449,13 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/triple-detail' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { tripleKey: tk, levelHash, freeTileCount, mode } = body as {
-        tripleKey?: string; levelHash?: string; freeTileCount?: number; mode?: string;
+      const { tripleKey: tk, cacheKey } = body as {
+        tripleKey?: string; cacheKey?: string;
       };
       if (!tk) throw new Error('Missing tripleKey');
 
-      // 缓存 key 必须与 /api/analyze-triples 一致（replay 模式带 -replay 后缀）
-      const baseKey = `${levelHash || 'no-hash'}-${freeTileCount || 0}`;
-      const mcKey = mode === 'replay' ? `${baseKey}-replay` : baseKey;
+      // 用分析时返回的精确 cacheKey 查找（确保不同花色分布的缓存不串）
+      const mcKey = cacheKey || '';
       const analysisResult = analysisCache.get(mcKey);
       if (!analysisResult) throw new Error('请先运行分析 (/api/analyze-triples)');
 

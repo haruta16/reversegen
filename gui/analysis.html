@@ -246,7 +246,7 @@ const App = {
   state: {
     terrainPath: null,      // 已解析的地形路径
     terrainInfo: null,      // /api/terrain-info 返回
-    analysisResult: null,
+    analysisResult: null, analysisCacheKey: null,
     selectedTriple: null,
     activeTab: 'dag',
     levelsDir: null,
@@ -386,7 +386,7 @@ const App = {
       const data = await resp.json();
       clearInterval(App.state.progressTimer); overlay.classList.remove('show');
       if (!data.ok) throw new Error(data.error);
-      App.state.analysisResult = data; App.state.selectedTriple = null;
+      App.state.analysisResult = data; App.state.analysisCacheKey = data.cacheKey || null; App.state.selectedTriple = null;
       App.updateStats(data);
 
       const s = data.statistics;
@@ -489,7 +489,7 @@ const App = {
     document.getElementById('iSuccs').innerHTML = `<div class="row"><span>${t.s} 个后继</span></div>`;
     try {
       const resp = await fetch('/api/triple-detail', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tripleKey: key, levelHash: App.state.analysisResult?.terrainInfo?.levelHash, freeTileCount: App.state.analysisResult?.terrainInfo?.freeTiles, mode: App.state.analysisResult?.mode }) });
+        body: JSON.stringify({ tripleKey: key, cacheKey: App.state.analysisCacheKey }) });
       const detail = await resp.json();
       if (detail.ok) {
         const fmt = (arr, max) => arr.length === 0 ? '<div class="row">(无)</div>' :

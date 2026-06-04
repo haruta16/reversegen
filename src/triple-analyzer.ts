@@ -750,18 +750,8 @@ export function filterGraphData(
     nodeEC.set(e.to, ct + 1);
   }
 
-  // ── Step 5: 剔除在候选图中完全孤立的节点 ──
-  // minSuccessors 等过滤可能排除了一些"桥梁"节点，导致其他节点虽然全局有连接、
-  // 在候选集中却找不到任何人。这些节点留在图上无意义。
-  const connectedNodes = new Set<number>();
-  for (const e of selectedEdges) {
-    connectedNodes.add(e.from);
-    connectedNodes.add(e.to);
-  }
-  const finalIndices = [...candidateSet].filter(i => connectedNodes.has(i));
-
   return {
-    nodeIndices: finalIndices,
+    nodeIndices: [...candidateSet],
     prerequisiteEdges: selectedEdges,
     partialOrderEdges: [], // 不在过滤层计算偏序边（前端不使用）
   };
