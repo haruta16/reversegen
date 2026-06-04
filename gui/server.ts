@@ -25,9 +25,7 @@ import {
   analyzeTriples,
   filterGraphData,
   getTripleDetail,
-  intersectSize,
 } from '../src/triple-analyzer.js';
-import { tripleKey, sortTriple } from '../src/types.js';
 
 /** 内存中的分析结果缓存 (keyed by terrainHash) */
 const analysisCache = new Map<string, ReturnType<typeof analyzeTriples>>();
@@ -303,64 +301,27 @@ const server = createServer(async (req, res) => {
         stratify: stratify ?? true,
         perLayer: perLayer ?? 80,
         topN: topN ?? 1000,
-        minSuccessors: minSuccessors ?? 1,
+        minSuccessors: minSuccessors ?? 0,
         maxEdgesPerNode: maxEdgesPerNode ?? 15,
         layerMin,
         layerMax,
         layerMode: layerMode ?? 'depSetQuantile',
       });
 
-      // 构建响应: 用 triple key 标识边（前端无需关心原始索引）
+      // 构建响应: 用 triple key 标识边（filterGraphData 已返回完整边集，直接转换索引→key）
       const allTriples = analysisResult.triples;
       const graphTriples = graphData.nodeIndices.map(i => allTriples[i]);
 
-      // 补充前驱边: 对每个显示节点，从它的 depSetTiles 枚举 C(n,3)，
-      // 找到也在显示集合中的前驱 triple，补上存储边集中缺失的连线
-      const displayedKeys = new Set(graphTriples.map(t => t.key));
-      const edgeSet = new Set<string>(); // "fromKey|toKey"
-      const allEdges: { from: string; to: string; overlap: number }[] = [];
+      // 构建响应: 用 triple key 标识边（filterGraphData 已返回完整边集，直接转换索引→key）
+      const allTriples = analysisResult.triples;
+      const graphTriples = graphData.nodeIndices.map(i => allTriples[i]);
 
-      // 先加入存储的边
-      for (const e of graphData.prerequisiteEdges) {
-        const fk = allTriples[e.from].key, tk = allTriples[e.to].key;
-        const sig = `${fk}|${tk}`;
-        if (!edgeSet.has(sig)) {
-          edgeSet.add(sig);
-          allEdges.push({ from: fk, to: tk, overlap: e.overlap });
-        }
-      }
-
-      // 对每个显示节点，从其 depSetTiles 枚举前驱
-      for (const node of graphTriples) {
-        const ds = node.depSetTiles; // 已排序
-        const d = ds.length;
-        if (d < 3) continue;
-        const [at1, at2, at3] = node.tileIds;
-
-        for (let a = 0; a < d - 2; a++) {
-          const t1 = ds[a];
-          if (t1 === at1 || t1 === at2 || t1 === at3) continue;
-          for (let b = a + 1; b < d - 1; b++) {
-            const t2 = ds[b];
-            if (t2 === at1 || t2 === at2 || t2 === at3) continue;
-            for (let c = b + 1; c < d; c++) {
-              const t3 = ds[c];
-              if (t3 === at1 || t3 === at2 || t3 === at3) continue;
-              const predKey = tripleKey(sortTriple(t1, t2, t3));
-              if (!displayedKeys.has(predKey)) continue;
-
-              const sig = `${predKey}|${node.key}`;
-              if (!edgeSet.has(sig)) {
-                edgeSet.add(sig);
-                // 找到前驱节点以计算 overlap
-                const predNode = graphTriples.find(t => t.key === predKey);
-                const overlap = predNode ? intersectSize(predNode.depSetTiles, ds) : 0;
-                allEdges.push({ from: predKey, to: node.key, overlap });
-              }
-            }
-          }
-        }
-      }
+      const allEdges: { from: string; to: string; overlap: number }[] =
+        graphData.prerequisiteEdges.map(e => ({
+          from: allTriples[e.from].key,
+          to: allTriples[e.to].key,
+          overlap: e.overlap,
+        }));
 
       json(res, {
         ok: true,

@@ -596,11 +596,11 @@ export function filterGraphData(
   result: TripleAnalysisResult,
   opts: GraphFilterOptions = {},
 ): FilteredGraphData {
-  const { triples, prerequisiteEdges, partialOrderEdges } = result;
+  const { triples } = result;
   const n = triples.length;
   const topN = opts.topN ?? 500;
   const perLayer = opts.perLayer ?? 80;
-  const minS = opts.minSuccessors ?? 1;
+  const minS = opts.minSuccessors ?? 0;
   const minP = opts.minPredecessors ?? -1;
   const maxE = opts.maxEdgesPerNode ?? 12;
   const lMin = opts.layerMin ?? -1;
@@ -608,6 +608,7 @@ export function filterGraphData(
   const useDepth = opts.layerMode === 'dependencyDepth';
   const getLayer = (t: TripleNode) => useDepth ? t.dependencyDepth : t.topologicalLayer;
 
+  // ── Step 1: 选择候选节点 ──
   let candidateSet: Set<number>;
 
   if (opts.stratify) {
@@ -648,26 +649,77 @@ export function filterGraphData(
     }
   }
 
-  const nodeEC = new Map<number, number>();
-  function selectEdges(edges: AnalysisEdge[]): AnalysisEdge[] {
-    nodeEC.clear();
-    const selected: AnalysisEdge[] = [];
-    for (const e of [...edges].sort((a, b) => b.overlap - a.overlap)) {
-      if (!candidateSet.has(e.from) || !candidateSet.has(e.to)) continue;
-      const cf = nodeEC.get(e.from) ?? 0;
-      const ct = nodeEC.get(e.to) ?? 0;
-      if (cf >= maxE && ct >= maxE) continue;
-      selected.push(e);
-      nodeEC.set(e.from, cf + 1);
-      nodeEC.set(e.to, ct + 1);
-    }
-    return selected;
+  // ── Step 2: 构建 key→index 查找表 ──
+  const keyToIndex = new Map<string, number>();
+  for (let i = 0; i < n; i++) {
+    keyToIndex.set(triples[i].key, i);
   }
 
+  // ── Step 3: 从 depSet 实时枚举重构边（完整覆盖，不受 Pass 2 topSet 截断影响）──
+  // 对每个候选节点，枚举其 depSetTiles 中 C(d,3) 个前驱组合。
+  // 若前驱也在候选集中，记录边（前驱→当前节点）。
+  // 每条边只被"to 端"枚举一次，天然去重。
+  const edgeMap = new Map<string, AnalysisEdge>(); // `${from}|${to}` → edge
+
+  for (const idx of candidateSet) {
+    const node = triples[idx];
+    const ds = node.depSetTiles; // 已排序
+    const d = ds.length;
+    if (d < 3) continue;
+    const [at1, at2, at3] = node.tileIds;
+
+    for (let a = 0; a < d - 2; a++) {
+      const t1 = ds[a];
+      if (t1 === at1 || t1 === at2 || t1 === at3) continue;
+      for (let b = a + 1; b < d - 1; b++) {
+        const t2 = ds[b];
+        if (t2 === at1 || t2 === at2 || t2 === at3) continue;
+        for (let c = b + 1; c < d; c++) {
+          const t3 = ds[c];
+          if (t3 === at1 || t3 === at2 || t3 === at3) continue;
+
+          const predKey = tripleKey(sortTriple(t1, t2, t3));
+          const predIdx = keyToIndex.get(predKey);
+          if (predIdx === undefined || !candidateSet.has(predIdx)) continue;
+
+          const sig = `${predIdx}|${idx}`;
+          if (edgeMap.has(sig)) continue;
+
+          const overlap = intersectSize(triples[predIdx].depSetTiles, ds);
+          edgeMap.set(sig, { from: predIdx, to: idx, overlap });
+        }
+      }
+    }
+  }
+
+  // ── Step 4: 按 overlap 降序排序，应用每节点边数上限 ──
+  const allEdges = [...edgeMap.values()].sort((a, b) => b.overlap - a.overlap);
+  const nodeEC = new Map<number, number>();
+  const selectedEdges: AnalysisEdge[] = [];
+
+  for (const e of allEdges) {
+    const cf = nodeEC.get(e.from) ?? 0;
+    const ct = nodeEC.get(e.to) ?? 0;
+    if (cf >= maxE && ct >= maxE) continue;
+    selectedEdges.push(e);
+    nodeEC.set(e.from, cf + 1);
+    nodeEC.set(e.to, ct + 1);
+  }
+
+  // ── Step 5: 剔除在候选图中完全孤立的节点 ──
+  // minSuccessors 等过滤可能排除了一些"桥梁"节点，导致其他节点虽然全局有连接、
+  // 在候选集中却找不到任何人。这些节点留在图上无意义。
+  const connectedNodes = new Set<number>();
+  for (const e of selectedEdges) {
+    connectedNodes.add(e.from);
+    connectedNodes.add(e.to);
+  }
+  const finalIndices = [...candidateSet].filter(i => connectedNodes.has(i));
+
   return {
-    nodeIndices: [...candidateSet],
-    prerequisiteEdges: selectEdges(prerequisiteEdges),
-    partialOrderEdges: selectEdges(partialOrderEdges),
+    nodeIndices: finalIndices,
+    prerequisiteEdges: selectedEdges,
+    partialOrderEdges: [], // 不在过滤层计算偏序边（前端不使用）
   };
 }
 

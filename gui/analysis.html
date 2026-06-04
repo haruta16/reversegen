@@ -213,7 +213,7 @@ const App = {
       const lid = document.getElementById('levelId').value.trim(), tp = document.getElementById('terrainPath').value.trim();
       const resp = await fetch('/api/analyze-triples', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ levelId: lid || undefined, terrainPath: App.state.terrainPath || tp || undefined, levelsDir: App.state.levelsDir || undefined, forceRefresh,
-          stratify: true, perLayer: parseInt(document.getElementById('fPerLayer').value), maxEdgesPerNode: parseInt(document.getElementById('fMaxE').value), minSuccessors: 1,
+          stratify: true, perLayer: parseInt(document.getElementById('fPerLayer').value), maxEdgesPerNode: parseInt(document.getElementById('fMaxE').value), minSuccessors: 0,
           layerMode: App.state.layerMode }) });
       const data = await resp.json();
       clearInterval(App.state.progressTimer); overlay.classList.remove('show');
