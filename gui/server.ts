@@ -327,10 +327,10 @@ const server = createServer(async (req, res) => {
         levelId?: string; levelsDir?: string; terrainPath?: string;
         terrainJson?: string; forceRefresh?: boolean; replayCode?: string;
       };
-      const { topN, minSuccessors, maxEdgesPerNode, layerMin, layerMax, stratify, perLayer, layerMode } = body as {
+      const { topN, minSuccessors, maxEdgesPerNode, layerMin, layerMax, stratify, perLayer, layerMode, edgeMode, partialThreshold } = body as {
         topN?: number; minSuccessors?: number; maxEdgesPerNode?: number;
         layerMin?: number; layerMax?: number; stratify?: boolean; perLayer?: number;
-        layerMode?: string; // 'depSetQuantile' | 'dependencyDepth'
+        layerMode?: string; edgeMode?: string; partialThreshold?: number;
       };
 
       let terrain;
@@ -401,6 +401,8 @@ const server = createServer(async (req, res) => {
         layerMin,
         layerMax,
         layerMode: layerMode ?? 'depSetQuantile',
+        edgeMode: (edgeMode === 'partial' ? 'partial' : 'full') as 'full' | 'partial',
+        partialThreshold,
       });
 
       // 构建响应: 用 triple key 标识边（filterGraphData 已返回完整边集，直接转换索引→key）

@@ -153,6 +153,15 @@
       <button class="btn-sm active" id="btnLayerQuantile" onclick="App.setLayerMode('depSetQuantile')">分位数</button>
       <button class="btn-sm" id="btnLayerDepth" onclick="App.setLayerMode('dependencyDepth')">依赖深度</button>
       <span class="sep"></span>
+      <span class="seg-label">边模式</span>
+      <button class="btn-sm active" id="btnEdgeFull" onclick="App.setEdgeMode('full')">完全</button>
+      <button class="btn-sm" id="btnEdgePartial" onclick="App.setEdgeMode('partial')" title="depSet重叠率≥阈值即建边">部分</button>
+      <span id="partialThreshRow" style="display:none">
+        <span class="seg-label">阈值</span>
+        <input type="range" id="fPartialThresh" min="30" max="90" value="50" step="5" oninput="document.getElementById('fvPartialThresh').textContent=(this.value/100).toFixed(2)">
+        <span class="fv" id="fvPartialThresh">0.50</span>
+      </span>
+      <span class="sep"></span>
       <span class="seg-label">每层</span>
       <input type="range" id="fPerLayer" min="5" max="100" value="35" step="5" oninput="document.getElementById('fvPerLayer').textContent=this.value">
       <span class="fv" id="fvPerLayer">35</span>
@@ -254,6 +263,7 @@ const App = {
     layerMode: 'depSetQuantile',
     replayCode: null,
     mode: null,             // 'terrain' | 'replay' — 当前激活的分析模式
+    edgeMode: 'full',       // 'full' | 'partial'
   },
 
   async init() {
@@ -296,6 +306,7 @@ const App = {
     if (!levelId && !terrainPath) return alert('请输入地形 ID 或文件路径');
     App.state.replayCode = null; // 清掉 replay 模式
     App.setModeButton('terrain');
+    App.setEdgeMode('full');     // 空地形模式不支持 partial
     App.setStatus('loading', '正在加载地形...');
     document.getElementById('btnAnalyze').disabled = true;
     try {
@@ -382,6 +393,8 @@ const App = {
           maxEdgesPerNode: parseInt(document.getElementById('fMaxE').value),
           minSuccessors: 0,
           layerMode: App.state.layerMode,
+          edgeMode: App.state.mode === 'replay' ? App.state.edgeMode : 'full',
+          partialThreshold: App.state.edgeMode === 'partial' ? parseInt(document.getElementById('fPartialThresh').value) / 100 : undefined,
         }) });
       const data = await resp.json();
       clearInterval(App.state.progressTimer); overlay.classList.remove('show');
@@ -437,6 +450,14 @@ const App = {
       if (App.state.activeTab === 'dag') DagGraph.render();
       else if (App.state.activeTab === 'force') ForceGraph.render();
     }
+  },
+
+  setEdgeMode(mode) {
+    App.state.edgeMode = mode;
+    document.getElementById('btnEdgeFull').classList.toggle('active', mode === 'full');
+    document.getElementById('btnEdgePartial').classList.toggle('active', mode === 'partial');
+    document.getElementById('partialThreshRow').style.display = mode === 'partial' ? '' : 'none';
+    if (App.state.analysisResult) App.applyFilters();
   },
 
   searchTriple() {

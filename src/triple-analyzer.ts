@@ -628,6 +628,10 @@ export interface GraphFilterOptions {
   layerMax?: number;
   /** 'depSetQuantile' (默认) | 'dependencyDepth' */
   layerMode?: string;
+  /** 边构建模式: 'full' = 完全包含 (默认), 'partial' = 部分包含 (仅牌局模式) */
+  edgeMode?: 'full' | 'partial';
+  /** partial 模式下 depSet 重叠率阈值 (0~1)，默认 0.5 */
+  partialThreshold?: number;
 }
 
 export interface FilteredGraphData {
@@ -699,38 +703,74 @@ export function filterGraphData(
     keyToIndex.set(triples[i].key, i);
   }
 
-  // ── Step 3: 从 depSet 实时枚举重构边（完整覆盖，不受 Pass 2 topSet 截断影响）──
-  // 对每个候选节点，枚举其 depSetTiles 中 C(d,3) 个前驱组合。
-  // 若前驱也在候选集中，记录边（前驱→当前节点）。
-  // 每条边只被"to 端"枚举一次，天然去重。
+  // ── Step 3: 构建边 ──
+  const usePartial = opts.edgeMode === 'partial';
+  const partialThreshold = opts.partialThreshold ?? 0.5;
   const edgeMap = new Map<string, AnalysisEdge>(); // `${from}|${to}` → edge
 
-  for (const idx of candidateSet) {
-    const node = triples[idx];
-    const ds = node.depSetTiles; // 已排序
-    const d = ds.length;
-    if (d < 3) continue;
-    const [at1, at2, at3] = node.tileIds;
+  if (usePartial) {
+    // ── partial 模式：两两比较候选节点，重叠率 ≥ 阈值即建边 ──
+    const candidateArr = [...candidateSet];
+    for (let i = 0; i < candidateArr.length; i++) {
+      const fromIdx = candidateArr[i];
+      const fromNode = triples[fromIdx];
+      const fromDS = fromNode.depSetTiles;
+      const fromSize = fromDS.length;
+      const fromTiles = fromNode.tileIds;
 
-    for (let a = 0; a < d - 2; a++) {
-      const t1 = ds[a];
-      if (t1 === at1 || t1 === at2 || t1 === at3) continue;
-      for (let b = a + 1; b < d - 1; b++) {
-        const t2 = ds[b];
-        if (t2 === at1 || t2 === at2 || t2 === at3) continue;
-        for (let c = b + 1; c < d; c++) {
-          const t3 = ds[c];
-          if (t3 === at1 || t3 === at2 || t3 === at3) continue;
+      for (let j = 0; j < candidateArr.length; j++) {
+        if (i === j) continue;
+        const toIdx = candidateArr[j];
+        const toNode = triples[toIdx];
 
-          const predKey = tripleKey(sortTriple(t1, t2, t3));
-          const predIdx = keyToIndex.get(predKey);
-          if (predIdx === undefined || !candidateSet.has(predIdx)) continue;
+        // 跳过共享牌的 triple（同一花色内 triple 可能共享牌，边无意义）
+        const toTiles = toNode.tileIds;
+        if (fromTiles[0] === toTiles[0] || fromTiles[0] === toTiles[1] || fromTiles[0] === toTiles[2] ||
+            fromTiles[1] === toTiles[0] || fromTiles[1] === toTiles[1] || fromTiles[1] === toTiles[2] ||
+            fromTiles[2] === toTiles[0] || fromTiles[2] === toTiles[1] || fromTiles[2] === toTiles[2]) continue;
 
-          const sig = `${predIdx}|${idx}`;
-          if (edgeMap.has(sig)) continue;
+        const toDS = toNode.depSetTiles;
+        const overlap = intersectSize(fromDS, toDS);
+        const ratio = overlap / fromSize;
+        if (ratio < partialThreshold) continue;
 
-          const overlap = intersectSize(triples[predIdx].depSetTiles, ds);
-          edgeMap.set(sig, { from: predIdx, to: idx, overlap });
+        const sig = `${fromIdx}|${toIdx}`;
+        if (edgeMap.has(sig)) continue;
+        edgeMap.set(sig, { from: fromIdx, to: toIdx, overlap });
+      }
+    }
+  } else {
+    // ── full 模式：从 depSet 实时枚举重构边 ──
+    // 对每个候选节点，枚举其 depSetTiles 中 C(d,3) 个前驱组合。
+    // 若前驱也在候选集中，记录边（前驱→当前节点）。
+    // 每条边只被"to 端"枚举一次，天然去重。
+    for (const idx of candidateSet) {
+      const node = triples[idx];
+      const ds = node.depSetTiles; // 已排序
+      const d = ds.length;
+      if (d < 3) continue;
+      const [at1, at2, at3] = node.tileIds;
+
+      for (let a = 0; a < d - 2; a++) {
+        const t1 = ds[a];
+        if (t1 === at1 || t1 === at2 || t1 === at3) continue;
+        for (let b = a + 1; b < d - 1; b++) {
+          const t2 = ds[b];
+          if (t2 === at1 || t2 === at2 || t2 === at3) continue;
+          for (let c = b + 1; c < d; c++) {
+            const t3 = ds[c];
+            if (t3 === at1 || t3 === at2 || t3 === at3) continue;
+
+            const predKey = tripleKey(sortTriple(t1, t2, t3));
+            const predIdx = keyToIndex.get(predKey);
+            if (predIdx === undefined || !candidateSet.has(predIdx)) continue;
+
+            const sig = `${predIdx}|${idx}`;
+            if (edgeMap.has(sig)) continue;
+
+            const overlap = intersectSize(triples[predIdx].depSetTiles, ds);
+            edgeMap.set(sig, { from: predIdx, to: idx, overlap });
+          }
         }
       }
     }
