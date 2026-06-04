@@ -1,0 +1,28 @@
+/**
+ * Solver framework — public API.
+ *
+ * Provides tile-click granularity game simulation and solvers
+ * for analyzing board properties (solvability, death points, decision branches).
+ */
+
+// Types
+export type {
+  TileConfig,
+  GameStateKey,
+  SolverResult,
+  GreedyResult,
+  RandomResult,
+  BoardAnalysis,
+  DAGFeatures,
+} from './types.js';
+
+export { OfflineTile, TileFlag, PileType } from './types.js';
+
+// Game engine
+export { OfflineGame, createGame } from './offline-game.js';
+export type { GameFactoryInput } from './offline-game.js';
+
+// Solvers
+export { solveDFS, hasColorParityIssue } from './solver-dfs.js';
+export { solveGreedy } from './solver-greedy.js';
+export { solveRandom, solveRandomBatch } from './solver-random.js';
