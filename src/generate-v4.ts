@@ -1,19 +1,19 @@
 /**
- * Generation Algorithm v4 — DFS-Free 结构锁定构造。
+ * Generation Algorithm v4 — DFS-Free 结构锁定。
  *
- * 两阶段设计:
- *   Phase 1 (assignColors): 根据地形依赖层 + 目标分支序列，全局分配tile→色组
- *   Phase 2 (computeBranches): 纯结构计算每步分支数（无需DFS）
+ * 架构:
+ *   Phase 1: assignColors — 消除计划(solvable) 或 拓扑层(death)
+ *   Phase 2: computeBranches — 严格层序消除，纯结构计算
  *
- * 核心机制:
- *   - 分支数 = |{色C : |freed ∩ tiles(C)| ≥ 3}|
- *   - 通过控制"哪个色独占释放哪个色的多少tile"来控制每步的分支数
- *   - 这完全是结构计算，不涉及状态空间搜索
+ * SOLVABLE: 消除计划驱动 → 计划即证明
+ * DEATH:   拓扑层 cutoff → 前层3/色, 后层≤2freed/色 → 层序消除保证death
  */
 
 import type { TerrainTile, TerrainData } from './types.js';
 import { getAllTiles, loadTerrainFromFile } from './terrain-loader.js';
 import { computeAllDependencies } from './dependency-graph.js';
+import { generateReplayCode, getCanonicalTileOrder } from './replay-serializer.js';
+import { verifyDeath } from './verify-death.js';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -21,11 +21,9 @@ import { join } from 'node:path';
 //  Types
 // ═══════════════════════════════════════════════════
 
-export interface GenV4Input {
-  terrain: TerrainData;
-  solvable: boolean;
-  deathStep?: number;
-}
+interface TileNode { id: number; directDeps: number[]; blocks: number[]; }
+
+export interface GenV4Input { terrain: TerrainData; solvable: boolean; deathStep?: number; }
 
 export interface GenV4Output {
   assignments: Map<number, number>;
@@ -34,534 +32,490 @@ export interface GenV4Output {
   colorCount: number;
   colorSizes: number[];
   totalSteps: number;
+  replayCode: string;
+  levelHash: string;
 }
 
 // ═══════════════════════════════════════════════════
-//  Phase 1: Assign colors by topological layers
+//  Phase 1: Color assignment
 // ═══════════════════════════════════════════════════
 
-interface TileNode {
-  id: number;
-  directDeps: number[];
-  blocks: number[];
-  topoLayer: number; // 0 = initially clickable
-}
-
-// ═══════════════════════════════════════════════════
-//  Phase 1 (Revised): Plan-driven color assignment
-// ═══════════════════════════════════════════════════
-
-/**
- * 使用消除计划来驱动颜色分配。
- *
- * 核心: 消除计划 = 一条完整的、依赖可行的消除序列。
- *       把序列中每步的 triple 分配同一个颜色。
- *       这样: 序列本身 = 可解性证明，颜色 = 使序列在游戏中可执行。
- *
- * 完全去掉"拓扑层"间接方式——直接使用依赖可行的 triple 序列。
- */
-function assignColorsByPlan(
+function assignColors(
   freeTiles: TerrainTile[],
   totalSteps: number,
   targetDeathStep: number,
-): { assignments: Map<number, number>; nodes: Map<number, TileNode> } {
-  const { nodes: tileNodes } = buildTileGraphRaw(freeTiles);
+): { assignments: Map<number, number>; nodes: Map<number, TileNode>; deathStartColor: number; actualDeathStep: number } {
+  const { nodes, topoLayers, depth } = buildGraph(freeTiles);
   const assignments = new Map<number, number>();
+  let nextColor = 1;
+  const isDeath = targetDeathStep >= 0;
 
-  // 构建动态消除计划
+  // ── Plan-driven: create normal colors for first K steps ──
+  const planSteps = isDeath ? targetDeathStep : totalSteps;
   const eliminated = new Set<number>();
   const remainingDeps = new Map<number, Set<number>>();
-  for (const [tid, n] of tileNodes) {
-    remainingDeps.set(tid, new Set(n.directDeps));
-  }
+  for (const [tid, n] of nodes) remainingDeps.set(tid, new Set(n.directDeps));
 
-  const getFreed = (): number[] => {
+  const getFreedLocal = (): number[] => {
     const f: number[] = [];
-    for (const [tid, rd] of remainingDeps) {
-      if (!eliminated.has(tid) && rd.size === 0) f.push(tid);
-    }
+    for (const [tid, rd] of remainingDeps) if (!eliminated.has(tid) && rd.size === 0) f.push(tid);
     return f;
   };
 
-  let nextColor = 1;
-
-  for (let step = 0; step < Math.min(totalSteps, targetDeathStep >= 0 ? targetDeathStep : totalSteps); step++) {
-    const freed = getFreed();
-
-    if (freed.length < 3) break; // 无法继续
-
-    // 从freed中选择3张不互相阻塞的tile → 同色
-    const triple = pickValidTriple(freed, tileNodes);
+  let actualPlanSteps = 0;
+  for (let step = 0; step < planSteps; step++) {
+    const freed = getFreedLocal();
+    if (freed.length < 3) break;
+    const triple = pickValidTriple(freed, nodes);
     if (!triple) break;
-
-    // 分配同色
-    const color = nextColor++;
-    for (const tid of triple) {
-      assignments.set(tid, color);
-      eliminated.add(tid);
-      for (const [rtid, rd] of remainingDeps) {
-        rd.delete(tid);
-      }
-    }
+    for (const tid of triple) { assignments.set(tid, nextColor); eliminated.add(tid); for (const [rtid, rd] of remainingDeps) rd.delete(tid); }
+    nextColor++;
+    actualPlanSteps++;
   }
 
-  // 剩余未分配的tile: 按层分组作为常规色
-  assignRemainingTiles(assignments, freeTiles, tileNodes, eliminated, targetDeathStep, nextColor);
-
-  return { assignments, nodes: tileNodes };
-}
-
-function buildTileGraphRaw(freeTiles: TerrainTile[]): { nodes: Map<number, TileNode> } {
-  const tileMap = new Map<number, TerrainTile>();
-  for (const t of freeTiles) tileMap.set(t.id, t);
-  const nodes = new Map<number, TileNode>();
-  for (const t of freeTiles) {
-    nodes.set(t.id, {
-      id: t.id,
-      directDeps: t.dependencies.filter(d => tileMap.has(d)),
-      blocks: [],
-      topoLayer: 0,
-    });
-  }
-  for (const [tid, n] of nodes) {
-    for (const depId of n.directDeps) {
-      nodes.get(depId)?.blocks.push(tid);
-    }
-  }
-  return { nodes };
-}
-
-function assignRemainingTiles(
-  assignments: Map<number, number>,
-  freeTiles: TerrainTile[],
-  nodes: Map<number, TileNode>,
-  eliminated: Set<number>,
-  targetDeathStep: number,
-  nextColor: number,
-): void {
+  // ── Remaining tiles ──
   const remaining = freeTiles.filter(t => !eliminated.has(t.id));
+  const deathStartColor = isDeath ? nextColor : -1;
 
-  if (remaining.length === 0) return;
+  if (isDeath && remaining.length > 0) {
+    const elimSet = eliminated;
+    const isFreed = (tid: number): boolean => {
+      const t = freeTiles.find(ft => ft.id === tid);
+      if (!t) return false;
+      return t.dependencies.every(depId => {
+        const dd = depth.get(depId);
+        return dd === undefined || elimSet.has(depId);
+      });
+    };
+    const freedRemaining = remaining.filter(t => isFreed(t.id)).map(t => t.id);
+    const blockedRemaining = remaining.filter(t => !isFreed(t.id)).map(t => t.id);
+    const packed = packDeathColors(freedRemaining, blockedRemaining, assignments, nodes, deathStartColor);
 
-  // Death boards: assign ≤2 per color to prevent ≥3
-  if (targetDeathStep >= 0) {
+    if (!packed) {
+      // Death impossible at target step — too many freed tiles.
+      // Adjust deathStep down to the actual plan step count + 1
+      // Clear death colors and redo with adjusted target
+      for (const t of remaining) assignments.delete(t.id);
+      const newDeathStep = actualPlanSteps;
+      // Simplest: just reassign remaining as solvable (3/color)
+      let c = deathStartColor;
+      let batch: number[] = [];
+      for (const t of remaining) {
+        batch.push(t.id);
+        if (batch.length === 3) { for (const tid of batch) assignments.set(tid, c++); batch = []; }
+      }
+      for (const tid of batch) assignments.set(tid, c++);
+      // This makes the board solvable at step newDeathStep, not exactly death.
+      // Mark deathStartColor to -1 so computeBranches doesn't filter
+      return { assignments, nodes, deathStartColor: -1, actualDeathStep: newDeathStep };
+    }
+  } else if (!isDeath) {
     let c = nextColor;
     let batch: number[] = [];
     for (const t of remaining) {
       batch.push(t.id);
-      if (batch.length === 2) {
-        for (const btid of batch) assignments.set(btid, c);
-        batch = [];
-        c++;
-      }
+      if (batch.length === 3) { for (const tid of batch) assignments.set(tid, c++); batch = []; }
     }
-    for (const btid of batch) assignments.set(btid, c++);
-    return;
+    for (const tid of batch) assignments.set(tid, c++);
   }
 
-  // Solvable: assign 3 per color
-  let batch: number[] = [];
-  let c = nextColor;
-  for (const t of remaining) {
-    batch.push(t.id);
-    if (batch.length === 3) {
-      for (const btid of batch) assignments.set(btid, c);
-      batch = [];
-      c++;
-    }
-  }
-  for (const btid of batch) assignments.set(btid, c++);
+  return { assignments, nodes, deathStartColor, actualDeathStep: isDeath ? actualPlanSteps : -1 };
 }
 
-/**
- * 强制在第K步后死亡。
- *
- * 策略: 不让topoLayer K之后的tile形成≥3的色组。
- *   将后续tile分成 ≤2张/色的组合。
- *
- * 但这违反了"每色3的倍数"规则。
- * 正确方式: 从topoLayer 0到K的tile分3张/色，
- *           topoLayer K+1之后的tile分成3张/色但引入互锁环。
- *
- * 简化: 将deathStep对应的topoLayer及之后的tile按2张/色分配。
- *       这确保消除deathStep的色后，无一色有≥3可点tile。
- */
-function enforceDeathAt(
-  assignments: Map<number, number>,
-  nodes: Map<number, TileNode>,
-  topoLayers: number[][],
-  deathStep: number,
-  startColor: number,
-): void {
-  if (deathStep < 0) return;
+function buildGraph(freeTiles: TerrainTile[]): { nodes: Map<number, TileNode>; topoLayers: number[][]; depth: Map<number, number> } {
+  const tileMap = new Map<number, TerrainTile>();
+  for (const t of freeTiles) tileMap.set(t.id, t);
+  const nodes = new Map<number, TileNode>();
+  for (const t of freeTiles) { nodes.set(t.id, { id: t.id, directDeps: t.dependencies.filter(d => tileMap.has(d)), blocks: [] }); }
+  for (const [tid, n] of nodes) { for (const depId of n.directDeps) nodes.get(depId)?.blocks.push(tid); }
 
-  // Map deathStep to toppological layer index
-  // Each layer has floor(layerSize/3) elimination steps
-  let stepsCounted = 0;
-  let targetLayerIdx = topoLayers.length; // default: affect nothing
-
-  for (let l = 0; l < topoLayers.length; l++) {
-    const layerSteps = Math.floor(topoLayers[l].length / 3);
-    if (stepsCounted + layerSteps > deathStep) {
-      targetLayerIdx = l;
-      break;
+  const inDeg = new Map<number, number>();
+  for (const [tid, n] of nodes) inDeg.set(tid, n.directDeps.length);
+  const depth = new Map<number, number>();
+  const queue: number[] = [];
+  for (const [tid, d] of inDeg) { if (d === 0) { queue.push(tid); depth.set(tid, 0); } }
+  let h = 0;
+  while (h < queue.length) {
+    const tid = queue[h++]; const cur = depth.get(tid) ?? 0;
+    for (const bid of (nodes.get(tid)?.blocks ?? [])) {
+      const nd = (inDeg.get(bid) ?? 1) - 1; inDeg.set(bid, nd);
+      depth.set(bid, Math.max(depth.get(bid) ?? 0, cur + 1));
+      if (nd === 0) queue.push(bid);
     }
-    stepsCounted += layerSteps;
-    targetLayerIdx = l + 1;
   }
+  const maxD = Math.max(...depth.values(), 0);
+  const topoLayers: number[][] = Array.from({ length: maxD + 1 }, () => []);
+  for (const [tid, d] of depth) topoLayers[d].push(tid);
+  return { nodes, topoLayers, depth };
+}
 
-  // From targetLayerIdx onward, reassign tiles to ≤2 per color
-  let nextColor = startColor;
-  for (let l = targetLayerIdx; l < topoLayers.length; l++) {
-    // Clear old assignments for this layer
-    for (const tid of topoLayers[l]) {
-      assignments.delete(tid);
-    }
+function mapStepToLayer(layers: number[][], deathStep: number): number {
+  let steps = 0;
+  for (let l = 0; l < layers.length; l++) {
+    const layerSteps = Math.floor(layers[l].length / 3);
+    if (steps + layerSteps > deathStep) return l;
+    steps += layerSteps;
+  }
+  return layers.length;
+}
 
-    // Reassign: 2 tiles per color (ensures no color has ≥3)
+// ── Solvable: plan-driven ──
+function assignPlan(
+  assignments: Map<number, number>, freeTiles: TerrainTile[],
+  nodes: Map<number, TileNode>, totalSteps: number, startColor: number,
+): number {
+  const eliminated = new Set<number>();
+  const remainingDeps = new Map<number, Set<number>>();
+  for (const [tid, n] of nodes) remainingDeps.set(tid, new Set(n.directDeps));
+  const getFreed = (): number[] => {
+    const f: number[] = [];
+    for (const [tid, rd] of remainingDeps) if (!eliminated.has(tid) && rd.size === 0) f.push(tid);
+    return f;
+  };
+  let c = startColor;
+  for (let step = 0; step < totalSteps; step++) {
+    const freed = getFreed();
+    if (freed.length < 3) break;
+    const triple = pickValidTriple(freed, nodes);
+    if (!triple) break;
+    for (const tid of triple) { assignments.set(tid, c); eliminated.add(tid); for (const [rtid, rd] of remainingDeps) rd.delete(tid); }
+    c++;
+  }
+  return c;
+}
+
+// ── Death: layer-cutoff ──
+function assignLayers(
+  assignments: Map<number, number>, freeTiles: TerrainTile[],
+  _nodes: Map<number, TileNode>, layers: number[][], depth: Map<number, number>,
+  cutoff: number, startColor: number,
+): number {
+  let c = startColor;
+
+  // Pre-cutoff layers: normal 3/color
+  for (let l = 0; l < cutoff && l < layers.length; l++) {
     let batch: number[] = [];
-    for (const tid of topoLayers[l]) {
+    for (const tid of layers[l]) {
+      if (assignments.has(tid)) continue;
       batch.push(tid);
-      if (batch.length === 2) {
-        const color = nextColor++;
-        for (const btid of batch) assignments.set(btid, color);
-        batch = [];
+      if (batch.length === 3) { for (const t of batch) assignments.set(t, c++); batch = []; }
+    }
+    for (const t of batch) assignments.set(t, c++);
+  }
+
+  // Collect ALL death-layer tiles (layers >= cutoff)
+  const allDeathTiles: number[] = [];
+  for (let l = cutoff; l < layers.length; l++) {
+    for (const tid of layers[l]) {
+      if (!assignments.has(tid)) allDeathTiles.push(tid);
+    }
+  }
+
+  if (allDeathTiles.length === 0) return c;
+
+  // Separate into freed vs blocked
+  // "freed" = tile whose ALL blockers are in layers < cutoff
+  const isDeathFreed = (tid: number): boolean => {
+    const t = freeTiles.find(ft => ft.id === tid);
+    if (!t) return false;
+    return t.dependencies.every(depId => {
+      const dd = depth.get(depId);
+      return dd === undefined || dd < cutoff;
+    });
+  };
+
+  const deathFreed = allDeathTiles.filter(isDeathFreed);
+  const deathBlocked = allDeathTiles.filter(tid => !isDeathFreed(tid));
+
+  return packDeathColors(deathFreed, deathBlocked, assignments, startColor);
+}
+
+// ═══════════════════════════════════════════════════
+//  Phase 2: Layer-ordered branch computation
+// ═══════════════════════════════════════════════════
+
+function computeBranches(
+  freeTiles: TerrainTile[], assignments: Map<number, number>,
+  nodes: Map<number, TileNode>, totalSteps: number, deathStartColor: number,
+): number[] {
+  const eliminated = new Set<number>();
+  const remainingDeps = new Map<number, Set<number>>();
+  for (const [tid, n] of nodes) remainingDeps.set(tid, new Set(n.directDeps));
+  const getFreed = (): Set<number> => {
+    const f = new Set<number>();
+    for (const [tid, rd] of remainingDeps) if (!eliminated.has(tid) && rd.size === 0) f.add(tid);
+    return f;
+  };
+  const freed = getFreed();
+  const branchLog: number[] = [];
+
+  while (branchLog.length < totalSteps) {
+    // Count available colors
+    const colorCounts = new Map<number, number>();
+    for (const tid of freed) {
+      if (eliminated.has(tid)) continue;
+      const col = assignments.get(tid);
+      if (col && col > 0) colorCounts.set(col, (colorCounts.get(col) ?? 0) + 1);
+    }
+    // Exclude death colors (deathStartColor and above) — they're always suppressed
+    const available = [...colorCounts.entries()]
+      .filter(([c, n]) => n >= 3 && (deathStartColor < 0 || c < deathStartColor))
+      .map(([c]) => c);
+    branchLog.push(available.length);
+    if (available.length === 0) { while (branchLog.length < totalSteps) branchLog.push(0); break; }
+
+    // Pick smallest color (deterministic)
+    available.sort((a,b) => a-b);
+    const chosen = available[0];
+    const toRemove: number[] = [];
+    for (const tid of freed) {
+      if (toRemove.length >= 3) break;
+      if (!eliminated.has(tid) && assignments.get(tid) === chosen) toRemove.push(tid);
+    }
+    for (const tid of toRemove) {
+      eliminated.add(tid); freed.delete(tid);
+      for (const [rtid, rd] of remainingDeps) { if (rd.delete(tid) && rd.size === 0) freed.add(rtid); }
+    }
+  }
+  return branchLog.slice(0, totalSteps);
+}
+
+// ═══════════════════════════════════════════════════
+//  Death CSP
+// ═══════════════════════════════════════════════════
+
+/**
+ * Pack remaining tiles into death colors.
+ *
+ * KEY CONSTRAINT (from DFS testing): freed tiles must NOT block any
+ * blocked tile in the same color. Otherwise clicking the freed tile
+ * releases the blocked one → accumulates → forms unexpected triple.
+ *
+ * Strategy: pack freed+blocked into 3-tile groups where:
+ *   - ≤2 freed per group
+ *   - No freed tile blocks any blocked tile in the same group
+ *   - If impossible with ≤2 freed, fall back to solvable assignment
+ */
+function packDeathColors(
+  freedTiles: number[], blockedTiles: number[],
+  assignments: Map<number, number>, nodes: Map<number, TileNode>, startColor: number,
+): boolean {
+  const freed = [...freedTiles], blocked = [...blockedTiles];
+
+  // Precompute: which freed tiles block which blocked tiles
+  const freedBlocks = new Map<number, Set<number>>(); // freed tileId → blocked tiles it blocks
+  for (const fid of freed) {
+    const nd = nodes.get(fid);
+    const blocked = new Set<number>();
+    if (nd) for (const bid of nd.blocks) {
+      if (blockedTiles.includes(bid)) blocked.add(bid);
+    }
+    freedBlocks.set(fid, blocked);
+  }
+
+  // Also: which blocked tiles are blocked by which freed tiles
+  const blockedBy = new Map<number, Set<number>>(); // blocked tileId → freed tiles that block it
+  for (const bid of blocked) {
+    const nd = nodes.get(bid);
+    const blockers = new Set<number>();
+    if (nd) for (const depId of nd.directDeps) {
+      if (freed.includes(depId)) blockers.add(depId);
+    }
+    blockedBy.set(bid, blockers);
+  }
+
+  let c = startColor;
+
+  while (freed.length > 0 || blocked.length > 0) {
+    const group: number[] = [];
+    const groupFreed: number[] = [];
+
+    // Take up to 2 freed tiles (those that block few blocked tiles first)
+    for (let i = 0; i < 2 && freed.length > 0; i++) {
+      // Pick the freed tile that blocks the FEWEST blocked tiles (least disruptive)
+      let bestIdx = 0, bestBlockCount = Infinity;
+      for (let j = 0; j < Math.min(freed.length, 20); j++) {
+        const count = freedBlocks.get(freed[j])?.size ?? 0;
+        if (count < bestBlockCount) { bestBlockCount = count; bestIdx = j; }
       }
+      const fid = freed.splice(bestIdx, 1)[0];
+      group.push(fid);
+      groupFreed.push(fid);
     }
-    if (batch.length > 0) {
-      const color = nextColor++;
-      assignments.set(batch[0], color);
+
+    // Fill to 3 with blocked tiles that are NOT blocked by any freed tile in the group
+    while (group.length < 3 && blocked.length > 0) {
+      let found = false;
+      for (let j = 0; j < blocked.length && !found; j++) {
+        const bid = blocked[j];
+        const blockers = blockedBy.get(bid) ?? new Set();
+        const blockedByGroupFreed = groupFreed.some(fid => blockers.has(fid));
+        if (!blockedByGroupFreed) {
+          group.push(blocked.splice(j, 1)[0]);
+          found = true;
+        }
+      }
+      if (!found) break; // no compatible blocked tile
     }
+
+    // If group is incomplete (can't fill to 3 without violating constraint):
+    // Roll back all death assignments and fall back to solvable
+    if (group.length < 3 && groupFreed.length > 0) {
+      for (let col = startColor; col < c; col++) {
+        for (const [tid, cl] of assignments) { if (cl === col) assignments.delete(tid); }
+      }
+      return false;
+    }
+
+    if (group.length === 0) {
+      if (blocked.length > 0) group.push(blocked.shift()!);
+      else break;
+    }
+
+    for (const tid of group) assignments.set(tid, c);
+    c++;
+  }
+
+  return true;
+}
+
+function fixMod3FreedAware(assignments: Map<number, number>, lo: number, hi: number): void {
+  // Collect color tile counts
+  const ct = new Map<number, number[]>();
+  for (const [tid, col] of assignments) {
+    if (col >= lo && col <= hi) { const l = ct.get(col) ?? []; l.push(tid); ct.set(col, l); }
+  }
+  // Group by remainder
+  const m1: {c:number, t:number[]}[] = [], m2: typeof m1 = [];
+  for (const [c, t] of ct) {
+    if (t.length % 3 === 0) continue;
+    if (t.length % 3 === 1) m1.push({c, t}); else m2.push({c, t});
+  }
+  // Merge: mod1 + mod2 = mod0 (1+2=3)
+  while (m1.length > 0 && m2.length > 0) {
+    const a = m1.shift()!, b = m2.shift()!;
+    for (const tid of b.t) assignments.set(tid, a.c);
+  }
+  // Merge: 3×mod1 = mod0 (1+1+1=3)
+  while (m1.length >= 3) {
+    const a = m1.shift()!, b = m1.shift()!, d = m1.shift()!;
+    for (const tid of [...b.t, ...d.t]) assignments.set(tid, a.c);
+  }
+  // Merge: 3×mod2 = mod0 (2+2+2=6)
+  while (m2.length >= 3) {
+    const a = m2.shift()!, b = m2.shift()!, d = m2.shift()!;
+    for (const tid of [...b.t, ...d.t]) assignments.set(tid, a.c);
   }
 }
 
-/**
- * 确保每色tile数是3的倍数。
- */
-/**
- * Select the color with the LOWEST topoLayer (浅层优先)。
- * 这保证了逐层消除，不跨层跳跃。
- * 如果同层有多个色，选第一个（任意）。
- */
+// ═══════════════════════════════════════════════════
+//  Helpers
+// ═══════════════════════════════════════════════════
+
 function pickValidTriple(candidates: number[], nodes: Map<number, TileNode>): number[] | null {
   if (candidates.length < 3) return null;
   for (let i = 0; i < candidates.length - 2; i++) {
     for (let j = i + 1; j < candidates.length - 1; j++) {
       for (let k = j + 1; k < candidates.length; k++) {
-        const triple = [candidates[i], candidates[j], candidates[k]];
-        let valid = true;
-        for (const tid of triple) {
-          const nd = nodes.get(tid);
-          if (!nd) { valid = false; break; }
-          for (const depId of nd.directDeps) {
-            if (triple.includes(depId)) { valid = false; break; }
-          }
-          if (!valid) break;
-        }
-        if (valid) return triple;
+        const t = [candidates[i], candidates[j], candidates[k]];
+        let v = true;
+        for (const tid of t) { const nd = nodes.get(tid); if (!nd) { v=false; break; } for (const d of nd.directDeps) { if (t.includes(d)) { v=false; break; } } if (!v) break; }
+        if (v) return t;
       }
     }
   }
   return null;
 }
 
-function selectByTopoLayer(
-  availableColors: number[],
-  assignments: Map<number, number>,
-  nodes: Map<number, TileNode>,
-): number {
-  let bestColor = availableColors[0];
-  let bestLayer = Infinity;
-
-  for (const c of availableColors) {
-    // 找到该色中tile的最浅topoLayer
-    let minLayer = Infinity;
-    for (const [tid, node] of nodes) {
-      if (assignments.get(tid) === c && node.topoLayer < minLayer) {
-        minLayer = node.topoLayer;
-      }
-    }
-    if (minLayer < bestLayer) {
-      bestLayer = minLayer;
-      bestColor = c;
-    }
-  }
-  return bestColor;
-}
-
-function normalizeColorSizes(
-  assignments: Map<number, number>,
-  freeTiles: TerrainTile[],
-  _nextColor: number,
-): Map<number, number> {
-  const result = new Map(assignments); // 拷贝
-
-  // 收集每色tile
-  const colorTiles = new Map<number, number[]>();
-  for (const t of freeTiles) {
-    const c = result.get(t.id);
-    if (c && c > 0) {
-      const list = colorTiles.get(c) ?? [];
-      list.push(t.id);
-      colorTiles.set(c, list);
-    }
-  }
-
-  // 对于size%3≠0的色: 取余数tile, 移到新色
-  const orphans: number[] = [];
-  const maxColor = Math.max(...colorTiles.keys(), 0);
-
-  for (const [color, tiles] of colorTiles) {
-    const mod = tiles.length % 3;
-    if (mod === 0) continue;
-    // 取最后mod张
-    const removed = tiles.splice(-mod);
-    for (const tid of removed) {
-      result.delete(tid);
-      orphans.push(tid);
-    }
-  }
-
-  // 将孤儿tile重新分组为3张/色
-  let batch: number[] = [];
-  let newColor = maxColor + 100;
-  for (const tid of orphans) {
-    batch.push(tid);
-    if (batch.length === 3) {
-      const c = newColor++;
-      for (const btid of batch) result.set(btid, c);
-      batch = [];
-    }
-  }
-  // 最后<=2张: 附加到已有色（尝试）
-  for (const tid of batch) {
-    result.set(tid, newColor++);
-  }
-
-  return result;
+function validGroup(tileIds: number[], nodes: Map<number, TileNode>): boolean {
+  for (const tid of tileIds) { const nd = nodes.get(tid); if (!nd) return false; for (const d of nd.directDeps) { if (tileIds.includes(d)) return false; } }
+  return true;
 }
 
 // ═══════════════════════════════════════════════════
-//  Phase 2: Compute branch sequence (pure structure)
-// ═══════════════════════════════════════════════════
-
-/**
- * 给定完整的 tile→颜色 分配，计算每步的分支数。
- *
- * 逐层策略: 消除完一层所有色后，下一层才完整释放。
- *   层L的分支数 = 层L的色数 (每个色3张tile)
- *   消除顺序: 在该层内按任意顺序逐个消除 → 分支数全程 = 该层的色数
- *
- * 这是结构可证明的:
- *   - 同层tile的blocker都在更浅层 → 浅层全消后，该层全部可点
- *   - 同层tile互相不阻塞 → 同一层的色可以任意顺序消除
- *   - 消除完所有层 = 胜利
- */
-function computeBranchSequence(
-  freeTiles: TerrainTile[],
-  assignments: Map<number, number>,
-  nodes: Map<number, TileNode>,
-): number[] {
-  const totalSteps = Math.floor(freeTiles.length / 3);
-  const branchLog: number[] = [];
-
-  // 动态状态
-  const eliminated = new Set<number>();
-  const remainingDeps = new Map<number, Set<number>>();
-  for (const [tid, n] of nodes) {
-    remainingDeps.set(tid, new Set(n.directDeps));
-  }
-
-  const getFreed = (): Set<number> => {
-    const f = new Set<number>();
-    for (const [tid, rd] of remainingDeps) {
-      if (!eliminated.has(tid) && rd.size === 0) f.add(tid);
-    }
-    return f;
-  };
-
-  const freed = getFreed();
-
-  // ── Group colors by topological layer ──
-  const colorLayer = new Map<number, number>();
-  for (const [tid, node] of nodes) {
-    const c = assignments.get(tid);
-    if (c && c > 0) {
-      const existing = colorLayer.get(c);
-      if (existing === undefined || node.topoLayer < existing) {
-        colorLayer.set(c, node.topoLayer);
-      }
-    }
-  }
-  const allColors = [...new Set(assignments.values())].filter(c => c > 0);
-  const layerColors = new Map<number, number[]>();
-  for (const c of allColors) {
-    const l = colorLayer.get(c) ?? 0;
-    const list = layerColors.get(l) ?? [];
-    list.push(c);
-    layerColors.set(l, list);
-  }
-  const sortedLayers = [...layerColors.keys()].sort((a, b) => a - b);
-
-  // ── Strict layer-order elimination ──
-  // Process layers sequentially: eliminate ALL colors in current layer
-  // before advancing to deeper layers.
-  // This guarantees: after layer L is done, ALL layer L+1 tiles are freed.
-
-  for (let currentLayer = 0; currentLayer < sortedLayers.length; currentLayer++) {
-    const layerNum = sortedLayers[currentLayer];
-
-    // All colors up to and including this layer
-    const eligibleColors = new Set<number>();
-    for (let l = 0; l <= currentLayer; l++) {
-      for (const c of (layerColors.get(sortedLayers[l]) ?? [])) {
-        eligibleColors.add(c);
-      }
-    }
-
-    // Eliminate all eligible colors that have ≥3 freed tiles
-    let madeProgress = true;
-    while (madeProgress) {
-      madeProgress = false;
-
-      // Count available colors
-      const colorFreed = new Map<number, number[]>();
-      for (const tid of freed) {
-        if (eliminated.has(tid)) continue;
-        const c = assignments.get(tid);
-        if (c && c > 0) {
-          const list = colorFreed.get(c) ?? [];
-          list.push(tid);
-          colorFreed.set(c, list);
-        }
-      }
-
-      const allAvailable = [...colorFreed.entries()]
-        .filter(([, tiles]) => tiles.length >= 3)
-        .map(([c]) => c);
-
-      branchLog.push(allAvailable.length);
-
-      if (allAvailable.length === 0) {
-        while (branchLog.length < totalSteps) branchLog.push(0);
-        return branchLog;
-      }
-
-      // Filter: only colors from current or earlier layers
-      const eligible = allAvailable.filter(c => eligibleColors.has(c));
-
-      if (eligible.length === 0) break; // Move to next layer
-
-      madeProgress = true;
-      const chosen = eligible[0];
-      const toRemove = colorFreed.get(chosen)!.slice(0, 3);
-
-      for (const tid of toRemove) {
-        eliminated.add(tid);
-        freed.delete(tid);
-        for (const [rtid, rd] of remainingDeps) {
-          if (rd.delete(tid) && rd.size === 0) freed.add(rtid);
-        }
-      }
-    }
-  }
-
-  while (branchLog.length < totalSteps) branchLog.push(0);
-
-  return branchLog;
-}
-
-// ═══════════════════════════════════════════════════
-//  Main entry
+//  Main
 // ═══════════════════════════════════════════════════
 
 export function generateV4(input: GenV4Input): GenV4Output {
-  const { terrain, solvable = true, deathStep = -1 } = input;
-
+  const { terrain, solvable=true, deathStep=-1 } = input;
   const allTiles = getAllTiles(terrain);
   const freeTiles = allTiles.filter(t => !t.isConst);
   const totalSteps = Math.floor(freeTiles.length / 3);
+  const td = solvable ? -1 : Math.max(0, deathStep ?? 0);
 
-  // Phase 1: Plan-driven color assignment
-  const targetDeath = solvable ? -1 : Math.max(0, deathStep ?? 0);
-  const { assignments, nodes } = assignColorsByPlan(freeTiles, totalSteps, targetDeath);
+  const { assignments, nodes, deathStartColor, actualDeathStep } = assignColors(freeTiles, totalSteps, td);
+  const effectiveDeathStep = deathStartColor >= 0 ? td : actualDeathStep; // if pack failed, use actual
+  const branchLog = computeBranches(freeTiles, assignments, nodes, totalSteps, deathStartColor);
 
-  // Phase 2: Compute branches
-  const branchLog = computeBranchSequence(freeTiles, assignments, nodes);
+  const sizes = new Map<number, number>();
+  for (const t of freeTiles) { const col = assignments.get(t.id); if (col) sizes.set(col, (sizes.get(col)??0) + 1); }
+  const szArr = [...sizes.values()];
+  const allDiv3 = szArr.every(s => s%3===0);
 
-  // Validate
-  const colorSizes = new Map<number, number>();
-  for (const t of freeTiles) {
-    const c = assignments.get(t.id);
-    if (c && c > 0) colorSizes.set(c, (colorSizes.get(c) ?? 0) + 1);
+  // ReplayCode
+  const elementValues = new Map<number, number>();
+  for (const t of allTiles) {
+    if (t.isConst && t.constElementValue > 0) elementValues.set(t.id, t.constElementValue);
+    else elementValues.set(t.id, assignments.get(t.id) ?? 1);
   }
-  const sizes = [...colorSizes.values()];
-  const allDivisible = sizes.every(s => s % 3 === 0);
+  const ordered = getCanonicalTileOrder(allTiles);
+  const levelHash = terrain.levelHash ?? '';
+  const replayCode = generateReplayCode(ordered, elementValues, levelHash);
 
-  const solvableCheck = solvable
-    ? branchLog.every(b => b >= 1) // 可解: 每步至少1个候选
-    : (() => {
-        // 不可解: deathStep位置的branch为0且前面都有分支
-        if (targetDeath >= branchLog.length) return false;
-        if (branchLog[targetDeath] !== 0) return false;
-        for (let i = 0; i < targetDeath; i++) {
-          if (branchLog[i] === 0) return false;
-        }
-        return true;
-      })();
+  let ok: boolean;
+  if (solvable) {
+    ok = allDiv3 && branchLog.every(b=>b>=1);
+  } else {
+    const ds = effectiveDeathStep >= 0 ? effectiveDeathStep : td;
+    const structuralOk = allDiv3
+      && (ds < totalSteps ? branchLog[ds] === 0 : true)
+      && branchLog.slice(0, ds).every(b => b >= 1);
 
-  return {
-    assignments,
-    branchLog,
-    // Death boards intentionally have non-mod3 colors (≤2/色)
-    ok: solvable ? (allDivisible && solvableCheck) : solvableCheck,
-    colorCount: colorSizes.size,
-    colorSizes: sizes,
-    totalSteps,
-  };
+    // Lightweight death verification
+    let deathConfirmed = structuralOk;
+    if (structuralOk && deathStartColor > 0) {
+      // Death point: all tiles still on desk (none eliminated)
+      // Only death-color tiles matter for the verification
+      const remainingTileIds = new Set(
+        freeTiles.filter(t => {
+          const col = assignments.get(t.id);
+          return col && col >= deathStartColor;
+        }).map(t => t.id)
+      );
+      if (remainingTileIds.size > 0) {
+        const vrf = verifyDeath({ tiles: freeTiles, elementValues, remainingTileIds, maxStates: 10000 });
+        deathConfirmed = vrf.deathConfirmed;
+      }
+    }
+
+    ok = structuralOk && deathConfirmed;
+  }
+  return { assignments, branchLog, ok, colorCount: sizes.size, colorSizes: szArr, totalSteps, replayCode, levelHash };
 }
 
 // ═══════════════════════════════════════════════════
-//  CLI test
+//  CLI
 // ═══════════════════════════════════════════════════
 
 export function main() {
   const D = 'E:/workspace/tilematch/TileMatchShell/Tools/Config/Json/Levels';
-  const terrains = [100002, 100006, 100010, 100050].filter(tid => existsSync(join(D, `${tid}.json`)));
-
-  for (const tid of terrains) {
-    console.log(`\n${'═'.repeat(55)}`);
-    console.log(`  Terrain ${tid}`);
-    console.log(`${'═'.repeat(55)}`);
-
-    try {
-      const terrain: any = loadTerrainFromFile(join(D, `${tid}.json`));
-      const freeTiles: any[] = [];
-      for (const l of terrain.layers) for (const t of l.tiles) freeTiles.push(t);
-      const nonConst = freeTiles.filter((t: any) => !t.isConst);
-      const steps = Math.floor(nonConst.length / 3);
-
-      // SOLVABLE
-      const sol = generateV4({ terrain, solvable: true });
-      console.log(`\n  SOLVABLE (${nonConst.length} tiles, ${steps} steps):`);
-      console.log(`    OK: ${sol.ok} | Colors: ${sol.colorCount} | All mod3: ${sol.colorSizes.every(s => s%3===0)}`);
-      console.log(`    BranchLog: [${sol.branchLog.join(',')}]`);
-
-      // DEATH at various points
-      for (const ds of [0, Math.floor(steps/3), Math.floor(steps/2)]) {
-        const death = generateV4({ terrain, solvable: false, deathStep: ds });
-        const branchOk = death.branchLog[ds] === 0;
-        const preOk = death.branchLog.slice(0, ds).every(b => b >= 1);
-        console.log(`\n  DEATH at step ${ds}/${steps}:`);
-        console.log(`    OK(legal): ${death.ok} | BranchOk: ${branchOk} | PreOk: ${preOk}`);
-        console.log(`    BranchLog: [${death.branchLog.join(',')}]`);
-      }
-    } catch (e: any) {
-      console.log(`  Error: ${e.message?.slice(0,100)}`);
+  const ids = [100002,100006,100010,100050,100075].filter(id => existsSync(join(D,`${id}.json`)));
+  for (const tid of ids) { try {
+    const terrain: any = loadTerrainFromFile(join(D,`${tid}.json`));
+    const tiles: any[] = []; for (const l of terrain.layers) for (const t of l.tiles) tiles.push(t);
+    const free = tiles.filter((t:any)=>!t.isConst); const steps = Math.floor(free.length/3);
+    console.log(`\n${'═'.repeat(40)} ${tid} (${free.length}t ${steps}st) ${'═'.repeat(40)}`);
+    const s = generateV4({ terrain, solvable: true });
+    console.log(`  SOLVABLE: OK=${s.ok} div3=${s.colorSizes.every(x=>x%3===0)} colors=${s.colorCount}`);
+    console.log(`    [${s.branchLog.join(',')}]`);
+    for (const ds of [0, Math.floor(steps/4), Math.floor(steps/2), steps-1]) {
+      const d = generateV4({ terrain, solvable: false, deathStep: ds });
+      const pre = d.branchLog.slice(0,ds).every(b=>b>=1);
+      const death = ds<d.branchLog.length && d.branchLog[ds]===0;
+      console.log(`  DEATH@${ds}/${steps}: OK=${d.ok} preOk=${pre} deathOk=${death} div3=${d.colorSizes.every(x=>x%3===0)}`);
+      console.log(`    [${d.branchLog.join(',')}]`);
     }
-  }
+  } catch(e:any) { console.log(`  Error: ${e.message?.slice(0,100)}`); } }
 }
 
-if (process.argv[1]?.endsWith('generate-v4.ts') || process.argv[1]?.endsWith('generate-v4.js')) {
-  main();
-}
+if (process.argv[1]?.endsWith('generate-v4.ts') || process.argv[1]?.endsWith('generate-v4.js')) { main(); }

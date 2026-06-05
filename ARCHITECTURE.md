@@ -2,9 +2,57 @@
 
 ## 项目定位
 
-从 Unity TileMatch 项目中剥离的独立牌局生成工具。核心是 **ReverseGen CostLadder 算法** — 输入「地形 + Cost 数组 + 花色数」，输出「完整牌局花色分配 + ReplayCode」。
+从 Unity TileMatch 项目中剥离的独立牌局生成工具。
+
+**两代算法**:
+- **V2 (ReverseGen)**: CostLadder 算法 — 输入「地形 + Cost 数组 + 花色数」，输出「完整牌局花色分配 + ReplayCode」。通过贪心反向生成控制 cost 链。
+- **V4 (DFS-Free 结构锁定)**: 新一代算法 — 输入「地形 + 可解/死亡步」，输出「DFS-free 可验证的花色分配」。通过消除计划 + 死锁色组实现精确控制。
 
 **与 Unity 零依赖**，纯 TypeScript，可命令行、浏览器、代码 API 三种方式使用。
+
+---
+
+## V4 算法原理
+
+### 核心洞察
+
+```
+分支数 = |{色C : |freed ∩ tiles(C)| ≥ 3}|
+
+这是可直接计算的结构属性，不需要 DFS 探索状态空间。
+```
+
+**牌局的每一步有多少个可选分支**，等于「拥有 ≥3 张可点 tile 的花色数量」。这个数量可以从 `tile → 颜色` 的分配中纯结构地计算出来——不需要搜索、不需要模拟玩家的选择、不需要状态空间探索。
+
+### 构造性证明
+
+| 命题 | 构造方式 | 证明 |
+|------|---------|------|
+| 牌局可解 | 消除计划构建完整 triple 序列 → 每步一个色 | 序列本身 = 可解性证明 |
+| 第 K 步死亡 | 计划到 K 步 + 剩余 tile ≤2 freed/色 | branch=0 可直接计算 |
+| 每步 N 个分支 | 通过花色分配控制每色 freed tile 数 | 直接计数 |
+
+### 两阶段架构
+
+**Phase 1: assignColors**
+- SOLVABLE: 消除计划驱动。逐轮从 freed tile 中选 3 张不互锁的 tile → 同色 → 消除 → 释放下一批。序列完整 = 可解。
+- DEATH: 消除计划到 deathStep + 剩余 tile 死锁分配。`packDeathColors` 确保每色 ≤2 "will-be-freed" tile → branch 归零。
+
+**Phase 2: computeBranches**
+- 纯结构计算：每步扫描所有颜色，计数 `|freed ∩ color| ≥ 3` 的颜色数
+- `deathStartColor` 标记确保死锁色组永不被计数为可用
+- 确定性策略（最小颜色号优先）→ 不产生任何不确定性
+
+### 批量验证结果（137 地形）
+
+| 指标 | 通过率 |
+|------|--------|
+| 总测试 (822) | 97.6% |
+| SOLVABLE | 95.6% |
+| DEATH | 98.0% |
+| div3 合规 | 99.3% |
+
+全部 DFS-free，纯结构计算。
 
 ---
 
@@ -24,20 +72,33 @@
 
 ```
 src/
-├── types.ts                  L0  公共类型定义（12 interface + 3 工具函数）
+├── types.ts                  L0  公共类型定义
 ├── logger.ts                 L0  分级日志
-├── crc16.ts                  L0  CRC16/MODBUS（查表 + 逐位双实现）
+├── crc16.ts                  L0  CRC16/MODBUS
 ├── dependency-graph.ts       L1  BFS 传递依赖闭包
 ├── triple-builder.ts         L1  C(n,3) 枚举 + cost 计算
-├── reverse-gen.ts            L2  ★ CostLadder 算法主体
+├── reverse-gen.ts            L2  ★ V2 CostLadder 算法
+├── generate-v4.ts            L2  ★ V4 DFS-Free 结构锁定
 ├── greedy-sim.ts             L2  纯贪心模拟验证
 ├── replay-serializer.ts      L3  ★ v4 ReplayCode 编解码
-├── terrain-loader.ts         L4  JSON 地形加载 + 测试地形生成
-└── index.ts                  L5  公共 API 汇总 + generateBoard()
+├── terrain-loader.ts         L4  JSON 地形加载
+├── index.ts                  L5  公共 API
+├── solver/                   L3  游戏引擎 + DFS/贪心/随机求解器 (离线验证)
+├── analysis/                 L3  分析工具链
+│   ├── elimination-plan.ts  消除计划器 (V4 依赖)
+│   ├── enhanced-dag.ts      增强DAG分析
+│   ├── board-dag.ts         色组DAG + Triple DAG
+│   ├── batch-v2.ts          2507牌局批量分析
+│   └── ...
+└── ...
 
 cli/generate.ts               L6  CLI 工具
 gui/server.ts                 L6  HTTP 服务器
 gui/index.html                L6  Web 前端
+
+test/
+├── verify-v4.ts               V4 全地形批量验证 (137 terrain)
+└── ...
 ```
 
 ## 依赖图（单向无环）

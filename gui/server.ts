@@ -22,6 +22,7 @@ import {
   setLogLevel,
   LogLevel,
 } from '../src/index.js';
+import { generateV4 } from '../src/generate-v4.js';
 import {
   analyzeTriples,
   filterGraphData,
@@ -230,17 +231,11 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/generate' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { costArray, colorCount, levelId, levelsDir, terrainPath, levelHash } = body as {
+      const { costArray, colorCount, levelId, levelsDir, terrainPath, levelHash, algo, solvable, deathStep } = body as {
         costArray?: string; colorCount?: string;
         levelId?: string; levelsDir?: string; terrainPath?: string; levelHash?: string;
+        algo?: string; solvable?: boolean; deathStep?: number;
       };
-
-      const k = parseInt(colorCount || '99', 10);
-
-      if (!costArray || !costArray.trim()) {
-        json(res, { ok: false, error: '请提供 Cost 数组' }, 400);
-        return;
-      }
 
       const path = resolveTerrainPath(levelId, levelsDir, terrainPath);
       if (!path) {
@@ -248,6 +243,47 @@ const server = createServer(async (req, res) => {
         return;
       }
       const terrain = loadTerrainFromFile(path);
+
+      // ── V4: DFS-Free ──
+      if (algo === 'v4') {
+        const result = generateV4({
+          terrain,
+          solvable: solvable ?? true,
+          deathStep: solvable ? undefined : (deathStep ?? 0),
+        });
+
+        const allTiles = getAllTiles(terrain);
+        const assignmentsObj: Record<string, number> = {};
+        for (const [k, v] of result.assignments) assignmentsObj[String(k)] = v;
+
+        json(res, {
+          ok: true,
+          algo: 'v4',
+          completed: result.ok,
+          totalSteps: result.totalSteps,
+          branchLog: result.branchLog,
+          assignments: assignmentsObj,
+          colorCount: result.colorCount,
+          colorSizes: result.colorSizes,
+          replayCode: result.replayCode,
+          terrainSummary: {
+            layers: terrain.layers.length,
+            totalTiles: allTiles.length,
+            freeTiles: allTiles.filter(t => !t.isConst).length,
+            constTiles: allTiles.filter(t => t.isConst).length,
+            source: basename(path),
+          },
+        });
+        return;
+      }
+
+      // ── V2: CostLadder ──
+      const k = parseInt(colorCount || '99', 10);
+
+      if (!costArray || !costArray.trim()) {
+        json(res, { ok: false, error: '请提供 Cost 数组' }, 400);
+        return;
+      }
 
       const costs = costArray.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
       if (costs.length === 0 || costs.some(c => c < 1)) {
