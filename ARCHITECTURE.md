@@ -2,13 +2,20 @@
 
 ## 项目定位
 
-从 Unity TileMatch 项目中剥离的独立牌局生成工具。
+从 Unity TileMatch 项目中剥离的独立牌局生成工具。核心命题：
 
-**两代算法**:
-- **V2 (ReverseGen)**: CostLadder 算法 — 输入「地形 + Cost 数组 + 花色数」，输出「完整牌局花色分配 + ReplayCode」。通过贪心反向生成控制 cost 链。
-- **V4 (DFS-Free 结构锁定)**: 新一代算法 — 输入「地形 + 可解/死亡步」，输出「DFS-free 可验证的花色分配」。通过消除计划 + 死锁色组实现精确控制。
+> 给定地形（牌的空间布局 + 叠压依赖关系），为每张牌赋予花色，使得生成的牌局在**可解性、死亡点位置、决策分支数**等维度上可以被精确、确定性地控制。
 
-**与 Unity 零依赖**，纯 TypeScript，可命令行、浏览器、代码 API 三种方式使用。
+**三代算法**:
+
+| 版本 | 名称 | 输入 | 输出 | 状态 |
+|------|------|------|------|------|
+| V2 | ReverseGen CostLadder | 地形 + Cost数组 + 花色数 | ReplayCode | 生产可用, 贪心域受限 |
+| V3 | Forward Construction | 地形 + solvable/deathStep | 花色分配 | 已废弃 |
+| V4 | DFS-Free 结构锁定 | 地形 + solvable/deathStep | 花色分配 + ReplayCode | ★ 当前主力 |
+| CSP | DAG-driven 死锁搜索 | 地形 | 花色分配 + 死亡步 | ★ 在研 |
+
+**与 Unity 零依赖**，纯 TypeScript，CLI / Web GUI / API 三种方式。
 
 ---
 
@@ -22,37 +29,96 @@
 这是可直接计算的结构属性，不需要 DFS 探索状态空间。
 ```
 
-**牌局的每一步有多少个可选分支**，等于「拥有 ≥3 张可点 tile 的花色数量」。这个数量可以从 `tile → 颜色` 的分配中纯结构地计算出来——不需要搜索、不需要模拟玩家的选择、不需要状态空间探索。
-
-### 构造性证明
-
-| 命题 | 构造方式 | 证明 |
-|------|---------|------|
-| 牌局可解 | 消除计划构建完整 triple 序列 → 每步一个色 | 序列本身 = 可解性证明 |
-| 第 K 步死亡 | 计划到 K 步 + 剩余 tile ≤2 freed/色 | branch=0 可直接计算 |
-| 每步 N 个分支 | 通过花色分配控制每色 freed tile 数 | 直接计数 |
-
 ### 两阶段架构
 
-**Phase 1: assignColors**
-- SOLVABLE: 消除计划驱动。逐轮从 freed tile 中选 3 张不互锁的 tile → 同色 → 消除 → 释放下一批。序列完整 = 可解。
-- DEATH: 消除计划到 deathStep + 剩余 tile 死锁分配。`packDeathColors` 确保每色 ≤2 "will-be-freed" tile → branch 归零。
+**Phase 1: assignColors** — 消除计划驱动颜色分配
+- SOLVABLE: 完整 triple 序列 → 每步一个色 → 序列 = 可解性证明
+- DEATH: 计划到 K 步 + 剩余 tile 死锁分配 (packDeathColors)
 
-**Phase 2: computeBranches**
-- 纯结构计算：每步扫描所有颜色，计数 `|freed ∩ color| ≥ 3` 的颜色数
-- `deathStartColor` 标记确保死锁色组永不被计数为可用
-- 确定性策略（最小颜色号优先）→ 不产生任何不确定性
+**Phase 2: computeBranches** — 纯结构分支计算
+- 每步扫描所有颜色，计数 `|freed ∩ color| ≥ 3`
+- `deathStartColor` 标记确保死锁色组不计入分支
 
-### 批量验证结果（137 地形）
+### 验证结果
 
-| 指标 | 通过率 |
-|------|--------|
-| 总测试 (822) | 97.6% |
-| SOLVABLE | 95.6% |
-| DEATH | 98.0% |
+| 指标 | 值 |
+|------|-----|
+| SOLVABLE | 95.6% (131/137) |
+| DEATH | 受限于静态约束 |
 | div3 合规 | 99.3% |
+| DFS-free | ✅ 生成路径中无 DFS |
 
-全部 DFS-free，纯结构计算。
+### 已知限制
+
+DEATH 模式使用 `≤2 freed/色 + deathStartColor` 标签过滤。标签过滤在 `computeBranches` 中生效，但实际游戏(DFS)忽略标签 → 死亡不可靠。详见下文 CSP 方案。
+
+---
+
+## CSP 死锁搜索 (dag-death.ts)
+
+### 问题
+
+V4 的 DEATH 通过 `deathStartColor` 标签过滤实现——标签告诉 `computeBranches` "忽略这些色"。但 DFS 不知道标签 → 找到绕过路径 → 死亡失败。
+
+### 方案
+
+**在现有地形依赖图中搜索死锁子图**——不是标记某些色为"死亡"，而是通过结构性约束确保死亡色的 tiles 真的无法形成 triple。
+
+### 核心约束
+
+```
+每色 ≤2 freed tile
+freed tile 不阻塞同色的 blocked tile（blocking-aware）
+B ≥ F/2（数学充要条件，≤2 freed per 3-tile 色组）
+```
+
+### 架构
+
+```
+searchDeath(terrain)
+  ├─ 对候选 K 值 (0, 1/4, 1/2, 3/4, last) 逐一尝试
+  │   ├─ tryDeathAt(K):
+  │   │   ├─ Plan: 创建 K 个正常triple (max-release策略)
+  │   │   ├─ 分类: 剩余tile → F(will-be-freed) + B(will-stay-blocked)
+  │   │   ├─ CSP: 将 F+B 分组为 3-tile色组, ≤2 freed/色, blocking-aware
+  │   │   └─ 验证: DFS确认死亡 (5s timeout)
+  │   └─ 精细化: K±1, K±2
+  └─ 返回最佳 deathStep + 完整色彩分配
+```
+
+### 验证结果 (137 地形)
+
+| 指标 | 值 |
+|------|-----|
+| CSP 发现率 | 100% (137/137) |
+| DFS 确认率 | 17.5% (24/137) |
+| 未确认(假阳性) | 82.5% |
+
+CSP 找到了所有地形的死亡步。DFS 确认 1/6。未确认的是 CSP 约束仍不够强——跨色释放链未被捕获。这是 CSP 可继续加强的方向。
+
+---
+
+## 消除计划 (elimination-plan.ts)
+
+地形层的依赖可行性分析。不依赖花色分配，纯依赖图上的 triple 序列计算。
+
+**2507 牌局批量分析:**
+- 消除计划 vs DFS 一致性: 93.6%
+- 48.6% 步骤有 500+ 候选 triple（地形级自由度极高）
+- 4.0% 步骤只有 1 个候选
+
+---
+
+## Terrain 协同生成 (terrain-gen.ts)
+
+当输入包含地形设计自由度时，死亡是构造性保证的。
+
+**死锁环**: N 个色组形成互锁环 → DFS 100% 确认不可解。
+- 3色环(9t): DFS win=false ✅
+- 20色环(60t): DFS win=false ✅
+- 混合(chain+ring): DFS win=false ✅
+
+**局限**: 需要生成新地形，不适用于现有地形。实验性模块。
 
 ---
 
@@ -79,9 +145,12 @@ src/
 ├── triple-builder.ts         L1  C(n,3) 枚举 + cost 计算
 ├── reverse-gen.ts            L2  ★ V2 CostLadder 算法
 ├── generate-v4.ts            L2  ★ V4 DFS-Free 结构锁定
+├── dag-death.ts              L2  ★ CSP 死锁搜索 (DAG-driven)
+├── verify-death.ts           L2  轻量死亡验证 (一步 lookahead)
 ├── greedy-sim.ts             L2  纯贪心模拟验证
 ├── replay-serializer.ts      L3  ★ v4 ReplayCode 编解码
 ├── terrain-loader.ts         L4  JSON 地形加载
+├── terrain-gen.ts            L4  实验性 terrain 协同生成
 ├── index.ts                  L5  公共 API
 ├── solver/                   L3  游戏引擎 + DFS/贪心/随机求解器 (离线验证)
 ├── analysis/                 L3  分析工具链
@@ -89,16 +158,24 @@ src/
 │   ├── enhanced-dag.ts      增强DAG分析
 │   ├── board-dag.ts         色组DAG + Triple DAG
 │   ├── batch-v2.ts          2507牌局批量分析
-│   └── ...
+│   ├── deadlock-hunter.ts   死锁模式检测
+│   ├── aggregate.ts         聚合统计
+│   └── rule-check.ts        结构规则验证
 └── ...
 
 cli/generate.ts               L6  CLI 工具
-gui/server.ts                 L6  HTTP 服务器
+gui/server.ts                 L6  HTTP 服务器 (V2 + V4 API)
 gui/index.html                L6  Web 前端
+gui/analysis.html             L6  Triple 关系分析器
 
 test/
-├── verify-v4.ts               V4 全地形批量验证 (137 terrain)
-└── ...
+├── verify-v4.ts               V4 137地形批量验证
+├── search-death-all.ts        CSP 137地形批量搜索
+├── dfs-verify-death.ts        DFS深度死亡验证
+├── debug-csp.ts               CSP 直接调试
+├── debug-death-root.ts        死亡根因分析
+├── debug-100002.ts            单地形调试
+└── quick-search.ts            快速CSP搜索
 ```
 
 ## 依赖图（单向无环）

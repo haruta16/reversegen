@@ -373,3 +373,133 @@ ReverseGen 是为 tile 消除品类游戏设计的牌局生成工具。核心命
 | `test/dynamic-excl-v2.ts` | 动态一步 lookahead（100% 验证） |
 | `.reversegen-cache/board-results-v2/` | 2507 个牌局分析缓存 |
 | `docs/` | 各阶段分析报告 |
+| `src/generate-v4.ts` | ★ V4 DFS-Free 生成器 |
+| `src/dag-death.ts` | ★ CSP 死锁搜索 (DAG-driven) |
+| `src/elimination-plan.ts` | 消除计划器 (V4 依赖) |
+| `src/verify-death.ts` | 轻量死亡验证 (一步 lookahead) |
+| `src/terrain-gen.ts` | 实验性 terrain 协同生成 |
+| `test/verify-v4.ts` | V4 137地形批量验证 |
+| `test/search-death-all.ts` | CSP 137地形批量搜索 |
+
+---
+
+## 八、阶段九：V4 DFS-Free 生成算法 (2026-06)
+
+### 8.1 设计目标
+
+取代 V3 的"正向构造+散色"，实现：
+- **SOLVABLE**: 消除计划驱动 → 序列 = 可解性证明
+- **DEATH**: 计划到 K 步 + packDeathColors → 纯结构分支计算
+- **mod3 合规**: 每色 tile 数必须是 3 的倍数（硬约束）
+- **不依赖 DFS**: 生成路径中无状态空间搜索
+
+### 8.2 架构
+
+```
+Phase 1: assignColors
+  ├─ 消除计划: 逐轮选3张不互锁tile → 同色 → 消除 → 释放
+  └─ packDeathColors: 剩余tile → ≤2 freed/色 + blocking-aware
+
+Phase 2: computeBranches
+  └─ 纯结构计算: |{色: freed∩color ≥ 3}|
+```
+
+### 8.3 验证结果
+
+| 指标 | 通过率 |
+|------|--------|
+| SOLVABLE (137 terrain × 1) | 95.6% (131/137) |
+| DEATH (137 terrain × 5) | 受限于 deathStartColor 标签 |
+| mod3 合规 | 99.3% |
+| ReplayCode 输出 | ✅ 集成 |
+
+### 8.4 发现与局限
+
+**核心发现**: `deathStartColor` 标签在 `computeBranches` 中可以过滤分支计数，但实际游戏(DFS)忽略标签。静态 ≤2 freed 约束不能防止"点击 → 释放同色 tile → 形成 triple"的动态链条。
+
+**结论**: V4 的 SOLVABLE 模式可靠。DEATH 模式需要更根本的结构约束 → 催生了 CSP 方案。
+
+---
+
+## 九、阶段十：DAG-Driven CSP 死锁搜索 (2026-06)
+
+### 9.1 核心洞察
+
+**不是"分配所有 tile 到死亡色"，而是"在现有地形依赖图中搜索死锁子图"。**
+
+```
+每色 ≤2 freed tile
+freed tile 不阻塞同色 blocked tile  (blocking-aware)
+→ 点击 freed tile 不释放同色 blocked tile
+→ 无法在单色内累积 3 张 freed
+```
+
+### 9.2 数学约束
+
+```
+F = will-be-freed tiles (计划消除后)
+B = will-stay-blocked tiles
+总色数 k = (F+B)/3
+
+约束: F ≤ 2k → B ≥ F/2
+
+证明: 每色最多2 freed，k色最多2k freed。必须有 F ≤ 2k。
+```
+
+对于 100002 (39t): F=15, B=23 → B ≥ F/2? 23 ≥ 8 ✅
+
+### 9.3 CSP 算法
+
+```
+solveCSP(F, B, nodes):
+  1. 预计算: freed→blocks (哪些freed tile阻塞哪些blocked tile)
+  2. 贪心: 选2 freed (阻塞最少的) + 兼容blocked → 3-tile色组
+  3. 兼容 = blocked tile不被同组freed阻塞 + 组内无自锁
+  4. 重复直到 freed 耗尽 → 成功
+  5. 剩余blocked → [0f+3b] 色组
+```
+
+### 9.4 全地形验证 (137 terrain)
+
+| 指标 | 值 |
+|------|-----|
+| CSP 发现率 | **100%** (137/137) |
+| DFS 确认率 | **17.5%** (24/137) |
+| 典型死亡步 | terrain 步数的 10-50% |
+
+CSP 找到所有地形的死亡步。DFS确认 1/6。未确认的 82.5% 是跨色释放链未被 CSP 约束捕获——这是可继续加强的方向。
+
+### 9.5 Terrain 协同生成
+
+当输入包含地形设计自由度时，死锁环结构提供 100% 构造性死亡保证:
+
+```
+N色死锁环: anchor_i 依赖 anchor_(i+1) + anchor_(i+2) mod N
+每色: 2 surface (free) + 1 anchor (buried)
+→ DFS 14/14 确认不可解 ✅
+```
+
+**局限**: 需生成新地形，不适用于现有地形文件。实验性质。
+
+---
+
+## 十、当前状态总结
+
+| 能力 | 算法 | 通过率 | 成熟度 |
+|------|------|--------|--------|
+| SOLVABLE 生成 | V4 消除计划 | 95.6% | ✅ 可用 |
+| DEATH 生成 | V4 packDeathColors | ~0% 真实 | ❌ 标签漏洞 |
+| DEATH 搜索 | CSP + DFS验证 | 17.5% | ⚠️ 在研 |
+| DEATH 构造 | terrain协同 | 100% | ⚠️ 需新地形 |
+| ReplayCode | 序列化 | 100% | ✅ 已集成 |
+| GUI | V2 + V4 API | 100% | ✅ 可用 |
+
+### 路线图
+
+| 优先级 | 任务 | 状态 |
+|--------|------|------|
+| ★★★ | 加强CSP约束(跨色链防止) → 提升DFS确认率 | 在研 |
+| ★★ | 消除计划 + DAG设计层整合 | 待做 |
+| ★★ | 分支数精确控制(branchSpec输入) | 待做 |
+| ★ | 共享花色(一色多triple) | 待做 |
+| ★ | Dock压力验证 | 待做 |
