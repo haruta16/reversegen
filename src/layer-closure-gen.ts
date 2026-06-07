@@ -223,11 +223,13 @@ function buildMatrixByCloseRates(
       let slack = capacity - used;
 
       // 给关着的颜色加 3 张（关→...→关）
-      for (const c of active) {
+      const byRemaining = [...active].sort((a, b) =>
+        (remaining[b] - plan[b]) - (remaining[a] - plan[a]),
+      );
+      for (const c of byRemaining) {
         if (slack <= 0) break;
         const maxAdd = remaining[c] - plan[c];
         if (maxAdd <= 0) continue;
-        // 只加 3 的倍数（保持闭合状态不变）
         const triplets = Math.floor(maxAdd / 3);
         if (triplets > 0) {
           const give = Math.min(triplets * 3, slack);
@@ -237,15 +239,12 @@ function buildMatrixByCloseRates(
         }
       }
 
-      // 如果还没满，给开着的颜色加牌（保持开着）
       if (slack > 0) {
-        for (const c of active) {
+        for (const c of byRemaining) {
           if (slack <= 0) break;
           const maxAdd = remaining[c] - plan[c];
           if (maxAdd <= 0) continue;
-          // 加牌但保持非 0 mod 3
           const curMod = (cumulative[c] + plan[c]) % 3;
-          // 加 1 或 2（取决于当前余数，让结果 ≠ 0）
           const safe = curMod === 1 ? [1, 3] : curMod === 2 ? [2, 3] : [1, 2];
           for (const s of safe) {
             if (slack <= 0) break;
