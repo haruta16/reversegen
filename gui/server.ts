@@ -22,13 +22,12 @@ import {
   setLogLevel,
   LogLevel,
 } from '../src/index.js';
-import { generateV4 } from '../src/generate-v4.js';
 import {
   analyzeTriples,
   filterGraphData,
   getTripleDetail,
-} from '../src/triple-analyzer.js';
-import { decodeFromString, getCanonicalTileOrder } from '../src/replay-serializer.js';
+} from '../tools/dag/triple-analyzer.js';
+import { buildEliminationPlan } from '../tools/planning/elimination-plan.js';
 
 /** 内存中的分析结果缓存 (keyed by terrainHash) */
 const analysisCache = new Map<string, ReturnType<typeof analyzeTriples>>();
@@ -171,16 +170,16 @@ const server = createServer(async (req, res) => {
       const { levelId, levelsDir, terrainPath, replayCode } = body as {
         levelId?: string; levelsDir?: string; terrainPath?: string; replayCode?: string;
       };
-      let path = resolveTerrainPath(levelId, levelsDir, terrainPath);
-
-      // ReplayCode 自动解析地形：解码获取 levelHash → 在 levels 目录中匹配
-      if (!path && replayCode) {
+      // replayCode 决定地形，否则用 levelId/terrainPath
+      let path: string | null = null;
+      if (replayCode) {
         const replayData = decodeFromString(replayCode);
         if (replayData && replayData.levelHash !== 0n) {
           const hashStr = replayData.levelHash.toString(16).padStart(16, '0');
           path = findTerrainByLevelHash(hashStr, levelsDir);
         }
       }
+      if (!path) path = resolveTerrainPath(levelId, levelsDir, terrainPath);
       if (!path) throw new Error('请提供关卡ID、文件路径或有效的 ReplayCode');
 
       const terrain = loadTerrainFromFile(path);
@@ -231,10 +230,9 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/generate' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { costArray, colorCount, levelId, levelsDir, terrainPath, levelHash, algo, solvable, deathStep } = body as {
+      const { costArray, colorCount, levelId, levelsDir, terrainPath, levelHash } = body as {
         costArray?: string; colorCount?: string;
         levelId?: string; levelsDir?: string; terrainPath?: string; levelHash?: string;
-        algo?: string; solvable?: boolean; deathStep?: number;
       };
 
       const path = resolveTerrainPath(levelId, levelsDir, terrainPath);
@@ -244,40 +242,7 @@ const server = createServer(async (req, res) => {
       }
       const terrain = loadTerrainFromFile(path);
 
-      // ── V4: DFS-Free ──
-      if (algo === 'v4') {
-        const result = generateV4({
-          terrain,
-          solvable: solvable ?? true,
-          deathStep: solvable ? undefined : (deathStep ?? 0),
-        });
-
-        const allTiles = getAllTiles(terrain);
-        const assignmentsObj: Record<string, number> = {};
-        for (const [k, v] of result.assignments) assignmentsObj[String(k)] = v;
-
-        json(res, {
-          ok: true,
-          algo: 'v4',
-          completed: result.ok,
-          totalSteps: result.totalSteps,
-          branchLog: result.branchLog,
-          assignments: assignmentsObj,
-          colorCount: result.colorCount,
-          colorSizes: result.colorSizes,
-          replayCode: result.replayCode,
-          terrainSummary: {
-            layers: terrain.layers.length,
-            totalTiles: allTiles.length,
-            freeTiles: allTiles.filter(t => !t.isConst).length,
-            constTiles: allTiles.filter(t => t.isConst).length,
-            source: basename(path),
-          },
-        });
-        return;
-      }
-
-      // ── V2: CostLadder ──
+      // ── CostLadder (唯一生成算法) ──
       const k = parseInt(colorCount || '99', 10);
 
       if (!costArray || !costArray.trim()) {
@@ -382,15 +347,16 @@ const server = createServer(async (req, res) => {
           try { unlinkSync(tmpPath); } catch {}
         }
       } else {
-        let path = resolveTerrainPath(levelId, levelsDir, terrainPath);
-        // ReplayCode 自动解析地形
-        if (!path && replayCode) {
+        // replayCode 决定地形，否则用 levelId/terrainPath
+        let path: string | null = null;
+        if (replayCode) {
           const replayData = decodeFromString(replayCode);
           if (replayData && replayData.levelHash !== 0n) {
             const hashStr = replayData.levelHash.toString(16).padStart(16, '0');
             path = findTerrainByLevelHash(hashStr, levelsDir);
           }
         }
+        if (!path) path = resolveTerrainPath(levelId, levelsDir, terrainPath);
         if (!path) throw new Error('请提供关卡ID、文件路径、地形JSON或有效的 ReplayCode');
         terrain = loadTerrainFromFile(path);
       }
@@ -403,7 +369,7 @@ const server = createServer(async (req, res) => {
         const ordered = getCanonicalTileOrder(getAllTiles(terrain));
         suitMap = new Map<number, number>();
         for (let i = 0; i < ordered.length && i < replayData.instanceArray.length; i++) {
-          suitMap.set(ordered[i].id, replayData.instanceArray[i] & 0x3F);
+          suitMap.set(ordered[i].id, (replayData.instanceArray[i] & 0x3F) + 1);
         }
       }
 
@@ -508,6 +474,132 @@ const server = createServer(async (req, res) => {
           successors: detail.successors,
           topOverlaps: detail.topOverlaps,
         },
+      });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+  // ── API: tile DAG (地形版: 无 replayCode 显示灰色, 牌局版: 有 replayCode 显示花色) ──
+  if (url.pathname === '/api/tile-dag' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const { levelId, levelsDir, terrainPath, replayCode } = body as {
+        levelId?: string; levelsDir?: string; terrainPath?: string; replayCode?: string;
+      };
+      // replayCode 决定地形
+      let path: string | null = null;
+      if (replayCode) {
+        const rd = decodeFromString(replayCode);
+        if (rd && rd.levelHash !== 0n) {
+          path = findTerrainByLevelHash(rd.levelHash.toString(16).padStart(16, '0'), levelsDir || defaultLevelsDir);
+        }
+      }
+      if (!path) path = resolveTerrainPath(levelId, levelsDir, terrainPath);
+      if (!path) throw new Error('请提供关卡ID、文件路径或有效的 ReplayCode');
+      const terrain = loadTerrainFromFile(path);
+      const allTiles = getAllTiles(terrain);
+      const freeTiles = allTiles.filter(t => !t.isConst);
+
+      // 构建花色映射（如果有 replayCode）
+      const colorMap: Record<number, number> = {};
+      if (replayCode) {
+        const rd = decodeFromString(replayCode);
+        if (rd) {
+          const ordered = getCanonicalTileOrder(allTiles);
+          for (let i = 0; i < ordered.length && i < rd.instanceArray.length; i++) {
+            colorMap[ordered[i].id] = (rd.instanceArray[i] & 0x3F) + 1;
+          }
+        }
+      }
+      const hasColors = Object.keys(colorMap).length > 0;
+
+      // 构建传递依赖
+      const allDeps = new Map<number, number[]>();
+      for (const t of freeTiles) {
+        const deps = new Set<number>();
+        const q = [...t.dependencies];
+        for (let h = 0; h < q.length; h++) {
+          const depId = q[h];
+          if (!deps.has(depId)) {
+            deps.add(depId);
+            const depTile = allTiles.find(x => x.id === depId);
+            if (depTile) q.push(...depTile.dependencies);
+          }
+        }
+        allDeps.set(t.id, [...deps]);
+      }
+      // blocks: 反向 — 这张牌阻塞了哪些牌
+      const blocksBy = new Map<number, number[]>();
+      for (const t of freeTiles) blocksBy.set(t.id, []);
+      for (const [tid, deps] of allDeps) {
+        for (const depId of deps) {
+          blocksBy.get(depId)?.push(tid);
+        }
+      }
+
+      // 计算依赖链深度（根牌=1，每多一层依赖+1）
+      const depthCache = new Map<number, number>();
+      function getDepth(tileId: number): number {
+        if (depthCache.has(tileId)) return depthCache.get(tileId)!;
+        const t = allTiles.find(x => x.id === tileId);
+        if (!t || !t.dependencies.length) { depthCache.set(tileId, 1); return 1; }
+        let maxD = 0;
+        for (const depId of t.dependencies) { const d = getDepth(depId); if (d > maxD) maxD = d; }
+        depthCache.set(tileId, maxD + 1);
+        return maxD + 1;
+      }
+      for (const t of allTiles) getDepth(t.id);
+
+      const tiles = freeTiles.map(t => ({
+        id: t.id,
+        layer: t.layer,
+        depth: depthCache.get(t.id) ?? 1,
+        deps: allDeps.get(t.id) ?? [],
+        blocks: blocksBy.get(t.id) ?? [],
+        color: colorMap[t.id] ?? 0,
+      }));
+
+      // 按 layer 和 depth 分别分组
+      const layerGroups: Record<number, number[]> = {};
+      const depthGroups: Record<number, number[]> = {};
+      for (const t of tiles) {
+        (layerGroups[t.layer] ??= []).push(t.id);
+        (depthGroups[t.depth] ??= []).push(t.id);
+      }
+
+      json(res, {
+        ok: true,
+        tiles,
+        layers: Object.entries(layerGroups).map(([l, ids]) => ({ layer: Number(l), tileIds: ids })),
+        depthLayers: Object.entries(depthGroups).map(([d, ids]) => ({ depth: Number(d), tileIds: ids })),
+        maxLayer: Math.max(...tiles.map(t => t.layer), 0),
+        maxDepth: Math.max(...tiles.map(t => t.depth), 0),
+        summary: { totalTiles: allTiles.length, freeTiles: freeTiles.length, hasColors },
+      });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
+
+  // ── API: elimination plan ──
+  if (url.pathname === '/api/elimination-plan' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const { levelId, levelsDir, terrainPath } = body as {
+        levelId?: string; levelsDir?: string; terrainPath?: string;
+      };
+      const path = resolveTerrainPath(levelId, levelsDir, terrainPath);
+      if (!path) throw new Error('请提供关卡ID或文件路径');
+      const terrain = loadTerrainFromFile(path);
+      const allTiles = getAllTiles(terrain);
+      const freeTiles = allTiles.filter(t => !t.isConst);
+
+      const plan = buildEliminationPlan(freeTiles);
+      json(res, {
+        ok: true,
+        steps: plan.steps.map(s => ({ tileIds: s.tileIds, layer: s.layer })),
+        totalSteps: plan.steps.length,
+        complete: plan.steps.length * 3 >= freeTiles.length,
+        terrainInfo: { totalTiles: allTiles.length, freeTiles: freeTiles.length, layers: terrain.layers.length },
       });
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
     return;

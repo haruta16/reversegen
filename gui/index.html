@@ -78,45 +78,18 @@
 
   <!-- ═══ 参数 ═══ -->
   <div class="card">
-    <h2>⚙️ 算法参数</h2>
+    <h2>⚙️ CostLadder 参数</h2>
 
-    <!-- 算法选择 -->
-    <div class="inrow" style="margin-bottom:10px">
-      <button class="btn-sm" id="algoV2" onclick="selectAlgo('v2')" style="flex:1">V2 · CostLadder</button>
-      <button class="btn-sm" id="algoV4" onclick="selectAlgo('v4')">V4 · DFS-Free</button>
+    <label>Cost 数组（逗号分隔）</label>
+    <div class="inrow" style="margin-bottom:6px">
+      <input type="number" id="targetStd" value="1.0" min="0" max="3" step="0.1" style="width:70px;font-size:11px" placeholder="σ">
+      <button class="btn-sm" onclick="generateCost()">🎲 生成Cost</button>
+      <span style="font-size:10px;color:var(--m);line-height:2.2;flex:1">标准差 σ</span>
     </div>
-
-    <!-- ── V2 参数 ── -->
-    <div id="v2Params">
-      <label>Cost 数组（逗号分隔）</label>
-      <div class="inrow" style="margin-bottom:6px">
-        <input type="number" id="targetStd" value="1.0" min="0" max="3" step="0.1" style="width:70px;font-size:11px" placeholder="σ">
-        <button class="btn-sm" onclick="generateCost()">🎲 生成Cost</button>
-        <span style="font-size:10px;color:var(--m);line-height:2.2;flex:1">标准差 σ</span>
-      </div>
-      <textarea id="costArray" placeholder="如: 3,3,2,2,2,1"></textarea>
-      <div class="inrow" style="margin-top:10px">
-        <div style="flex:1"><label>花色数</label><input type="number" id="colorCount" value="99" min="1" max="99"></div>
-        <div style="flex:1"><label>Level Hash</label><input type="text" id="levelHash" placeholder="自动"></div>
-      </div>
-    </div>
-
-    <!-- ── V4 参数 ── -->
-    <div id="v4Params" style="display:none">
-      <div class="inrow" style="margin-top:6px">
-        <div style="flex:1">
-          <label>模式</label>
-          <select id="v4Mode" onchange="v4ModeChange()" style="width:100%;background:var(--bg);border:1px solid var(--b);border-radius:5px;color:var(--t);padding:8px 10px;font-size:13px">
-            <option value="solvable">可解 (SOLVABLE)</option>
-            <option value="death">不可解 (DEATH)</option>
-          </select>
-        </div>
-        <div style="flex:1" id="v4DeathDiv" hidden>
-          <label>死亡步</label>
-          <input type="number" id="v4DeathStep" value="0" min="0" style="width:100%">
-        </div>
-      </div>
-      <div class="hint" id="v4Hint"></div>
+    <textarea id="costArray" placeholder="如: 3,3,2,2,2,1"></textarea>
+    <div class="inrow" style="margin-top:10px">
+      <div style="flex:1"><label>花色数</label><input type="number" id="colorCount" value="99" min="1" max="99"></div>
+      <div style="flex:1"><label>Level Hash</label><input type="text" id="levelHash" placeholder="自动"></div>
     </div>
 
     <button class="btn-blue" onclick="generate()" style="margin-top:12px">🔄 生成牌局</button>
@@ -248,22 +221,6 @@ function updateCostHint(steps){
 }
 
 // ═══════════════════════════════════
-// 算法切换
-// ═══════════════════════════════════
-var currentAlgo='v2';
-function selectAlgo(algo){
-  currentAlgo=algo;
-  document.getElementById('v2Params').style.display=algo==='v2'?'block':'none';
-  document.getElementById('v4Params').style.display=algo==='v4'?'block':'none';
-  document.getElementById('algoV2').style.background=algo==='v2'?'var(--a)':'';
-  document.getElementById('algoV4').style.background=algo==='v4'?'var(--a)':'';
-}
-selectAlgo('v2');
-function v4ModeChange(){
-  var m=document.getElementById('v4Mode').value;
-  document.getElementById('v4DeathDiv').hidden=m!=='death';
-}
-
 // ═══════════════════════════════════
 // 生成
 // ═══════════════════════════════════
@@ -284,68 +241,17 @@ async function generate(){
   var body={levelId:lid};
   var dir=document.getElementById('levelsDir').value.trim();
   if(dir)body.levelsDir=dir;
-
-  if(currentAlgo==='v2'){
-    body.costArray=document.getElementById('costArray').value.trim();
-    body.colorCount=document.getElementById('colorCount').value;
-    body.levelHash=document.getElementById('levelHash').value.trim()||undefined;
-  }else{
-    body.algo='v4';
-    body.solvable=document.getElementById('v4Mode').value==='solvable';
-    if(!body.solvable)body.deathStep=parseInt(document.getElementById('v4DeathStep').value)||0;
-  }
+  body.costArray=document.getElementById('costArray').value.trim();
+  body.colorCount=document.getElementById('colorCount').value;
+  body.levelHash=document.getElementById('levelHash').value.trim()||undefined;
 
   try{
     var r=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var d=await r.json();
     if(!d.ok){err.textContent=d.error;return}
-    if(currentAlgo==='v2')showResult(d);else showResultV4(d);
+    showResult(d);
   }catch(e){err.textContent=e.message}
   finally{btn.textContent='🔄 生成牌局';btn.disabled=false}
-}
-
-function showResultV4(d){
-  document.getElementById('resultCard').style.display='block';
-  document.getElementById('codeBox').textContent=d.replayCode||'';
-  var ok=d.ok?'g':'r';
-  document.getElementById('stats').innerHTML=
-    '<div class="stat"><div class="v '+ok+'">'+(d.ok?'OK':'FAIL')+'</div><div class="l">状态</div></div>'+
-    '<div class="stat"><div class="v">'+d.colorCount+'</div><div class="l">色数</div></div>'+
-    '<div class="stat"><div class="v">'+d.totalSteps+'</div><div class="l">总步数</div></div>'+
-    '<div class="stat"><div class="v '+(d.colorSizes.every(function(x){return x%3===0})?'g':'r')+'">'+
-    (d.colorSizes.every(function(x){return x%3===0})?'✓':'✗')+'</div><div class="l">mod3</div></div>';
-  document.getElementById('chartLabel').textContent='分支序列 (DFS-free)';
-  drawBranchChart(d.branchLog);
-  // Replace table header for V4
-  var thead=document.querySelector('#resultCard thead');
-  if(thead)thead.innerHTML='<tr><th>步</th><th>分支</th></tr>';
-  var stepHtml='';
-  for(var i=0;i<d.branchLog.length;i++){
-    var cls=d.branchLog[i]>=1?'g':'r';
-    stepHtml+='<tr><td>'+(i+1)+'</td><td style="color:var(--'+(cls==='g'?'g':'r')+')">'+d.branchLog[i]+'</td></tr>';
-  }
-  document.getElementById('stepBody').innerHTML=stepHtml;
-  document.getElementById('stepCnt').textContent=d.branchLog.length+'步';
-}
-
-function drawBranchChart(log){
-  var c=document.getElementById('costChart');
-  if(!c)return;
-  var ctx=c.getContext('2d');
-  var w=c.width,cw=w-20;var ch=c.height-20,pad=10;
-  ctx.clearRect(0,0,w,ch+20);
-  var mx=Math.max.apply(null,log.concat([1]));
-  ctx.beginPath();ctx.strokeStyle='#3fb950';ctx.lineWidth=1;
-  for(var i=0;i<log.length;i++){
-    var x=pad+(i/log.length)*cw,y=pad+ch-(log[i]/mx)*ch;
-    if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
-  }
-  ctx.stroke();
-  ctx.fillStyle='#8b949e';ctx.font='9px monospace';
-  ctx.fillText('max:'+mx,pad+2,pad+10);
-  var zy=pad+ch;ctx.strokeStyle='#f85149';ctx.beginPath();
-  ctx.moveTo(pad,zy);ctx.lineTo(pad+cw,zy);ctx.stroke();
-  ctx.fillText('0',pad+2,zy-4);
 }
 
 // ═══════════════════════════════════

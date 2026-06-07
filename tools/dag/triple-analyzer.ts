@@ -13,11 +13,11 @@ import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { buildTriples, buildTriplesBySuit } from './triple-builder.js';
-import { computeAllDependencies } from './dependency-graph.js';
-import type { TerrainTile, TerrainData, Triple } from './types.js';
-import { tripleKey, sortTriple } from './types.js';
-import { getAllTiles } from './terrain-loader.js';
+import { buildTriples, buildTriplesBySuit } from '../../src/triple-builder.js';
+import { computeAllDependencies } from '../../src/dependency-graph.js';
+import type { TerrainTile, TerrainData, Triple } from '../../src/types.js';
+import { tripleKey, sortTriple } from '../../src/types.js';
+import { getAllTiles } from '../../src/terrain-loader.js';
 
 // ═══════════════════════════════════════════════════
 //  类型

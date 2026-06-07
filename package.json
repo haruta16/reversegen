@@ -9,10 +9,10 @@
   },
   "scripts": {
     "generate": "npx tsx cli/generate.ts",
-    "test": "npx tsx --test test/*.ts",
-    "test:algo": "npx tsx --test test/test-reverse-gen.ts",
-    "test:serializer": "npx tsx --test test/test-serializer.ts",
-    "gui": "npx tsx gui/server.ts --open"
+    "test": "npx tsx --test test/unit/*.test.ts test/integration/*.test.ts",
+    "test:algo": "npx tsx --test test/unit/reverse-gen.test.ts",
+    "test:serializer": "npx tsx --test test/unit/serializer.test.ts",
+    "gui": "npx tsx gui/server.ts "
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

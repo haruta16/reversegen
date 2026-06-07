@@ -21,10 +21,10 @@
  *   本模块: 枚举所有可能的triple序列（逻辑穷举 + 剪枝）
  */
 
-import type { TerrainTile, TerrainData } from '../types.js';
-import { getAllTiles, loadTerrainFromFile } from '../terrain-loader.js';
-import { computeAllDependencies } from '../dependency-graph.js';
-import { sortTriple } from '../types.js';
+import type { TerrainTile, TerrainData } from '../../src/types.js';
+import { getAllTiles, loadTerrainFromFile } from '../../src/terrain-loader.js';
+import { computeAllDependencies } from '../../src/dependency-graph.js';
+import { sortTriple } from '../../src/types.js';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 

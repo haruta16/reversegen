@@ -26,11 +26,11 @@ import {
   setLogLevel,
   LogLevel,
   TileState,
-} from '../src/index.js';
-import type { TerrainTile, DockEntry } from '../src/index.js';
+} from '../../src/index.js';
+import type { TerrainTile, DockEntry } from '../../src/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FIXTURE = join(__dirname, 'fixtures', '100075.json');
+const FIXTURE = join(__dirname, '..', 'fixtures', '100075.json');
 
 setLogLevel(LogLevel.Silent);
 

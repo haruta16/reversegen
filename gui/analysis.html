@@ -148,6 +148,7 @@
       <span class="seg-label">图</span>
       <button class="btn-sm active" id="tabDag" onclick="App.switchTab('dag')">偏序 DAG</button>
       <button class="btn-sm" id="tabForce" onclick="App.switchTab('force')">力导向</button>
+      <button class="btn-sm" id="tabTile" onclick="App.switchTab('tile')">Tile DAG</button>
       <span class="sep"></span>
       <span class="seg-label">层</span>
       <button class="btn-sm active" id="btnLayerQuantile" onclick="App.setLayerMode('depSetQuantile')">分位数</button>
@@ -190,6 +191,7 @@
   <div id="viz">
     <svg id="dagSvg"></svg>
     <svg id="forceSvg" style="display:none"></svg>
+    <svg id="tileSvg" style="display:none"></svg>
   </div>
   <div id="panel">
     <!-- 统计 -->
@@ -267,7 +269,7 @@ const App = {
   },
 
   async init() {
-    DagGraph.init(); ForceGraph.init();
+    DagGraph.init(); ForceGraph.init(); TileGraph.init();
     await this.scanLevels();
     // 默认关卡目录
     if (!document.getElementById('levelsDir').value && App.state.levelsDir) {
@@ -304,7 +306,7 @@ const App = {
     const terrainPath = document.getElementById('terrainPath').value.trim();
     const levelsDir = document.getElementById('levelsDir').value.trim();
     if (!levelId && !terrainPath) return alert('请输入地形 ID 或文件路径');
-    App.state.replayCode = null; // 清掉 replay 模式
+    App.state.replayCode = null; // 清掉 replay 模式 App.state.tileDagTerrain = null; App.state.tileDagReplay = null;
     App.setModeButton('terrain');
     App.setEdgeMode('full');     // 空地形模式不支持 partial
     App.setStatus('loading', '正在加载地形...');
@@ -329,7 +331,7 @@ const App = {
   async loadReplay() {
     const rc = document.getElementById('replayCode').value.trim();
     if (!rc) return alert('请粘贴 ReplayCode');
-    App.state.replayCode = rc;
+    App.state.replayCode = rc; App.state.tileDagReplay = null; App.state.tileDagTerrain = null;
     App.setModeButton('replay');
     App.setStatus('loading', '正在解码 ReplayCode...');
     document.getElementById('btnAnalyze').disabled = true;
@@ -429,19 +431,26 @@ const App = {
 
   switchTab(tab) {
     App.state.activeTab = tab;
-    ['tabDag','tabForce'].forEach(id => document.getElementById(id).classList.remove('active'));
+    ['tabDag','tabForce','tabTile'].forEach(id => document.getElementById(id).classList.remove('active'));
     document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
     document.getElementById('dagSvg').style.display = tab === 'dag' ? 'block' : 'none';
     document.getElementById('forceSvg').style.display = tab === 'force' ? 'block' : 'none';
-    if (!App.state.analysisResult) return;
-    if (tab === 'dag') DagGraph.render();
-    else if (tab === 'force') ForceGraph.render();
+    document.getElementById('tileSvg').style.display = tab === 'tile' ? 'block' : 'none';
+    if (tab === 'tile') { TileGraph.render(); }
+    else if (App.state.analysisResult) {
+      if (tab === 'dag') DagGraph.render();
+      else if (tab === 'force') ForceGraph.render();
+    }
+    var btnQ = document.getElementById("btnLayerQuantile"), btnD = document.getElementById("btnLayerDepth");
+    if (tab === "tile") { btnQ.textContent = "深度"; btnD.textContent = "Layer"; btnQ.classList.toggle("active", TileGraph.mode === "depth"); btnD.classList.toggle("active", TileGraph.mode === "layer"); }
+    else { btnQ.textContent = "分位数"; btnD.textContent = "依赖深度"; }
   },
 
   async applyFilters() { if (App.state.analysisResult) await App.startAnalysis(); },
 
   setLayerMode(mode) {
     App.state.layerMode = mode;
+    if (App.state.activeTab === 'tile') { TileGraph.setMode(mode === 'depSetQuantile' ? 'depth' : 'layer'); return; }
     document.getElementById('btnLayerQuantile').classList.toggle('active', mode === 'depSetQuantile');
     document.getElementById('btnLayerDepth').classList.toggle('active', mode === 'dependencyDepth');
     document.getElementById('statLayersLabel').textContent = mode === 'dependencyDepth' ? '层数(依赖深度)' : '层数(分位数)';
@@ -757,10 +766,72 @@ const ForceGraph = {
   },
 };
 
+// ── Tile DAG ──
+var TileGraph = {
+  svg: null, g: null, zoom: null, data: null, tilePos: null, tileMap: null,
+  selId: null, hlSet: new Set(), mode: 'depth', _nodeR: 7,
+  palette: ['#58a6ff','#3fb950','#f85149','#d2991d','#a371f7','#79c0ff','#56d364','#ff7b72','#e3b341','#bc8cff','#ffa657','#7ee787','#f778ba','#e5534b','#539bf5','#db6d28'],
+  init() {
+    var self = this;
+    this.svg = d3.select('#tileSvg'); this.g = this.svg.append('g');
+    this.zoom = d3.zoom().scaleExtent([0.15, 6]).on('zoom', function(e) { TileGraph.g.attr('transform', e.transform); });
+    this.svg.call(this.zoom);
+    this.svg.on('click', function(event) { if (event.target === this || event.target.tagName === 'svg') TileGraph.clearSel(); });
+    this.svg.select('defs').append('marker').attr('id', 'tile-arrow').attr('viewBox', '0 -5 10 10').attr('refX', 12).attr('refY', 0).attr('markerWidth', 5).attr('markerHeight', 5).attr('orient', 'auto').append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', 'rgba(139,148,158,0.3)');
+  },
+  getLayer(t) { return this.mode === 'depth' ? (t.depth || 1) : t.layer; },
+  setMode(m) { this.mode = m; this.selId = null; this.hlSet.clear(); this.render(); document.getElementById('btnLayerQuantile').classList.toggle('active', m === 'depth'); document.getElementById('btnLayerDepth').classList.toggle('active', m === 'layer'); },
+  buildHlSet(id) { var s=new Set(),tm=this.tileMap; function up(tid){if(s.has(tid))return;s.add(tid);var t=tm[tid];if(t)(t.deps||[]).forEach(up);} function dn(tid){if(s.has(tid))return;s.add(tid);var t=tm[tid];if(t)(t.blocks||[]).forEach(dn);} up(id);dn(id);s.add(id);return s; },
+  applyHighlight() {
+    var hl = this.hlSet, hasHL = hl.size > 0, sel = this.selId, self = this;
+    this.g.selectAll('circle.tile-node').attr('fill', function(t) { if (hasHL && !hl.has(t.id)) return '#30363d'; if (t.color && t.color > 0) return self.palette[(t.color-1)%self.palette.length]; return '#8b949e'; }).attr('opacity', function(t) { return (hasHL && !hl.has(t.id)) ? 0.2 : 0.92; }).attr('stroke', function(t) { return t.id === sel ? '#ffa657' : '#30363d'; }).attr('stroke-width', function(t) { return t.id === sel ? 2.5 : 1; }).attr('r', function(t) { return t.id === sel ? (self._nodeR||7)+2 : (self._nodeR||7); });
+    this.g.selectAll('line.tile-edge').attr('stroke', function(e) { if (hasHL) return hl.has(e.from)&&hl.has(e.to)?'rgba(88,166,255,0.65)':'rgba(139,148,158,0.04)'; return 'rgba(139,148,158,0.2)'; }).attr('stroke-width', function(e) { return (hasHL&&hl.has(e.from)&&hl.has(e.to))?1.8:0.6; }).attr('marker-end', function(e) { return (hasHL&&hl.has(e.from)&&hl.has(e.to))?'url(#tile-arrow)':null; });
+  },
+  selectTile(id) { if (this.selId===id) { this.selId=null; this.hlSet.clear(); App.clearInspector(); } else { this.selId=id; this.hlSet=this.buildHlSet(id); this.showDetail(id); } this.applyHighlight(); },
+  hoverTile(id) { if(!this.selId){this.hlSet=this.buildHlSet(id);this.applyHighlight();} },
+  clearHover() { if(!this.selId){this.hlSet.clear();this.applyHighlight();} },
+  clearSel() { this.selId=null;this.hlSet.clear();App.clearInspector();this.applyHighlight(); },
+  showDetail(id) {
+    var t=this.tileMap[id]; if(!t)return;
+    document.getElementById('inspectorEmpty').style.display='none'; document.getElementById('inspectorContent').style.display='block';
+    document.getElementById('ikey').textContent='Tile #'+t.id+' L'+t.layer+' D'+(t.depth||1);
+    var clr=t.color&&t.color>0?('<span class="dot" style="background:'+this.palette[(t.color-1)%this.palette.length]+';display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:middle"></span>C'+t.color+' '):'';
+    document.getElementById('isummary').innerHTML=clr+'依赖 '+(t.deps||[]).length+' 张 | 阻塞 '+(t.blocks||[]).length+' 张 | 链上 '+this.hlSet.size+' 张';
+    document.getElementById('iDepSet').innerHTML='<div style="font-size:11px;line-height:1.6">依赖链上共 <b>'+this.hlSet.size+'</b> 张牌（含自身）</div>';
+    var blk=(t.blocks||[]).slice(0,12).map(function(b){return '<span style="color:var(--a)">#'+b+'</span>';}).join(', ')||'(无)'; if((t.blocks||[]).length>12)blk+=' ...';
+    document.getElementById('iPreds').innerHTML='<div class="row"><span>依赖</span><span>'+(t.deps||[]).length+' 张</span></div>';
+    document.getElementById('iSuccs').innerHTML='<div class="row"><span>阻塞</span><span>'+blk+'</span></div>';
+  },
+  async render() {
+    if (!this.svg) this.init(); this.g.selectAll('*').remove(); this.tilePos = {}; this.tileMap = {};
+    var hasReplay = App.state.replayCode && App.state.mode === 'replay';
+    try { var data = this.data = await App.loadTileDag(hasReplay); var tiles = data.tiles;
+    if (!tiles.length) { this.g.append('text').attr('x', 350).attr('y', 300).attr('text-anchor', 'middle').attr('fill', '#8b949e').attr('font-size', 14).text('无数据'); return; }
+    tiles.forEach(function(t) { TileGraph.tileMap[t.id] = t; });
+    var self = this, maxL = Math.max.apply(null, tiles.map(function(t) { return self.getLayer(t); }));
+    var W = Math.max(1000, document.getElementById('viz').clientWidth || 1000), H = Math.max(700, document.getElementById('viz').clientHeight || 700);
+    var margin = {t: 28, b: 28, l: 55, r: 30}, usableW = W - margin.l - margin.r, layerH = (H - margin.t - margin.b) / Math.max(maxL + 1, 1);
+    var groups = {}; tiles.forEach(function(t) { var l = self.getLayer(t); if (!groups[l]) groups[l] = []; groups[l].push(t); });
+    for (var l = 0; l <= maxL; l++) { var arr = groups[l] || [], sp = usableW / Math.max(arr.length + 1, 1), y = H - margin.b - layerH * (l + 1) + layerH / 2; arr.forEach(function(t, i) { self.tilePos[t.id] = { x: margin.l + sp * (i + 1), y: y }; }); }
+    var edgeData = []; tiles.forEach(function(t) { (t.deps||[]).forEach(function(depId) { if (self.tilePos[depId]) edgeData.push({ from: depId, to: t.id }); }); });
+    var hlSet = this.hlSet, hasHL = hlSet.size > 0, sel = this.selId;
+    this.g.selectAll('line').data(edgeData).join('line').attr('class', 'tile-edge').attr('x1', function(e) { return self.tilePos[e.from]?.x||0; }).attr('y1', function(e) { return self.tilePos[e.from]?.y||0; }).attr('x2', function(e) { return self.tilePos[e.to]?.x||0; }).attr('y2', function(e) { return self.tilePos[e.to]?.y||0; }).attr('stroke', function(e) { if (hasHL) return hlSet.has(e.from)&&hlSet.has(e.to)?'rgba(88,166,255,0.65)':'rgba(139,148,158,0.04)'; return 'rgba(139,148,158,0.2)'; }).attr('stroke-width', function(e) { return (hasHL&&hlSet.has(e.from)&&hlSet.has(e.to))?1.8:0.6; }).attr('marker-end', function(e) { return (hasHL&&hlSet.has(e.from)&&hlSet.has(e.to))?'url(#tile-arrow)':null; });
+    var r = this._nodeR = Math.max(5, Math.min(11, usableW / Math.max(tiles.length, 1) * 0.45));
+    this.g.selectAll('circle').data(tiles).join('circle').attr('class', 'tile-node').attr('cx', function(t) { return self.tilePos[t.id]?.x||0; }).attr('cy', function(t) { return self.tilePos[t.id]?.y||0; }).attr('r', function(t) { return t.id===sel?r+2:r; }).attr('fill', function(t) { if (hasHL&&!hlSet.has(t.id)) return '#30363d'; if (t.color&&t.color>0) return self.palette[(t.color-1)%self.palette.length]; return '#8b949e'; }).attr('stroke', function(t) { return t.id===sel?'#ffa657':'#30363d'; }).attr('stroke-width', function(t) { return t.id===sel?2.5:1; }).attr('opacity', function(t) { return (hasHL&&!hlSet.has(t.id))?0.2:0.92; }).attr('cursor', 'pointer').on('click', function(event, t) { event.stopPropagation(); TileGraph.selectTile(t.id); }).on('mouseenter', function(event, t) { if (!TileGraph.selId) TileGraph.hoverTile(t.id); }).on('mouseleave', function() { if (!TileGraph.selId) TileGraph.clearHover(); });
+    this.g.selectAll('text.layerlbl').data(Object.keys(groups).map(Number).sort(function(a,b){return b-a;})).join('text').attr('class', 'layerlbl').attr('x', 6).attr('y', function(l) { var first = groups[l]?.[0]; return first ? (self.tilePos[first.id]?.y||0) : 0; }).attr('fill', '#8b949e').attr('font-size', 9).attr('font-family', 'monospace').text(function(l) { return (self.mode==='depth'?'D':'L')+l+' ('+(groups[l]||[]).length+')'; });
+    document.getElementById('statTriples').textContent = tiles.length; document.getElementById('statEdges').textContent = edgeData.length;
+    document.getElementById('statLayers').textContent = maxL + 1; document.getElementById('statLayersLabel').textContent = this.mode==='depth'?'深度层数':'Layer 层数';
+    document.getElementById('statMaxSucc').textContent = hasReplay?'🎨':'地形'; document.getElementById('statAvgCost').textContent = this.mode==='depth'?'按深度':'按 layer';
+    } catch(err) { this.g.selectAll('*').remove(); this.g.append('text').attr('x', 350).attr('y', 300).attr('text-anchor', 'middle').attr('fill', '#f85149').attr('font-size', 13).text('Error: '+err.message); }
+  },
+};
+
+App.loadTileDag = async function(replayMode) { var ck = replayMode?'tileDagReplay':'tileDagTerrain'; if (App.state[ck]) return App.state[ck]; var rc = replayMode?App.state.replayCode:null; var lid = document.getElementById('levelId').value.trim(); var tp = App.state.terrainPath || document.getElementById('terrainPath').value.trim(); var ld = App.state.levelsDir || document.getElementById('levelsDir').value.trim(); var body = replayMode?{replayCode:rc,levelsDir:ld||undefined}:{levelId:lid||undefined,terrainPath:tp||undefined,levelsDir:ld||undefined}; var resp = await fetch('/api/tile-dag',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); var d = await resp.json(); if(!d.ok)throw new Error(d.error); App.state[ck]=d; return d; };
+
 // Init
 window.addEventListener('DOMContentLoaded', () => App.init());
 window.addEventListener('resize', () => { if (App.state.activeTab === 'dag') DagGraph.render(); else if (App.state.activeTab === 'force') ForceGraph.render(); });
-window.addEventListener('keydown', (e) => { if (e.key === 'Escape') App.clearInspector(); });
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { App.clearInspector(); TileGraph.clearSel(); } });
 </script>
 </body>
 </html>

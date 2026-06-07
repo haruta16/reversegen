@@ -6,206 +6,187 @@
 
 > 给定地形（牌的空间布局 + 叠压依赖关系），为每张牌赋予花色，使得生成的牌局在**可解性、死亡点位置、决策分支数**等维度上可以被精确、确定性地控制。
 
-**三代算法**:
-
-| 版本 | 名称 | 输入 | 输出 | 状态 |
-|------|------|------|------|------|
-| V2 | ReverseGen CostLadder | 地形 + Cost数组 + 花色数 | ReplayCode | 生产可用, 贪心域受限 |
-| V3 | Forward Construction | 地形 + solvable/deathStep | 花色分配 | 已废弃 |
-| V4 | DFS-Free 结构锁定 | 地形 + solvable/deathStep | 花色分配 + ReplayCode | ★ 当前主力 |
-| CSP | DAG-driven 死锁搜索 | 地形 | 花色分配 + 死亡步 | ★ 在研 |
-
 **与 Unity 零依赖**，纯 TypeScript，CLI / Web GUI / API 三种方式。
 
----
-
-## V4 算法原理
-
-### 核心洞察
-
-```
-分支数 = |{色C : |freed ∩ tiles(C)| ≥ 3}|
-
-这是可直接计算的结构属性，不需要 DFS 探索状态空间。
-```
-
-### 两阶段架构
-
-**Phase 1: assignColors** — 消除计划驱动颜色分配
-- SOLVABLE: 完整 triple 序列 → 每步一个色 → 序列 = 可解性证明
-- DEATH: 计划到 K 步 + 剩余 tile 死锁分配 (packDeathColors)
-
-**Phase 2: computeBranches** — 纯结构分支计算
-- 每步扫描所有颜色，计数 `|freed ∩ color| ≥ 3`
-- `deathStartColor` 标记确保死锁色组不计入分支
-
-### 验证结果
-
-| 指标 | 值 |
-|------|-----|
-| SOLVABLE | 95.6% (131/137) |
-| DEATH | 受限于静态约束 |
-| div3 合规 | 99.3% |
-| DFS-free | ✅ 生成路径中无 DFS |
-
-### 已知限制
-
-DEATH 模式使用 `≤2 freed/色 + deathStartColor` 标签过滤。标签过滤在 `computeBranches` 中生效，但实际游戏(DFS)忽略标签 → 死亡不可靠。详见下文 CSP 方案。
+当前唯一生成算法：**ReverseGen CostLadder**。未来可扩展多算法。
 
 ---
 
-## CSP 死锁搜索 (dag-death.ts)
-
-### 问题
-
-V4 的 DEATH 通过 `deathStartColor` 标签过滤实现——标签告诉 `computeBranches` "忽略这些色"。但 DFS 不知道标签 → 找到绕过路径 → 死亡失败。
-
-### 方案
-
-**在现有地形依赖图中搜索死锁子图**——不是标记某些色为"死亡"，而是通过结构性约束确保死亡色的 tiles 真的无法形成 triple。
-
-### 核心约束
+## 项目结构
 
 ```
-每色 ≤2 freed tile
-freed tile 不阻塞同色的 blocked tile（blocking-aware）
-B ≥ F/2（数学充要条件，≤2 freed per 3-tile 色组）
-```
+src/                          # 核心库
+├── types.ts                  # 公共类型定义
+├── logger.ts                 # 分级日志
+├── crc16.ts                  # CRC16/MODBUS
+├── dependency-graph.ts       # BFS 传递依赖闭包
+├── triple-builder.ts         # C(n,3) 枚举 + cost 计算
+├── reverse-gen.ts            # ★ CostLadder 生成算法
+├── greedy-sim.ts             # 纯贪心模拟验证
+├── replay-serializer.ts      # ReplayCode 编解码
+├── terrain-loader.ts         # 地形加载
+├── cost-generator.ts         # Cost 数组随机生成器
+├── index.ts                  # 公共 API
+└── solver/                   # 游戏引擎 + 求解器
+    ├── offline-game.ts       # 离线游戏状态机
+    ├── solver-dfs.ts         # DFS 求解器
+    ├── solver-greedy.ts      # 贪心求解器
+    ├── solver-random.ts      # 随机批量求解器
+    └── types.ts              # 求解器类型
 
-### 架构
+tools/                        # 分析工具
+├── dag/                      # DAG 分析
+│   ├── board-dag.ts          # 色组 DAG + Triple DAG 构建
+│   ├── enhanced-dag.ts       # 增强 DAG 特征提取
+│   ├── triple-analyzer.ts    # Triple 关系分析器
+│   ├── verify-death.ts       # 轻量死亡验证
+│   └── deadlock-hunter.ts    # 死锁模式检测 (P1-P4)
+└── planning/                 # 消除规划
+    ├── elimination-plan.ts   # 纯逻辑消除计划
+    ├── deep-plan-single.ts   # 单关深度分析
+    └── deep-analyze.ts       # 深度分析引擎
 
-```
-searchDeath(terrain)
-  ├─ 对候选 K 值 (0, 1/4, 1/2, 3/4, last) 逐一尝试
-  │   ├─ tryDeathAt(K):
-  │   │   ├─ Plan: 创建 K 个正常triple (max-release策略)
-  │   │   ├─ 分类: 剩余tile → F(will-be-freed) + B(will-stay-blocked)
-  │   │   ├─ CSP: 将 F+B 分组为 3-tile色组, ≤2 freed/色, blocking-aware
-  │   │   └─ 验证: DFS确认死亡 (5s timeout)
-  │   └─ 精细化: K±1, K±2
-  └─ 返回最佳 deathStep + 完整色彩分配
-```
-
-### 验证结果 (137 地形)
-
-| 指标 | 值 |
-|------|-----|
-| CSP 发现率 | 100% (137/137) |
-| DFS 确认率 | 17.5% (24/137) |
-| 未确认(假阳性) | 82.5% |
-
-CSP 找到了所有地形的死亡步。DFS 确认 1/6。未确认的是 CSP 约束仍不够强——跨色释放链未被捕获。这是 CSP 可继续加强的方向。
-
----
-
-## 消除计划 (elimination-plan.ts)
-
-地形层的依赖可行性分析。不依赖花色分配，纯依赖图上的 triple 序列计算。
-
-**2507 牌局批量分析:**
-- 消除计划 vs DFS 一致性: 93.6%
-- 48.6% 步骤有 500+ 候选 triple（地形级自由度极高）
-- 4.0% 步骤只有 1 个候选
-
----
-
-## Terrain 协同生成 (terrain-gen.ts)
-
-当输入包含地形设计自由度时，死亡是构造性保证的。
-
-**死锁环**: N 个色组形成互锁环 → DFS 100% 确认不可解。
-- 3色环(9t): DFS win=false ✅
-- 20色环(60t): DFS win=false ✅
-- 混合(chain+ring): DFS win=false ✅
-
-**局限**: 需要生成新地形，不适用于现有地形。实验性模块。
-
----
-
-## 技术选型
-
-| 考量 | 选择 | 原因 |
-|------|------|------|
-| 语言 | TypeScript | C#→TS 类型映射自然；Node.js `deflateRawSync` = RFC 1951 裸 DEFLATE，与 .NET `DeflateStream` 完全一致 |
-| 运行时 | Node.js (tsx) | 热执行，无编译步骤；内置 zlib 模块 |
-| 压缩格式 | Raw DEFLATE (RFC 1951) | .NET DeflateStream 产出裸 DEFLATE 不含 zlib 头，必须用 `deflateRawSync` 才能互操作 |
-| 校验 | CRC16/MODBUS | 工业标准，与 .NET ComputeCRC16 逐位一致 |
-| GUI | 纯 HTML + 内联 JS | 零框架依赖，`onclick` 属性绑定避免 addEventListener 初始化时序问题 |
-
----
-
-## 模块结构
-
-```
-src/
-├── types.ts                  L0  公共类型定义
-├── logger.ts                 L0  分级日志
-├── crc16.ts                  L0  CRC16/MODBUS
-├── dependency-graph.ts       L1  BFS 传递依赖闭包
-├── triple-builder.ts         L1  C(n,3) 枚举 + cost 计算
-├── reverse-gen.ts            L2  ★ V2 CostLadder 算法
-├── generate-v4.ts            L2  ★ V4 DFS-Free 结构锁定
-├── dag-death.ts              L2  ★ CSP 死锁搜索 (DAG-driven)
-├── verify-death.ts           L2  轻量死亡验证 (一步 lookahead)
-├── greedy-sim.ts             L2  纯贪心模拟验证
-├── replay-serializer.ts      L3  ★ v4 ReplayCode 编解码
-├── terrain-loader.ts         L4  JSON 地形加载
-├── terrain-gen.ts            L4  实验性 terrain 协同生成
-├── index.ts                  L5  公共 API
-├── solver/                   L3  游戏引擎 + DFS/贪心/随机求解器 (离线验证)
-├── analysis/                 L3  分析工具链
-│   ├── elimination-plan.ts  消除计划器 (V4 依赖)
-│   ├── enhanced-dag.ts      增强DAG分析
-│   ├── board-dag.ts         色组DAG + Triple DAG
-│   ├── batch-v2.ts          2507牌局批量分析
-│   ├── deadlock-hunter.ts   死锁模式检测
-│   ├── aggregate.ts         聚合统计
-│   └── rule-check.ts        结构规则验证
-└── ...
-
-cli/generate.ts               L6  CLI 工具
-gui/server.ts                 L6  HTTP 服务器 (V2 + V4 API)
-gui/index.html                L6  Web 前端
-gui/analysis.html             L6  Triple 关系分析器
-
+cli/generate.ts               # CLI 工具
+gui/                          # Web GUI
+├── server.ts                 # HTTP 服务器
+├── index.html                # 牌局生成器页面
+└── analysis.html             # DAG 分析页面 (4 种图)
 test/
-├── verify-v4.ts               V4 137地形批量验证
-├── search-death-all.ts        CSP 137地形批量搜索
-├── dfs-verify-death.ts        DFS深度死亡验证
-├── debug-csp.ts               CSP 直接调试
-├── debug-death-root.ts        死亡根因分析
-├── debug-100002.ts            单地形调试
-└── quick-search.ts            快速CSP搜索
+├── unit/                     # 单元测试 (17 + 10 测例)
+├── integration/              # 集成测试
+└── fixtures/                 # 测试数据
 ```
 
-## 依赖图（单向无环）
+### 依赖方向
 
 ```
-                    types.ts
-                   ↗    ↖
-      dependency-graph   triple-builder
-             ↗                ↗
-         reverse-gen ←── greedy-sim
-             ↓
-      replay-serializer ←── crc16
-             ↓
-          index.ts ←── terrain-loader ←── logger
-             ↓
-      ┌──────┴──────┐
-     CLI          GUI Server
+tools/ ──→ src/
+gui/   ──→ src/, tools/
+cli/   ──→ src/
+test/  ──→ src/
 ```
 
-**层级含义**：
+`src/` 不依赖 `tools/` 或 `gui/`。
 
-| 层 | 模块 | 特性 |
-|----|------|------|
-| L0 | types, logger, crc16 | 纯数据/纯函数，无业务含义，可独立单测 |
-| L1 | dependency-graph, triple-builder | 图算法，组合 L0，独立可测 |
-| L2 | reverse-gen, greedy-sim | 业务算法，组合 L1 |
-| L3 | replay-serializer | 输出层，依赖 L2 产出 + crc16 |
-| L4 | terrain-loader | 输入层，文件 IO |
-| L5 | index | 门面，组合 L2+L3+L4，唯一的公共 API 面 |
-| L6 | CLI, GUI | 用户界面，只依赖 L5 |
+---
+
+## 核心算法：ReverseGen CostLadder
+
+### 输入/输出
+
+```
+输入: 地形(tiles) + Cost目标数组 + 花色数量
+输出: 每张牌的花色分配 → ReplayCode
+```
+
+### 流程
+
+```
+① 建依赖图     BFS 展开每张牌的传递依赖闭包
+② 枚举 Triple  C(n,3) 所有三牌组合, 计算 depSet
+③ 贪心选 Triple 每步选 cost ≥ target 的第一个候选
+    ├─ 黑名单封杀  低 cost 候选全封, 保证难度曲线
+    ├─ 池化        连续同 cost 步骤在同一快照下互选
+    └─ 抢救        候选耗光时从黑名单尾部找回
+④ 花色分配    选违规最少 + 负载均衡的花色
+⑤ 模拟验证    贪心求解器验证牌局可玩
+```
+
+### 核心机制
+
+| 机制 | 作用 |
+|------|------|
+| Cost = \|depSet \ collectedIds\| | 动态成本，模拟真实消除的"越消越容易" |
+| 黑名单 | 防止贪心退化为每步选最便宜的 |
+| r-chain 约束 (Σcᵢ = 3N) | 数学合法性保证 |
+
+---
+
+## ReplayCode 格式
+
+```
+┌─────────┬────┬──────────────┬───────────┬──────────────┬──────────┬──────────┬───────┐
+│ version │ N  │ elementCount │ levelHash │ instanceArray│ dockCount│ dockEntries│ CRC16 │
+│  1B(=4) │1B  │     1B       │  8B LE    │   N × 1B    │   1B     │ cnt × 2B  │ 2B LE │
+└─────────┴────┴──────────────┴───────────┴──────────────┴──────────┴──────────┴───────┘
+
+每 tile 1 字节: bit[7:6] = TileState, bit[5:0] = 花色索引 (0-63)
+管线: 二进制 → Raw Deflate (RFC 1951) → Base64
+```
+
+---
+
+## 分析页面 — 四种 DAG 图
+
+分析页面 (`analysis.html`) 提供四种图来分析地形和牌局结构。所有图都基于**地形依赖图**，区别在于分析粒度和是否需要花色数据。
+
+### 统一数据源：replayCode
+
+加载 ReplayCode 后，所有依赖花色的分析（色组 DAG、Triple DAG、同花色偏序）都从 replayCode 的 `levelHash` 自动解析对应地形，不受输入框中的地形 ID 影响。replayCode 是唯一真相源。
+
+### 四种图的对比
+
+| | 偏序 DAG | 力导向 | 色组 DAG | Triple DAG |
+|---|---|---|---|---|
+| **数据** | 地形级 triple 偏序关系 | 同左 | 牌局色组阻塞关系 | 牌局同色 triple 依赖 |
+| **输入** | 只需地形 | 同左 | 地形 + ReplayCode | 地形 + ReplayCode |
+| **节点** | 一个 triple（任意 3 牌组合） | 同左 | 一个花色组 | 一个同色 triple |
+| **边** | B ≺ A: B 的 depSet ⊆ A 的 depSet | 同左 | A → B: A 色的牌压在 B 色的牌上 | A → B: A 必须在 B 前消除 |
+| **画法** | Sugiyama 分层 (上→下) | D3 力导向 (物理模拟) | 分层圆图 | 分层点图 |
+| **用途** | 看清 triple 之间的必然先后顺序 | 自由探索 triple 关系网 | 看清花色之间的宏观阻塞结构 | 看清每一步有哪些可消的 triple |
+
+### 1. 偏序 DAG（Sugiyama 分层图）
+
+**是什么**：从纯地形枚举所有可能的 3 牌组合（C(n,3)），分析 triple 之间的偏序关系。
+
+**偏序关系 B ≺ A**：当 B 的 depSet 是 A 的 depSet 的子集时，B 绝对应该在 A 之前消除（消 B 对消 A 的帮助最大）。
+
+**节点** = 一个 triple，圆圈大小 = 后继 triple 数量（影响面多大）。
+
+**分层** = 按 depSet 大小分位或依赖深度。
+
+**适用场景**：空地形分析。不需要 ReplayCode，看清地形的自由度和瓶颈在哪。
+
+### 2. 力导向图
+
+**和偏序 DAG 是同一份数据**，只是用 D3 力导向布局来画。节点可拖拽，适合自由探索 triple 之间的关联网络。
+
+### 3. 色组 DAG
+
+**是什么**：加载 ReplayCode 后，把同花色的牌归为一组，分析色组之间的阻塞关系。
+
+**节点** = 一种花色，圆圈大小 = 该花色有多少张牌。
+
+**边 A → B** = A 色的某些牌物理上压在 B 色的某些牌上面 → 必须先消 A 才能露出 B。
+
+**分层** = 拓扑层（入度为 0 的色组在顶层）。
+
+**适用场景**：看清牌局的宏观结构——哪些花色是入口、哪些是瓶颈、依赖链有多深。如果一个花色出现在很多层的阻塞链中，它就是关键色。
+
+### 4. Triple DAG（同色 Board DAG）
+
+**是什么**：加载 ReplayCode 后，在每个花色内部枚举所有可能的 triple（C(k,3)），分析同色 triple 之间的依赖关系。
+
+**节点** = 一个同色 triple，点大小 = depSet 大小。
+
+**边 A → B** = A 的 depSet ⊆ B 的 depSet → A 必须在 B 前消除。
+
+**分层** = 按最长前驱链的拓扑层。
+
+**适用场景**：深入分析具体牌局的消除路径——每一步有哪些候选 triple、它们的先后顺序。
+
+### 工作流
+
+```
+空地形分析:
+  加载地形 → 「偏序 DAG」「力导向」→ 看 triple 关系和自由度
+
+牌局分析:
+  粘贴 ReplayCode → 加载牌局 →
+    「偏序 DAG」「力导向」→ 同花色 triple 偏序
+    「色组 DAG」         → 花色间阻塞结构
+    「Triple DAG」       → 同色 triple 消除顺序
+```
 
 ---
 
@@ -213,106 +194,78 @@ test/
 
 ```
 JSON 文件 → terrain-loader → TerrainTile[]
-                                  │
-                    ┌─────────────┼─────────────┐
-                    ▼             ▼             ▼
-              getAllTiles()  computeAllDeps()  getConstTiles()
-                    │             │
-                    ▼             ▼
-              freeTiles      Map<id, Set<dep>>
-                    │             │
-                    └──────┬──────┘
-                           ▼
-                    buildTriples() → Triple[]
-                           │
-                           ▼
-                    runReverseGen()
-                      │         │
-                ┌─────┼─────┐   │
-                ▼     ▼     ▼   ▼
-          assignments costLog branchLog
-                │
-                ▼
-          generateBoard()
-           │          │
-           ▼          ▼
-    elementValues  orderedTiles
-           │          │
-           └────┬─────┘
-                ▼
-        generateReplayCode()
-                │
-                ▼
-          ReplayCode (Base64)
+                                    │
+                      ┌─────────────┼─────────────┐
+                      ▼             ▼             ▼
+                getAllTiles()  computeAllDeps()  getConstTiles()
+                      │             │
+                      ▼             ▼
+                freeTiles      Map<id, Set<dep>>
+                      │             │
+                      └──────┬──────┘
+                             ▼
+                      buildTriples() → Triple[]
+                             │
+                             ▼
+                      runReverseGen()
+                        │         │
+                  ┌─────┼─────┐   │
+                  ▼     ▼     ▼   ▼
+            assignments costLog branchLog
+                  │
+                  ▼
+            generateBoard()
+             │          │
+             ▼          ▼
+      elementValues  orderedTiles
+             │          │
+             └────┬─────┘
+                  ▼
+          generateReplayCode()
+                  │
+                  ▼
+            ReplayCode (Base64)
 ```
-
-每个箭头的输出只依赖输入，不依赖全局状态。管道式数据流使得每一段都可以独立测试和替换。
 
 ---
 
 ## 核心概念
 
 ### Tile（牌）
-地形中的最小单元。关键属性：
 - `id`: 唯一标识
-- `layer`: 所在层级，0 = 最底层
-- `dependencies`: 直接压在下面的牌的 ID 列表
-- `isConst`: 是否固定花色（算法不分配）
+- `layer`: 所在层级（0 = 最底层）
+- `dependencies`: 直接压在下面的牌 ID 列表
+- `isConst`: 是否固定花色
 
 ### Triple（三牌组合）
-从自由牌中任选 3 张组成的合法消除组合。关键属性：
-- `tileIds`: 排序后的三张牌 ID
-- `depSet`: 三张牌传递依赖闭包的并集 + 牌自身。**定义了消除这三张牌需要"释放"多少依赖**
+从自由牌中任选 3 张。`depSet` = 三张牌 + 传递依赖闭包。
 
 ### Cost（动态成本）
-`cost = |depSet \ collectedIds|` — depSet 中尚未被收集的牌数量。
-
-每一步选 triple 并消除后，其 depSet 中的所有牌被标记为"已收集"(collectedIds)。后续 triple 的 cost 会动态降低，因为它们依赖的牌可能已经被前几步释放了。
+`cost = |depSet \ collectedIds|` — 消除这个 triple 需要连带释放多少张牌。
 
 ### Cost 数组（难度曲线）
-每一步的目标 cost。cost 越大 = 这一步需要消除的依赖越多 = 玩家越难。
+每一步的目标 cost。cost 越大 = 这一步越难。
 
-### 黑名单（BanSet）
-cost ≤ 选中 triple 的候选全部封杀。防止"贪心矛盾"：如果允许选低 cost triple，后续就无法达到高 cost 目标。
+### 黑名单
+cost ≤ 选中 triple 的候选全部封杀，防止贪心退化为每步选最便宜的。
 
-### 池化（Pooling）
-cost ≤ 3 且连续 ≥ 2 步时，合并为"池"——在同一快照下一次性选出互不占牌的多个 triple。消除"同伴互杀"问题。
+### 池化
+连续同 cost 步骤在同一快照下互选，避免"同伴互杀"。
 
-### 抢救（Rescue）
-候选耗光时，从黑名单尾部（最近被封的）向前找第一个可用的 triple。遵循时间局部性原则，最小化对前期的影响。
-
----
-
-## ReplayCode v4 格式
-
-```
-┌─────────┬────┬──────────────┬───────────┬──────────────┬──────────┬──────────┬───────┐
-│ version │ N  │ elementCount │ levelHash │ instanceArray│ dockCount│ dockEntries│ CRC16 │
-│  1B(=4) │1B  │     1B       │  8B LE    │   N × 1B    │   1B     │ cnt × 2B  │ 2B LE │
-└─────────┴────┴──────────────┴───────────┴──────────────┴──────────┴──────────┴───────┘
-```
-
-每 tile 1 字节：bit[7:6] = 状态(TileState)，bit[5:0] = 花色索引(0-63)。
-
-管线：`二进制 → Raw Deflate(RFC 1951) → Base64`
+### 抢救
+候选耗光时从黑名单尾部找回，遵循时间局部性原则。
 
 ---
 
-## 测试策略
+## 技术选型
 
-29 个测试分为三组：
-
-**算法 (10 个)**：正常模式、约束验证、降级处理、边界条件、确定性
-
-**序列化 (17 个)**：CRC 标准向量、Raw DEFLATE 格式、编解码往返、格式检测、Hash 解析
-
-**往返 (2 个)**：编解码一致性、64 花色边界
-
----
-
-## 与 Unity 的已知差异
-
-C# 的 `List.Sort` 是不稳定排序，JavaScript 的 `Array.sort` 是稳定排序。同等 cost 的 triple 在排序后的相对顺序不同，导致算法在跨平台时可能选择不同的 triple。算法逻辑完全一致，差异仅来自排序实现细节。同一运行时内结果完全确定。
+| 考量 | 选择 | 原因 |
+|------|------|------|
+| 语言 | TypeScript | C#→TS 类型映射自然 |
+| 运行时 | Node.js (tsx) | 热执行，无编译步骤 |
+| 压缩 | Raw DEFLATE (RFC 1951) | 与 .NET DeflateStream 一致 |
+| 校验 | CRC16/MODBUS | 工业标准 |
+| GUI | 纯 HTML + D3.js | 零框架依赖 |
 
 ---
 
@@ -321,8 +274,6 @@ C# 的 `List.Sort` 是不稳定排序，JavaScript 的 `Array.sort` 是稳定排
 ```bash
 npm install           # 安装依赖
 npm test              # 全部 29 个测试
-npm run test:algo     # 算法测试
-npm run test:serializer  # 序列化测试
 npm run gui           # 启动 Web GUI (http://localhost:3000)
 npx tsx cli/generate.ts --help  # CLI 帮助
 ```

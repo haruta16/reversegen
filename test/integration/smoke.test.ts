@@ -4,14 +4,14 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { loadTerrainFromFile } from '../src/terrain-loader.js';
-import { decodeFromString, getCanonicalTileOrder } from '../src/replay-serializer.js';
-import { createGame } from '../src/solver/offline-game.js';
-import { solveDFS } from '../src/solver/solver-dfs.js';
-import { solveGreedy } from '../src/solver/solver-greedy.js';
-import { solveRandomBatch } from '../src/solver/solver-random.js';
-import { TileState } from '../src/types.js';
-import type { TerrainData, TerrainTile } from '../src/types.js';
+import { loadTerrainFromFile } from '../../src/terrain-loader.js';
+import { decodeFromString, getCanonicalTileOrder } from '../../src/replay-serializer.js';
+import { createGame } from '../../src/solver/offline-game.js';
+import { solveDFS } from '../../src/solver/solver-dfs.js';
+import { solveGreedy } from '../../src/solver/solver-greedy.js';
+import { solveRandomBatch } from '../../src/solver/solver-random.js';
+import { TileState } from '../../src/types.js';
+import type { TerrainData, TerrainTile } from '../../src/types.js';
 
 const LEVELS_DIR = '/Users/haruta16/workspace/tilematch/TileMatchShell/Tools/Config/Json/Levels';
 const REPLAYS_DIR = '/Users/haruta16/workspace/tilematch/TileMatchShell/Tools/Config/Json/Replays';

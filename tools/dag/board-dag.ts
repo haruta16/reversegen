@@ -8,11 +8,11 @@
  * this operates on the ACTUAL color groups defined by the board.
  */
 
-import type { TerrainTile } from '../types.js';
-import { computeAllDependencies } from '../dependency-graph.js';
-import { buildTriplesBySuit } from '../triple-builder.js';
-import { intersectSize } from '../triple-analyzer.js';
-import type { DAGFeatures } from '../solver/types.js';
+import type { TerrainTile } from '../../src/types.js';
+import { computeAllDependencies } from '../../src/dependency-graph.js';
+import { buildTriplesBySuit } from '../../src/triple-builder.js';
+import { intersectSize } from './triple-analyzer.js';
+import type { DAGFeatures } from '../../src/solver/types.js';
 
 // ═══════════════════════════════════════════════════
 //  Board DAG Builder

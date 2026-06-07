@@ -14,7 +14,7 @@
  * 验证命题: "从死亡点出发，无法形成任何合法triple" → 死亡确定
  */
 
-import type { TerrainTile } from './types.js';
+import type { TerrainTile } from '../../src/types.js';
 
 // ═══════════════════════════════════════════════════
 //  Lightweight death verifier
@@ -173,6 +173,5 @@ export function verifyDeath(input: DeathVerifyInput): DeathVerifyOutput {
 
 // Direct run test
 if (process.argv[1]?.endsWith('verify-death.ts') || process.argv[1]?.endsWith('verify-death.js')) {
-  console.log('Death Verifier — lightweight 1-step lookahead');
-  console.log('Import from generate-v4 to use.');
+  console.log('Death Verifier — lightweight 1-step lookahead. Use via API or programmatic import.');
 }

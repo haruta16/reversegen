@@ -10,7 +10,7 @@ import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { TerrainTile } from '../src/types.js';
+import type { TerrainTile } from '../../src/types.js';
 import {
   runReverseGen,
   loadTerrainFromFile,
@@ -18,10 +18,10 @@ import {
   generateCostArray,
   setLogLevel,
   LogLevel,
-} from '../src/index.js';
+} from '../../src/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FIXTURE = join(__dirname, 'fixtures', '100075.json');
+const FIXTURE = join(__dirname, '..', 'fixtures', '100075.json');
 const SEED = 42;
 
 // Load fixture once — all tests share the same real terrain

@@ -9,10 +9,10 @@
 
 import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { TerrainData, TerrainTile } from '../types.js';
-import { loadTerrainFromFile } from '../terrain-loader.js';
-import { decodeFromString, getCanonicalTileOrder } from '../replay-serializer.js';
-import { computeAllDependencies } from '../dependency-graph.js';
+import type { TerrainData, TerrainTile } from '../../src/types.js';
+import { loadTerrainFromFile } from '../../src/terrain-loader.js';
+import { decodeFromString, getCanonicalTileOrder } from '../../src/replay-serializer.js';
+import { computeAllDependencies } from '../../src/dependency-graph.js';
 import {
   analyzeTripleLogic,
   buildEliminationPlan,
@@ -20,7 +20,7 @@ import {
   type TripleLogic,
   type EliminationStep,
 } from './elimination-plan.js';
-import { setLogLevel, LogLevel } from '../logger.js';
+import { setLogLevel, LogLevel } from '../../src/logger.js';
 
 setLogLevel(LogLevel.Error);
 

@@ -123,25 +123,26 @@ v4 格式二进制 → Raw Deflate(RFC 1951) → Base64。可直接用于 Unity 
 
 ```
 reversegen/
-├── src/
-│   ├── types.ts              # 全部类型定义
-│   ├── reverse-gen.ts        # ★ CostLadder 算法主体
-│   ├── replay-serializer.ts  # ★ v4 ReplayCode 编解码
+├── src/                      # 核心库
+│   ├── reverse-gen.ts        # ★ CostLadder 生成算法
+│   ├── replay-serializer.ts  # ReplayCode 编解码
 │   ├── cost-generator.ts     # Cost 数组随机生成器
-│   ├── dependency-graph.ts   # BFS 传递闭包
-│   ├── triple-builder.ts     # C(n,3) 枚举 + cost 计算
-│   ├── greedy-sim.ts         # 纯贪心模拟验证
-│   ├── terrain-loader.ts     # JSON 地形加载 + 测试地形生成
-│   ├── crc16.ts              # CRC16/MODBUS
-│   ├── logger.ts             # 日志
-│   └── index.ts              # 公共 API + generateBoard()
+│   ├── dependency-graph.ts   # BFS 传递依赖闭包
+│   ├── triple-builder.ts     # 三牌组合枚举
+│   ├── greedy-sim.ts         # 贪心模拟验证
+│   ├── terrain-loader.ts     # 地形加载
+│   ├── solver/               # 游戏引擎 + DFS/贪心/随机求解器
+│   └── ...
+├── tools/                    # 分析工具
+│   ├── dag/                  # DAG 分析（色组/增强/Triple）
+│   └── planning/             # 消除规划
 ├── cli/generate.ts           # CLI 工具
 ├── gui/
 │   ├── server.ts             # HTTP 服务器
-│   └── index.html            # Web 前端
-├── test/                     # 29 个单元测试
-├── ARCHITECTURE.md           # 详细架构说明
-└── README.md                 # 本文件
+│   ├── index.html            # 牌局生成器页面
+│   └── analysis.html         # DAG 分析页面（4 种图）
+├── test/                     # 29 个测试
+└── docs/                     # 分析报告
 ```
 
 ---
