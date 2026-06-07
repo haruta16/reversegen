@@ -163,11 +163,12 @@
     <div class="code" id="codeBox"></div>
     <div class="hint">可直接用于 Unity TileMatchBattle.LoadLevel_V2()</div>
 
-    <h2 style="margin-top:12px">牌面分配 <span style="font-weight:400;font-size:10px;color:var(--m)" id="tblCount"></span></h2>
-    <div style="max-height:300px;overflow-y:auto;border:1px solid var(--b);border-radius:5px">
-      <table><thead><tr><th>序号</th><th>ID</th><th>层</th><th>花色</th><th>标记</th></tr></thead>
-      <tbody id="tblBody"></tbody></table>
+    <h2 style="margin-top:12px">🔍 DFS 校验</h2>
+    <div class="inrow" style="margin-bottom:6px">
+      <button class="btn-sm" onclick="verifyDFS()" id="btnDFS" style="flex:1">运行 DFS 求解</button>
+      <span style="font-size:10px;color:var(--m);line-height:2.2">超时 <input type="number" id="dfsTimeout" value="10" min="1" max="60" style="width:40px;font-size:10px">s</span>
     </div>
+    <div class="info" id="dfsResult"></div>
   </div>
 </div>
 </div>
@@ -399,16 +400,8 @@ function showResult(d){
     showCostLadderResult(d);
   }
 
-  // 共用：牌面分配表
-  document.getElementById('tblCount').textContent=d.tiles.length+'张牌';
-  var rows='';
-  for(var i=0;i<Math.min(d.tiles.length,100);i++){
-    var t=d.tiles[i];
-    rows+='<tr><td>'+t.index+'</td><td><b>#'+t.id+'</b></td><td>L'+t.layer+'</td>'+
-      '<td><span class="dot" style="background:'+ec(t.element)+'"></span>'+t.element+'</td>'+
-      '<td>'+(t.isConst?'<span style="color:var(--o)">固定</span>':'自由')+'</td></tr>';
-  }
-  document.getElementById('tblBody').innerHTML=rows;
+  // 保存上下文供 DFS 校验使用
+  window._lastGen=d;
 
   drawElemChart(d);
 }
@@ -633,6 +626,32 @@ async function decodeCode(){
 }
 
 // ═══════════════════════════════════
+// ═══════════════════════════════════
+// DFS 校验
+// ═══════════════════════════════════
+async function verifyDFS(){
+  var d=window._lastGen;
+  if(!d){document.getElementById('dfsResult').innerHTML='<span style="color:var(--o)">请先生成牌局</span>';return}
+  var btn=document.getElementById('btnDFS');
+  var out=document.getElementById('dfsResult');
+  btn.textContent='⏳ DFS 求解中...';btn.disabled=true;
+  out.textContent='';
+  try{
+    var timeout=parseInt(document.getElementById('dfsTimeout').value)||10;
+    var r=await fetch('/api/dfs-verify',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({replayCode:d.replayCode,levelId:document.getElementById('levelId').value,timeout:timeout})
+    });
+    var v=await r.json();
+    if(!v.ok){out.innerHTML='<span style="color:var(--r)">'+v.error+'</span>';return}
+    var cls=v.solvable?'g':'r';
+    var txt=v.solvable?'✓ 有解':'✗ 无解';
+    if(!v.solvable&&v.failReason)txt+=' ('+v.failReason+')';
+    out.innerHTML='<span style="color:var(--'+cls+')"><b>'+txt+'</b></span>'+
+      ' · 搜索 '+v.statesVisited+' 状态 · '+(v.elapsedMs/1000).toFixed(1)+'s';
+  }catch(e){out.innerHTML='<span style="color:var(--r)">'+e.message+'</span>'}
+  finally{btn.textContent='运行 DFS 求解';btn.disabled=false}
+}
+
 // 复制
 // ═══════════════════════════════════
 function copyCode(btn){
