@@ -14,6 +14,7 @@ import { createHash } from 'node:crypto';
 
 import {
   generateBoard,
+  generateBoardLayerClosure,
   loadTerrainFromFile,
   getAllTiles,
   getCanonicalTileOrder,
@@ -21,6 +22,7 @@ import {
   formatHash,
   setLogLevel,
   LogLevel,
+  computeDependencyDepth,
 } from '../src/index.js';
 import {
   analyzeTriples,
@@ -208,6 +210,16 @@ const server = createServer(async (req, res) => {
         }
       }
 
+      // 计算依赖深度（供 LayerClosure 算法预填闭合率）
+      const freeOnly = allTiles.filter(t => !t.isConst);
+      const tileMap = new Map(freeOnly.map(t => [t.id, t]));
+      const depthMap = computeDependencyDepth(freeOnly, tileMap);
+      const maxDepth = freeOnly.length > 0 ? Math.max(...depthMap.values()) : 0;
+      const tilesPerDepth: number[] = [];
+      for (let d = 1; d <= maxDepth; d++) {
+        tilesPerDepth.push(freeOnly.filter(t => depthMap.get(t.id) === d).length);
+      }
+
       json(res, {
         ok: true,
         levelResId: terrain.levelResId,
@@ -221,6 +233,9 @@ const server = createServer(async (req, res) => {
         height: terrain.LevelHeight,
         resolvedPath: path,
         suitPreview: suitPreview ?? null,
+        // LayerClosure 深度信息
+        depthCount: maxDepth,
+        tilesPerDepth,
       });
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
     return;
@@ -230,8 +245,15 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/generate' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { costArray, colorCount, levelId, levelsDir, terrainPath, levelHash } = body as {
-        costArray?: string; colorCount?: string;
+      const {
+        algorithm,
+        costArray, colorCount, // CostLadder params
+        closeRates, spread, dock, // LayerClosure params
+        levelId, levelsDir, terrainPath, levelHash,
+      } = body as {
+        algorithm?: string;
+        costArray?: string; colorCount?: string;           // CostLadder
+        closeRates?: string; spread?: string; dock?: string; // LayerClosure
         levelId?: string; levelsDir?: string; terrainPath?: string; levelHash?: string;
       };
 
@@ -241,58 +263,110 @@ const server = createServer(async (req, res) => {
         return;
       }
       const terrain = loadTerrainFromFile(path);
-
-      // ── CostLadder (唯一生成算法) ──
-      const k = parseInt(colorCount || '99', 10);
-
-      if (!costArray || !costArray.trim()) {
-        json(res, { ok: false, error: '请提供 Cost 数组' }, 400);
-        return;
-      }
-
-      const costs = costArray.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
-      if (costs.length === 0 || costs.some(c => c < 1)) {
-        json(res, { ok: false, error: 'Cost 数组格式无效' }, 400);
-        return;
-      }
-
-      const result = generateBoard({ terrain, costArray: costs, colorCount: k, levelHash });
-
       const allTiles = getAllTiles(terrain);
-      const ordered = getCanonicalTileOrder(allTiles);
-      const tileSummary = ordered.map((t, i) => ({
-        index: i, id: t.id, layer: t.layer, isConst: t.isConst,
-        element: result.assignments.get(t.id) ?? t.constElementValue ?? 0,
-      }));
 
-      const assignmentsObj: Record<string, number> = {};
-      for (const [k, v] of result.assignments) assignmentsObj[String(k)] = v;
+      if (algorithm === 'closure') {
+        // ═══ LayerClosure 算法 ═══
+        const k = parseInt(colorCount || '8', 10);
 
-      json(res, {
-        ok: true,
-        replayCode: result.replayCode,
-        levelHash: result.levelHash,
-        completed: result.completed,
-        totalSteps: result.totalSteps,
-        costLog: result.costLog,
-        branchLog: result.branchLog,
-        stepLog: result.stepLog,
-        assignments: assignmentsObj,
-        stats: result.stats,
-        banSetSize: result.banSetSize,
-        deviationCount: result.deviationCount,
-        matchRate: result.matchRate,
-        costTargets: costs,
-        colorCount: k,
-        terrainSummary: {
-          layers: terrain.layers.length,
-          totalTiles: allTiles.length,
-          freeTiles: allTiles.filter(t => !t.isConst).length,
-          constTiles: allTiles.filter(t => t.isConst).length,
-          source: basename(path),
-        },
-        tiles: tileSummary,
-      });
+        if (!closeRates || !closeRates.trim()) {
+          json(res, { ok: false, error: '请提供闭合率数组 (closeRates)' }, 400);
+          return;
+        }
+        const rates = closeRates.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
+        if (rates.length === 0 || rates.some(r => r < 0 || r > 1)) {
+          json(res, { ok: false, error: '闭合率格式无效，需为 0-1 之间的数字' }, 400);
+          return;
+        }
+
+        const sp = parseInt(spread || '0', 10) || 0;
+        const dk = parseInt(dock || '7', 10) || 7;
+
+        const result = generateBoardLayerClosure({
+          terrain, closeRates: rates, colorCount: k,
+          spread: sp, dock: dk, levelHash,
+        });
+
+        const ordered = getCanonicalTileOrder(allTiles);
+        const tileSummary = ordered.map((t, i) => ({
+          index: i, id: t.id, layer: t.layer, isConst: t.isConst,
+          element: result.assignments.get(t.id) ?? t.constElementValue ?? 0,
+        }));
+
+        const assignmentsObj: Record<string, number> = {};
+        for (const [k, v] of result.assignments) assignmentsObj[String(k)] = v;
+
+        json(res, {
+          ok: true,
+          algorithm: 'closure',
+          replayCode: result.replayCode,
+          levelHash: result.levelHash,
+          assignments: assignmentsObj,
+          tripletCount: result.triplets.length,
+          metrics: result.metrics,
+          colorCount: k,
+          terrainSummary: {
+            layers: terrain.layers.length,
+            totalTiles: allTiles.length,
+            freeTiles: allTiles.filter(t => !t.isConst).length,
+            constTiles: allTiles.filter(t => t.isConst).length,
+            source: basename(path),
+          },
+          tiles: tileSummary,
+        });
+      } else {
+        // ═══ CostLadder 算法 (默认) ═══
+        const k = parseInt(colorCount || '99', 10);
+
+        if (!costArray || !costArray.trim()) {
+          json(res, { ok: false, error: '请提供 Cost 数组' }, 400);
+          return;
+        }
+
+        const costs = costArray.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+        if (costs.length === 0 || costs.some(c => c < 1)) {
+          json(res, { ok: false, error: 'Cost 数组格式无效' }, 400);
+          return;
+        }
+
+        const result = generateBoard({ terrain, costArray: costs, colorCount: k, levelHash });
+
+        const ordered = getCanonicalTileOrder(allTiles);
+        const tileSummary = ordered.map((t, i) => ({
+          index: i, id: t.id, layer: t.layer, isConst: t.isConst,
+          element: result.assignments.get(t.id) ?? t.constElementValue ?? 0,
+        }));
+
+        const assignmentsObj: Record<string, number> = {};
+        for (const [k, v] of result.assignments) assignmentsObj[String(k)] = v;
+
+        json(res, {
+          ok: true,
+          algorithm: 'cost-ladder',
+          replayCode: result.replayCode,
+          levelHash: result.levelHash,
+          completed: result.completed,
+          totalSteps: result.totalSteps,
+          costLog: result.costLog,
+          branchLog: result.branchLog,
+          stepLog: result.stepLog,
+          assignments: assignmentsObj,
+          stats: result.stats,
+          banSetSize: result.banSetSize,
+          deviationCount: result.deviationCount,
+          matchRate: result.matchRate,
+          costTargets: costs,
+          colorCount: k,
+          terrainSummary: {
+            layers: terrain.layers.length,
+            totalTiles: allTiles.length,
+            freeTiles: allTiles.filter(t => !t.isConst).length,
+            constTiles: allTiles.filter(t => t.isConst).length,
+            source: basename(path),
+          },
+          tiles: tileSummary,
+        });
+      }
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
     return;
   }

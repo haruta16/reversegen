@@ -12,9 +12,10 @@
  *   console.log(result.replayCode);
  */
 
-import type { TerrainData, ReverseGenOutput } from './types.js';
+import type { TerrainData, ReverseGenOutput, LayerClosureInput, LayerClosureOutput, DebtMetrics } from './types.js';
 import { getAllTiles, getConstTiles } from './terrain-loader.js';
 import { runReverseGen } from './reverse-gen.js';
+import { runLayerClosureGen } from './layer-closure-gen.js';
 import { generateReplayCode, getCanonicalTileOrder } from './replay-serializer.js';
 import { logger } from './logger.js';
 
@@ -37,6 +38,29 @@ export interface GenerateBoardOutput extends ReverseGenOutput {
   /** 生成的 ReplayCode（Base64 字符串） */
   replayCode: string;
   /** 使用的地形 level hash */
+  levelHash: string;
+}
+
+// ── LayerClosure 高层 API 类型 ──
+
+/** generateBoardLayerClosure 的输入参数 */
+export interface GenerateBoardLayerClosureInput {
+  terrain: TerrainData;
+  /** 闭合率数组 [0-1]，长度 = 深度层数 - 1 */
+  closeRates: number[];
+  /** 花色数（花色值自动为 1..colorCount） */
+  colorCount: number;
+  /** 深度散布 0-100（默认 0） */
+  spread?: number;
+  /** Dock 容量（默认 7，仅用于指标） */
+  dock?: number;
+  /** Level hash 覆盖 */
+  levelHash?: string;
+}
+
+/** generateBoardLayerClosure 的输出 */
+export interface GenerateBoardLayerClosureOutput extends LayerClosureOutput {
+  replayCode: string;
   levelHash: string;
 }
 
@@ -79,6 +103,61 @@ export function generateBoard(input: GenerateBoardInput): GenerateBoardOutput {
   return { ...algoResult, replayCode, levelHash: levelHash || '(none)' };
 }
 
+/**
+ * 高层 API: LayerClosure 算法。
+ * 加载地形 → 运行 LayerClosure → 生成 ReplayCode。
+ */
+export function generateBoardLayerClosure(
+  input: GenerateBoardLayerClosureInput,
+): GenerateBoardLayerClosureOutput {
+  const {
+    terrain,
+    closeRates,
+    colorCount,
+    spread = 0,
+    dock = 7,
+    levelHash: hashOverride,
+  } = input;
+
+  const allTiles = getAllTiles(terrain);
+  const levelHash = hashOverride ?? terrain.levelHash ?? '';
+
+  logger.info('═══════════════════════════════════════');
+  logger.info('  LayerClosure 牌局生成');
+  logger.info('═══════════════════════════════════════');
+
+  const algoResult = runLayerClosureGen({
+    terrain,
+    colorCount,
+    dock,
+    closeRates,
+    spread,
+  });
+
+  const m = algoResult.metrics;
+  logger.info(`  层数:${m.depthCount} 方块:${m.totalTiles} 花色:${m.colorCount}`);
+  logger.info(`  闭合率: [${m.actualCloseRates.map(r => (r * 100).toFixed(0) + '%').join(', ')}]`);
+  logger.info(`  峰值债务:${m.peakDebt} 暴露峰值:${m.peakExpDebt} OI:${m.oi}`);
+  logger.info(`  必输: ${m.isDoomed ? '是' : '否'}`);
+
+  // 构建花色映射
+  const elementValues = new Map<number, number>();
+  for (const t of getConstTiles(terrain)) {
+    if (t.constElementValue > 0) elementValues.set(t.id, t.constElementValue);
+  }
+  for (const [tileId, suitValue] of algoResult.assignments) {
+    elementValues.set(tileId, suitValue);
+  }
+
+  // 生成 ReplayCode
+  const orderedTiles = getCanonicalTileOrder(allTiles);
+  const replayCode = generateReplayCode(orderedTiles, elementValues, levelHash);
+
+  logger.info('═══════════════════════════════════════');
+
+  return { ...algoResult, replayCode, levelHash: levelHash || '(none)' };
+}
+
 // ── 公共 API 重新导出 ──
 
 // 类型
@@ -89,12 +168,16 @@ export type {
   CostStats,
   DockEntry,
   ReplayData,
+  LayerClosureInput,
+  LayerClosureOutput,
+  DebtMetrics,
 } from './types.js';
 
 export { TileState } from './types.js';
 
 // 算法
 export { runReverseGen } from './reverse-gen.js';
+export { runLayerClosureGen, computeDependencyDepth } from './layer-closure-gen.js';
 
 // 序列化
 export {

@@ -168,3 +168,97 @@ export function sortTriple(a: number, b: number, c: number): [number, number, nu
   if (a > b) { const t = a; a = b; b = t; }
   return [a, b, c];
 }
+
+// ── LayerClosure（层闭合）花色分配算法 ──
+
+/**
+ * LayerClosure 算法输入。
+ *
+ * 与 CostLadder 不同，此算法不通过 cost 目标数组控制难度，
+ * 而是通过每层的"闭合率"（花色计数为 3 的倍数的花色占比）来控制。
+ */
+export interface LayerClosureInput {
+  /** 地形数据 */
+  terrain: TerrainData;
+  /** 使用的花色数（花色值自动为 1..colorCount，与 CostLadder 一致） */
+  colorCount: number;
+  /** Dock 槽位容量（用于必输判定等指标，不影响花色分配） */
+  dock: number;
+  /**
+   * 每层闭合率 [0-1]。
+   * 长度 = 依赖深度层数 - 1（最后一层自动为 1.0，无需传入）。
+   * closeRates[i] = 到深度 i+1 为止，计数为 3 的倍数的花色占比。
+   *
+   * 例：[0.25, 0.5, 0.75] 表示：
+   *   深度1: 25% 花色闭合 → 75% 花色有债务
+   *   深度2: 50% 花色闭合 → 50% 花色有债务
+   *   深度3: 75% 花色闭合 → 25% 花色有债务
+   *   深度4: 100%（自动）
+   */
+  closeRates: number[];
+  /**
+   * 深度散布 0-100。
+   * 0 = 同花色三元组尽量用浅层方块（宽松，花色早闭合）。
+   * 100 = 同花色三元组尽量用深层方块（严苛，花色晚闭合 → 更多债务）。
+   */
+  spread: number;
+}
+
+/** 层闭合算法的难度指标 */
+export interface DebtMetrics {
+  /** 依赖深度层数 */
+  depthCount: number;
+  /** 自由牌总数 */
+  totalTiles: number;
+  /** 每层方块数 */
+  tilesPerLayer: number[];
+  /**
+   * 逐层债务（纯累计统计）。
+   * debtByLayer[i] = 到深度 i+1 为止，花色计数不是 3 的倍数的花色数。
+   */
+  debtByLayer: number[];
+  /**
+   * 逐层暴露债务（模拟玩家实际能看到的花色）。
+   * 考虑了依赖解锁：被深层挡住的方块不计入，已凑满 3 个的自动消除。
+   * 这个值比 debtByLayer 更接近真实游戏体验。
+   */
+  expDebtByLayer: number[];
+  /** 峰值债务 */
+  peakDebt: number;
+  /** 暴露债务峰值（考虑依赖解锁后） */
+  peakExpDebt: number;
+  /**
+   * 超载指数 OI = Σ max(0, 暴露债务 - Dock容量)。
+   * 正值表示玩家的手牌在某些层会超出槽位限制。
+   * 越高越难，0 = 始终在容量内。
+   */
+  oi: number;
+  /** 连续超载层数（连续多少层暴露债务 > Dock容量） */
+  consecutiveOI: number;
+  /** 实际使用的花色数 */
+  colorCount: number;
+  /** 每层实际闭合率（算法执行后的真实值，对比 closeRates 看偏差） */
+  actualCloseRates: number[];
+  /** 平均每方块被多少方块遮挡 */
+  averageOcclusion: number;
+  /** 遮挡边总数 */
+  totalEdges: number;
+  /** 遮挡关系中同色边的数量 */
+  sameColorEdges: number;
+  /** 遮挡关系中异色边的数量 */
+  crossColorEdges: number;
+  /** 花色分配是否满足 3 的倍数约束（所有花色计数 % 3 === 0） */
+  allSuitsClosed: boolean;
+  /** 如果峰值债务 > Dock容量，理论上玩家必输 */
+  isDoomed: boolean;
+}
+
+/** LayerClosure 算法输出 */
+export interface LayerClosureOutput {
+  /** tileId → 花色值（1..colorCount，与 CostLadder 一致） */
+  assignments: Map<number, number>;
+  /** 分配的三元组列表（调试用：每个元素记录花色索引 + 三个方块所在深度） */
+  triplets: Array<{ suitIndex: number; depths: [number, number, number] }>;
+  /** 难度指标 */
+  metrics: DebtMetrics;
+}

@@ -41,6 +41,13 @@
   canvas{width:100%;border-radius:5px;margin-top:8px}
   hr{border:none;border-top:1px solid var(--b);margin:14px 0}
   .hint{font-size:10px;color:var(--m);margin-top:4px}
+  /* 闭合率滑块 */
+  .cr-slider-row{display:flex;align-items:center;margin-top:2px;gap:6px}
+  .cr-slider-row span.label{width:52px;font-size:10px;color:var(--m);text-align:right;line-height:1.3}
+  .cr-slider-row span.val{width:44px;font-size:10px;color:var(--t);text-align:right;font-family:monospace}
+  .cr-slider{flex:1;-webkit-appearance:none;appearance:none;height:8px;border-radius:4px;outline:none;background:linear-gradient(to right, var(--b) 0%, var(--b) 20%, #555 20%, #555 60%, var(--b) 60%, var(--b) 100%)}
+  .cr-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;border-radius:50%;background:#fff;border:2px solid var(--a);cursor:pointer}
+  .cr-slider::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#fff;border:2px solid var(--a);cursor:pointer}
   table{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px}
   th,td{padding:4px 8px;text-align:left;border-bottom:1px solid var(--b)}
   th{color:var(--m);font-size:10px}
@@ -50,8 +57,8 @@
 </head>
 <body>
 
-<h1>🎴 ReverseGen Cost Ladder</h1>
-<div class="sub">牌局生成器 · 输入关卡ID + Cost数组 → 输出 ReplayCode · 与 Unity 解耦 &nbsp;|&nbsp; <a href="/analysis.html" style="color:var(--a)">🧬 Triple 关系分析器</a></div>
+<h1>🎴 ReverseGen</h1>
+<div class="sub">牌局生成器 · LayerClosure / CostLadder · 与 Unity 解耦 &nbsp;|&nbsp; <a href="/analysis.html" style="color:var(--a)">🧬 Triple 关系分析器</a></div>
 
 <div id="status"></div>
 
@@ -61,34 +68,56 @@
   <div class="card">
     <h2>🗺️ 地形</h2>
 
-    <label>关卡 ID（输入后点"加载"）</label>
+    <label>关卡 ID</label>
     <div class="inrow">
-      <input type="number" id="levelId" placeholder="如 100002" style="font-size:15px;font-weight:600">
-      <button class="btn-sm" onclick="loadLevel()">加载关卡</button>
+      <input type="number" id="levelId" placeholder="如 100002" list="levelList" style="font-size:15px;font-weight:600">
+      <button class="btn-sm" onclick="loadLevel()">加载</button>
     </div>
+    <datalist id="levelList"></datalist>
+
     <div class="info" id="levelInfo"></div>
 
     <div class="inrow" style="margin-top:4px">
       <input type="text" id="levelsDir" placeholder="关卡目录（自动检测）" style="font-size:10px">
-      <button class="btn-sm" onclick="scanLevels()">扫描列表</button>
+      <button class="btn-sm" onclick="scanLevels()">扫描</button>
     </div>
-    <div class="tags" id="quickIds"></div>
-
   </div>
 
-  <!-- ═══ 参数 ═══ -->
+  <!-- ═══ 算法 & 参数 ═══ -->
   <div class="card">
-    <h2>⚙️ CostLadder 参数</h2>
+    <h2>⚙️ 生成算法</h2>
 
-    <label>Cost 数组（逗号分隔）</label>
-    <div class="inrow" style="margin-bottom:6px">
-      <input type="number" id="targetStd" value="1.0" min="0" max="3" step="0.1" style="width:70px;font-size:11px" placeholder="σ">
-      <button class="btn-sm" onclick="generateCost()">🎲 生成Cost</button>
-      <span style="font-size:10px;color:var(--m);line-height:2.2;flex:1">标准差 σ</span>
+    <label>算法选择</label>
+    <select id="algorithm" onchange="switchAlgoPanel()" style="width:100%;background:var(--bg);border:1px solid var(--b);border-radius:5px;color:var(--t);padding:8px 10px;font-size:13px;font-family:inherit">
+      <option value="closure">LayerClosure（层闭合 · 控制每层债务 / 必死）</option>
+      <option value="cost-ladder">CostLadder（精确控制消除难度曲线）</option>
+    </select>
+
+    <!-- CostLadder 参数面板 -->
+    <div id="panelCostLadder" style="display:none">
+      <label style="margin-top:10px">Cost 数组（逗号分隔）</label>
+      <div class="inrow" style="margin-bottom:6px">
+        <input type="number" id="targetStd" value="1.0" min="0" max="3" step="0.1" style="width:70px;font-size:11px" placeholder="σ">
+        <button class="btn-sm" onclick="generateCost()">🎲 生成Cost</button>
+        <span style="font-size:10px;color:var(--m);line-height:2.2;flex:1">标准差 σ</span>
+      </div>
+      <textarea id="costArray" placeholder="如: 3,3,2,2,2,1"></textarea>
     </div>
-    <textarea id="costArray" placeholder="如: 3,3,2,2,2,1"></textarea>
+
+    <!-- LayerClosure 参数面板 -->
+    <div id="panelClosure">
+      <label style="margin-top:10px">每层闭合率 % <span style="font-weight:normal;font-size:10px;color:var(--m)">（到该层为止闭合的花色占比）</span></label>
+      <div id="closeRateSliders"><span style="font-size:11px;color:var(--m)">请先加载地形...</span></div>
+      <input type="hidden" id="closeRates" value="">
+
+      <div class="inrow" style="margin-top:8px">
+        <div style="flex:1"><label>深度散布</label><input type="number" id="spread" value="0" min="0" max="100"></div>
+        <div style="flex:1"><label>Dock容量</label><input type="number" id="dock" value="7" min="1" max="20"></div>
+      </div>
+    </div>
+
     <div class="inrow" style="margin-top:10px">
-      <div style="flex:1"><label>花色数</label><input type="number" id="colorCount" value="99" min="1" max="99"></div>
+      <div style="flex:1"><label>花色数</label><input type="number" id="colorCount" value="8" min="1" max="99"></div>
       <div style="flex:1"><label>Level Hash</label><input type="text" id="levelHash" placeholder="自动"></div>
     </div>
 
@@ -112,17 +141,19 @@
 
     <div class="stats" id="stats"></div>
 
-    <h2 style="margin-top:12px">Cost Ladder 对比</h2>
+    <h2 style="margin-top:12px" id="chartTitle">Cost Ladder 对比</h2>
     <canvas id="costChart" height="180"></canvas>
-    <div style="font-size:10px;color:var(--m);margin-top:4px">
+    <div style="font-size:10px;color:var(--m);margin-top:4px" id="chartLegend">
       <span>🟦 目标</span> <span>🟩 实际</span>
       <span id="chartLabel" style="margin-left:8px"></span>
     </div>
 
+    <div id="stepSection">
     <h2 style="margin-top:12px">步骤详情 <span style="font-weight:400;font-size:10px;color:var(--m)" id="stepCnt"></span></h2>
     <div style="max-height:260px;overflow-y:auto;border:1px solid var(--b);border-radius:5px">
       <table><thead><tr><th>步</th><th>选中 ID</th><th>cost</th><th>sim</th><th>目标</th><th>候选</th><th>封杀</th><th>色</th><th>备注</th></tr></thead>
       <tbody id="stepBody"></tbody></table>
+    </div>
     </div>
 
     <h2 style="margin-top:12px">花色分布</h2>
@@ -159,31 +190,26 @@ var PAL=['#58a6ff','#3fb950','#d2991d','#f85149','#a371f7','#39d2c0','#ff7b72','
 function ec(e){return PAL[(e-1)%PAL.length]}
 
 // ═══════════════════════════════════
-// 扫描关卡列表
+// 扫描关卡（填充 datalist 自动补全）
 // ═══════════════════════════════════
 async function scanLevels(){
   var dir=document.getElementById('levelsDir').value.trim();
-  var list=document.getElementById('quickIds');
-  list.innerHTML='扫描中...';
+  var list=document.getElementById('levelList');
+  list.innerHTML='';
   try{
     var url=dir?'/api/levels?dir='+encodeURIComponent(dir):'/api/levels';
     var r=await fetch(url);
     var d=await r.json();
-    if(!d.ok){list.innerHTML='<span style="color:var(--r)">'+d.error+'</span>';return}
-    var h='';
-    for(var i=0;i<Math.min(d.levels.length,50);i++){
+    if(!d.ok)return;
+    for(var i=0;i<d.levels.length;i++){
       var lv=d.levels[i];
-      h+='<span class="tag" onclick="pickLevel('+lv.id+')" title="'+lv.tiles+'张牌">'+lv.id+'<span style="font-size:9px">('+lv.tiles+')</span></span>';
+      var opt=document.createElement('option');
+      opt.value=lv.id;
+      opt.label=lv.id+' ('+lv.tiles+'张)';
+      list.appendChild(opt);
     }
-    if(d.levels.length>50)h+='<span style="font-size:10px;color:var(--m)">...共'+d.levels.length+'个</span>';
-    list.innerHTML=h;
     document.getElementById('levelsDir').placeholder=d.dir||'';
-  }catch(e){list.innerHTML='<span style="color:var(--r)">'+e.message+'</span>'}
-}
-
-function pickLevel(id){
-  document.getElementById('levelId').value=id;
-  loadLevel();
+  }catch(e){}
 }
 
 // ═══════════════════════════════════
@@ -205,10 +231,16 @@ async function loadLevel(){
     html+=d.layers+'层 · '+d.totalTiles+'张牌 · <b>'+d.freeTiles+'</b>自由牌';
     if(d.constTiles>0)html+=' · '+d.constTiles+'固定牌';
     html+='<br>自由牌÷3 = <b>'+d.steps+'</b>步 · Hash: '+(d.levelHash||'(无)');
+    // 深度信息
+    if(d.depthCount){
+      html+='<br>依赖深度: <b>'+d.depthCount+'</b>层 ['+d.tilesPerDepth.join(', ')+']';
+    }
     html+='<br><span style="font-size:9px">'+ (d.resolvedPath||'') +'</span>';
     info.innerHTML=html;
-    // 自动填入cost数组长度提示
+    // CostLadder 提示
     updateCostHint(d.steps);
+    // LayerClosure: 自动生成闭合率
+    if(d.depthCount) updateCloseRatesHint(d);
   }catch(e){info.innerHTML='<span style="color:var(--r)">❌ '+e.message+'</span>'}
 }
 
@@ -220,10 +252,102 @@ function updateCostHint(steps){
   }
 }
 
+// 根据深度信息生成闭合率滑块（与 HTML 版算法一致）
+function updateCloseRatesHint(d){
+  var cc=parseInt(document.getElementById('colorCount').value)||8;
+  var container=document.getElementById('closeRateSliders');
+  var cum=0, html='';
+  for(var i=0;i<d.depthCount-1;i++){
+    cum+=d.tilesPerDepth[i];
+    var maxClosed=Math.floor(cum/3)*3;
+    // suitMinClosed
+    var maxWaste=Math.min(2*cc,cum);
+    while(maxWaste>=0&&(cum-maxWaste)%3!==0)maxWaste--;
+    if(maxWaste<0)maxWaste=0;
+    var minClosed=cum-maxWaste;
+    var suitMinRate=Math.round(minClosed/cum*100);
+    // 初始值 = maxClosed 的 80%
+    var initClosed=Math.round(maxClosed*0.8/3)*3;
+    initClosed=Math.max(initClosed,minClosed);
+    if(initClosed<0)initClosed=0;
+    var pct=Math.round(initClosed/cum*100);
+    var step=(3/cum*100);
+    var maxRate=Math.round(maxClosed/cum*100);
+    html+='<div class="cr-slider-row">'+
+      '<span class="label">1~'+(i+1)+'<br>'+cum+'tile</span>'+
+      '<input class="cr-slider" type="range" min="0" max="100" value="'+pct+'" step="'+step.toFixed(3)+'"'+
+      ' data-layer="'+(i+1)+'" data-total="'+cum+'" data-minrate="'+suitMinRate+'" data-maxrate="'+maxRate+'"'+
+      ' oninput="syncCloseRates(this)">'+
+      '<span class="val" id="crv'+i+'">'+pct+'%<br>'+initClosed+'/'+cum+'</span>'+
+      '</div>';
+  }
+  html+='<div style="font-size:10px;color:var(--m);margin-top:2px">1~'+d.depthCount+'层='+d.freeTiles+'tile = 100%（自动）</div>';
+  container.innerHTML=html;
+  syncCloseRates();
+}
+
+// 滑块值 → 隐藏 input + 更新渐变轨道 + 显示值
+function syncCloseRates(triggerSlider){
+  var sliders=document.querySelectorAll('.cr-slider');
+  var rates=[];
+
+  // 收集各层对齐后的值
+  var vals=[];
+  sliders.forEach(function(s){
+    var total=parseInt(s.dataset.total);
+    var dc=Math.round(parseFloat(s.value)/100*total);
+    dc=Math.round(dc/3)*3;
+    vals.push({slider:s, total:total, dc:dc, minrate:parseFloat(s.dataset.minrate), maxrate:parseFloat(s.dataset.maxrate)});
+  });
+
+  // 反向收紧：浅层闭合数不能超过深层
+  for(var i=vals.length-2;i>=0;i--){
+    if(vals[i].dc>vals[i+1].dc) vals[i].dc=vals[i+1].dc;
+  }
+  // 硬下限
+  var cc=parseInt(document.getElementById('colorCount').value)||8;
+  for(var i=0;i<vals.length;i++){
+    var maxWaste=Math.min(2*cc,vals[i].total);
+    while(maxWaste>=0&&(vals[i].total-maxWaste)%3!==0)maxWaste--;
+    var minC=vals[i].total-(maxWaste<0?0:maxWaste);
+    if(vals[i].dc<minC) vals[i].dc=minC;
+  }
+  // 正向收紧
+  for(var i=1;i<vals.length;i++){
+    if(vals[i].dc<vals[i-1].dc) vals[i].dc=vals[i-1].dc;
+  }
+
+  // 更新滑块值和渐变
+  vals.forEach(function(v){
+    var s=v.slider, total=v.total, dc=v.dc;
+    var pct=total>0?dc/total*100:0;
+    s.value=pct;
+    // 渐变：黑(不可达) → 灰(可移) → 蓝(推荐) → 灰(可移)
+    var suitMinRt=v.minrate;
+    var maxRt=v.maxrate;
+    s.style.background='linear-gradient(to right,'+
+      '#555 0%,#555 '+suitMinRt+'%,'+
+      'var(--b) '+suitMinRt+'%,var(--b) '+maxRt+'%,'+
+      '#555 '+maxRt+'%,#555 100%)';
+    // 更新显示
+    var vid=document.getElementById('crv'+(parseInt(s.dataset.layer)-1));
+    if(vid) vid.innerHTML=Math.round(pct)+'%<br>'+dc+'/'+total;
+    rates.push(pct/100);
+  });
+
+  document.getElementById('closeRates').value=rates.join(',');
+}
+
 // ═══════════════════════════════════
 // ═══════════════════════════════════
 // 生成
 // ═══════════════════════════════════
+function switchAlgoPanel(){
+  var algo=document.getElementById('algorithm').value;
+  document.getElementById('panelCostLadder').style.display=algo==='cost-ladder'?'':'none';
+  document.getElementById('panelClosure').style.display=algo==='closure'?'':'none';
+}
+
 async function generate(){
   var btn=document.querySelector('.btn-blue');
   var err=document.getElementById('genErr');
@@ -238,12 +362,20 @@ async function generate(){
     return;
   }
 
-  var body={levelId:lid};
+  var algo=document.getElementById('algorithm').value;
+  var body={levelId:lid, algorithm:algo};
   var dir=document.getElementById('levelsDir').value.trim();
   if(dir)body.levelsDir=dir;
-  body.costArray=document.getElementById('costArray').value.trim();
   body.colorCount=document.getElementById('colorCount').value;
   body.levelHash=document.getElementById('levelHash').value.trim()||undefined;
+
+  if(algo==='closure'){
+    body.closeRates=document.getElementById('closeRates').value.trim();
+    body.spread=document.getElementById('spread').value;
+    body.dock=document.getElementById('dock').value;
+  }else{
+    body.costArray=document.getElementById('costArray').value.trim();
+  }
 
   try{
     var r=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -261,7 +393,86 @@ function showResult(d){
   document.getElementById('resultCard').style.display='block';
   document.getElementById('codeBox').textContent=d.replayCode;
 
-  // 统计
+  if(d.algorithm==='closure'){
+    showClosureResult(d);
+  }else{
+    showCostLadderResult(d);
+  }
+
+  // 共用：牌面分配表
+  document.getElementById('tblCount').textContent=d.tiles.length+'张牌';
+  var rows='';
+  for(var i=0;i<Math.min(d.tiles.length,100);i++){
+    var t=d.tiles[i];
+    rows+='<tr><td>'+t.index+'</td><td><b>#'+t.id+'</b></td><td>L'+t.layer+'</td>'+
+      '<td><span class="dot" style="background:'+ec(t.element)+'"></span>'+t.element+'</td>'+
+      '<td>'+(t.isConst?'<span style="color:var(--o)">固定</span>':'自由')+'</td></tr>';
+  }
+  document.getElementById('tblBody').innerHTML=rows;
+
+  drawElemChart(d);
+}
+
+function showClosureResult(d){
+  var m=d.metrics;
+  var doomCls=m.isDoomed?'r':'g';
+  var doomTxt=m.isDoomed?'⚠ 是':'✓ 否';
+
+  document.getElementById('stats').innerHTML=
+    '<div class="stat"><div class="v '+doomCls+'">'+doomTxt+'</div><div class="l">必输判定</div></div>'+
+    '<div class="stat"><div class="v">'+m.peakDebt+'/'+m.peakExpDebt+'</div><div class="l">债务峰值/暴露</div></div>'+
+    '<div class="stat"><div class="v o">'+m.oi+'</div><div class="l">OI</div></div>'+
+    '<div class="stat"><div class="v">'+m.colorCount+'</div><div class="l">花色数</div></div>'+
+    '<div class="stat"><div class="v">'+m.depthCount+'</div><div class="l">深度层数</div></div>'+
+    '<div class="stat"><div class="v">'+d.terrainSummary.totalTiles+'</div><div class="l">总牌数</div></div>'+
+    '<div class="stat"><div class="v">'+m.averageOcclusion+'</div><div class="l">平均遮挡</div></div>'+
+    '<div class="stat"><div class="v '+(m.allSuitsClosed?'g':'r')+'">'+(m.allSuitsClosed?'✓':'✗')+'</div><div class="l">花色*3</div></div>';
+
+  // 闭合率对比 chart
+  var c=document.getElementById('costChart');
+  var ctx=c.getContext('2d');
+  var dpr=window.devicePixelRatio||1;
+  var rect=c.getBoundingClientRect();
+  var W=rect.width,H=180;
+  c.width=W*dpr;c.height=H*dpr;ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+
+  var pad={t:14,r:14,b:28,l:48},cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
+  var n=m.depthCount,gw=cw/n,bw=Math.max(4,gw*0.5);
+
+  // Grid
+  for(var v=0;v<=100;v+=20){
+    var y=pad.t+ch-(v/100)*ch;
+    ctx.strokeStyle=v?'#21262d':'#30363d';ctx.lineWidth=v?0.5:1;
+    ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();
+    ctx.fillStyle='#8b949e';ctx.font='9px system-ui';ctx.textAlign='right';
+    ctx.fillText(v+'%',pad.l-4,y+3);
+  }
+  // Bars: 设定 vs 实际
+  var origStr=document.getElementById('closeRates').value;
+  var origRates=origStr?origStr.split(',').map(Number):[];
+  for(var i=0;i<n;i++){
+    var x=pad.l+gw*i;
+    // 设定（用户输入的闭合率，最后一层固定100%）
+    ctx.fillStyle='rgba(88,166,255,0.3)';
+    var setH=(origRates&&i<origRates.length?origRates[i]:(i===n-1?1:0))*ch;
+    ctx.fillRect(x+bw*0.1,pad.t+ch-setH,bw*0.35,setH);
+    // 实际（算法执行后的真实闭合率）
+    ctx.fillStyle='#3fb950';
+    var actH=m.actualCloseRates[i]*ch;
+    ctx.fillRect(x+bw*0.5,pad.t+ch-actH,bw*0.35,actH);
+    ctx.fillStyle='#8b949e';ctx.font='9px system-ui';ctx.textAlign='center';
+    ctx.fillText('L'+(i+1),x+bw/2,H-pad.b+14);
+  }
+  document.getElementById('chartLabel').textContent='闭合率 设定 vs 实际 ▸ 峰值债务:'+m.peakDebt+' 暴露峰值:'+m.peakExpDebt+' OI:'+m.oi;
+
+  // LayerClosure 不需要步骤详情表
+  document.getElementById('stepSection').style.display='none';
+  document.getElementById('chartTitle').textContent='闭合率 设定 vs 实际';
+  document.getElementById('chartLegend').innerHTML='<span style="color:#58a6ff">🟦 设定</span> <span style="color:#3fb950">🟩 实际</span> <span id="chartLabel" style="margin-left:8px"></span>';
+}
+
+function showCostLadderResult(d){
   var m=d.matchRate!=null?d.matchRate.toFixed(0)+'%':'N/A';
   var mc=d.matchRate!=null?(d.matchRate>=80?'g':d.matchRate>=50?'o':'r'):'';
   document.getElementById('stats').innerHTML=
@@ -274,25 +485,15 @@ function showResult(d){
     '<div class="stat"><div class="v">'+d.terrainSummary.totalTiles+'</div><div class="l">总牌数</div></div>'+
     '<div class="stat"><div class="v">'+d.terrainSummary.freeTiles+'/'+d.terrainSummary.constTiles+'</div><div class="l">自由/固定</div></div>';
 
-  // Chart
   document.getElementById('chartLabel').textContent=
     '匹配'+m+' · '+d.deviationCount+'处偏差'+
     ' · min='+d.stats.min+' max='+d.stats.max+' avg='+d.stats.avg.toFixed(1);
 
   drawCostChart(d);
   renderStepTable(d);
-  drawElemChart(d);
-
-  // Tile table
-  document.getElementById('tblCount').textContent=d.tiles.length+'张牌';
-  var rows='';
-  for(var i=0;i<Math.min(d.tiles.length,100);i++){
-    var t=d.tiles[i];
-    rows+='<tr><td>'+t.index+'</td><td><b>#'+t.id+'</b></td><td>L'+t.layer+'</td>'+
-      '<td><span class="dot" style="background:'+ec(t.element)+'"></span>'+t.element+'</td>'+
-      '<td>'+(t.isConst?'<span style="color:var(--o)">固定</span>':'自由')+'</td></tr>';
-  }
-  document.getElementById('tblBody').innerHTML=rows;
+  document.getElementById('stepSection').style.display='';
+  document.getElementById('chartTitle').textContent='Cost Ladder 对比';
+  document.getElementById('chartLegend').innerHTML='<span>🟦 目标</span> <span>🟩 实际</span> <span id="chartLabel" style="margin-left:8px"></span>';
 }
 
 // ═══════════════════════════════════
@@ -559,8 +760,7 @@ function generateCost(){
 }
 
 // ═══════════════════════════════════
-// 启动: 自动扫描关卡列表
-// ═══════════════════════════════════
+// 启动：自动扫描关卡目录（填充 datalist 自动补全）
 scanLevels();
 </script>
 </body>
