@@ -11,7 +11,7 @@
  *
  *   # LayerClosure 算法
  *   npx tsx cli/generate.ts --terrain level.json --algorithm closure \
- *     --close-rates 0.3,0.6,0.8 --colors 8 --spread 20
+ *     --close-rates 0.3,0.6,0.8 --colors 8 --style uniform
  *
  *   # JSON output for piping
  *   npx tsx cli/generate.ts --terrain level.json --cost 3,3,2 --colors 6 --json
@@ -44,8 +44,7 @@ const { values } = parseArgs({
     hash:          { type: 'string' },
     // LayerClosure 算法专用参数
     'close-rates':  { type: 'string' },
-    'spread':       { type: 'string', default: '0' },
-    'dock':         { type: 'string', default: '7' },
+        'dock':         { type: 'string', default: '7' },
     json:          { type: 'boolean', short: 'j', default: false },
     quiet:         { type: 'boolean', short: 'q', default: false },
     verbose:       { type: 'boolean', short: 'v', default: false },
@@ -81,7 +80,6 @@ OPTIONS:
 
   LayerClosure 算法参数 (-a closure):
     --close-rates <csv>   每层闭合率 (e.g. "0.3,0.6,0.8")
-    --spread <n>          深度散布 0-100 (默认: 0)
     --dock <n>            Dock容量 (默认: 7)
 
 EXAMPLES:
@@ -90,7 +88,7 @@ EXAMPLES:
 
   # LayerClosure
   npx tsx cli/generate.ts -t level.json -a closure \\
-    --close-rates 0.3,0.5,0.8 -k 8 --spread 20
+    --close-rates 0.3,0.5,0.8 -k 8 --style uniform
 
   # JSON output
   npx tsx cli/generate.ts -t level.json -c 3,3,2 -k 6 --json
@@ -207,14 +205,12 @@ try {
       return n;
     });
 
-    const spread = parseInt(values['spread']!, 10) || 0;
-    const dock = parseInt(values['dock']!, 10) || 7;
+        const dock = parseInt(values['dock']!, 10) || 7;
 
     const result = generateBoardLayerClosure({
       terrain,
       closeRates,
       colorCount,
-      spread,
       dock,
       levelHash: values.hash,
     });

@@ -251,12 +251,12 @@ const server = createServer(async (req, res) => {
       const {
         algorithm,
         costArray, colorCount, // CostLadder params
-        closeRates, spread, dock, // LayerClosure params
+        closeRates, dock, // LayerClosure params
         levelId, levelsDir, terrainPath, levelHash,
       } = body as {
         algorithm?: string;
         costArray?: string; colorCount?: string;           // CostLadder
-        closeRates?: string; spread?: string; dock?: string; // LayerClosure
+        closeRates?: string; dock?: string; // LayerClosure
         levelId?: string; levelsDir?: string; terrainPath?: string; levelHash?: string;
       };
 
@@ -282,12 +282,11 @@ const server = createServer(async (req, res) => {
           return;
         }
 
-        const sp = parseInt(spread || '0', 10) || 0;
-        const dk = parseInt(dock || '7', 10) || 7;
+                const dk = parseInt(dock || '7', 10) || 7;
 
         const result = generateBoardLayerClosure({
           terrain, closeRates: rates, colorCount: k,
-          spread: sp, dock: dk, levelHash,
+          dock: dk, levelHash,
         });
 
         const ordered = getCanonicalTileOrder(allTiles);

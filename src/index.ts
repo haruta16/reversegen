@@ -50,8 +50,6 @@ export interface GenerateBoardLayerClosureInput {
   closeRates: number[];
   /** 花色数（花色值自动为 1..colorCount） */
   colorCount: number;
-  /** 深度散布 0-100（默认 0） */
-  spread?: number;
   /** Dock 容量（默认 7，仅用于指标） */
   dock?: number;
   /** Level hash 覆盖 */
@@ -114,7 +112,6 @@ export function generateBoardLayerClosure(
     terrain,
     closeRates,
     colorCount,
-    spread = 0,
     dock = 7,
     levelHash: hashOverride,
   } = input;
@@ -131,7 +128,6 @@ export function generateBoardLayerClosure(
     colorCount,
     dock,
     closeRates,
-    spread,
   });
 
   const m = algoResult.metrics;

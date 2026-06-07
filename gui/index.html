@@ -111,7 +111,7 @@
       <input type="hidden" id="closeRates" value="">
 
       <div class="inrow" style="margin-top:8px">
-        <div style="flex:1"><label>深度散布</label><input type="number" id="spread" value="0" min="0" max="100"></div>
+        
         <div style="flex:1"><label>Dock容量</label><input type="number" id="dock" value="7" min="1" max="20"></div>
       </div>
     </div>
@@ -372,7 +372,7 @@ async function generate(){
 
   if(algo==='closure'){
     body.closeRates=document.getElementById('closeRates').value.trim();
-    body.spread=document.getElementById('spread').value;
+    
     body.dock=document.getElementById('dock').value;
   }else{
     body.costArray=document.getElementById('costArray').value.trim();
