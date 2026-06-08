@@ -460,10 +460,11 @@ function isProjectionFullyCovered(
 ): boolean {
   if (tile.runtimeDependencies.size === 0) return false;
 
-  // 代数递增（Uint8 在 255 后回绕，但 _coverageGen 溢出后依赖 fill(0) 重置）
-  _coverageGen++;
+  // 代数标记：在 1..255 之间循环。
+  // _coverageBuf 是 Uint8Array，写入值 >255 会被截断 → 比较时 gen 必须也在 0..255 范围。
+  // 每次 wrap 回 1 时做一次 fill(0) 清除上一轮残留（100 字节，开销可忽略）。
+  _coverageGen = (_coverageGen + 1) & 0xFF;
   if (_coverageGen === 0) {
-    // 回绕到 0：重置整个缓冲区（概率极低）
     _coverageGen = 1;
     _coverageBuf.fill(0);
   }

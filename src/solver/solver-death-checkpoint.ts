@@ -22,11 +22,19 @@
  *   from a worse (higher) death depth.
  * - Non-death intermediate states are never re-explored across depths.
  *
+ * === Memory safety ===
+ *
+ * - maxDeathStates caps the number of death snapshots stored per depth
+ *   (each holds a full OfflineGame clone → major memory consumer)
+ * - maxReviveActions caps revive combos per death state
+ *   (prevents combinatorial explosion when many same-color desk tiles exist)
+ *
  * @module solver-death-checkpoint
  */
 
 import { OfflineGame } from './offline-game.js';
 import { type SolverResult, type ReviveStep } from './types.js';
+import { orderActions } from './solver-dfs.js';
 
 // ═══════════════════════════════════════════════════
 //  Types
@@ -40,9 +48,23 @@ interface ReviveAction {
 
 interface DeathEntry {
   game: OfflineGame;
-  /** Clicks that led to this death state */
+  /** FULL click path from root to this death state */
   picksToDeath: number[];
+  /** ALL revive steps applied to reach this death state */
+  reviveStepsToDeath: ReviveStep[];
 }
+
+// ═══════════════════════════════════════════════════
+//  Constants
+// ═══════════════════════════════════════════════════
+
+/** Max death snapshots stored per depth. Each holds a full OfflineGame clone.
+ *  Beyond this limit new deaths are counted but NOT stored (search becomes incomplete). */
+const DEFAULT_MAX_DEATH_STATES = 5000;
+
+/** Max revive actions enumerated per death state.
+ *  Without this cap, a color with N desk tiles produces C(N,2) actions. */
+const DEFAULT_MAX_REVIVE_ACTIONS = 100;
 
 // ═══════════════════════════════════════════════════
 //  Main entry point
@@ -53,10 +75,16 @@ export function solveDeathCheckpoint(
   opts: {
     maxStates?: number;
     timeoutMs?: number;
+    /** Max death snapshots stored per depth (default 5000) */
+    maxDeathStates?: number;
+    /** Max revive actions enumerated per death state (default 100) */
+    maxReviveActions?: number;
   } = {},
 ): SolverResult {
   const timeoutMs = opts.timeoutMs ?? 30_000;
   const maxStates = opts.maxStates ?? 10_000_000;
+  const maxDeathStates = opts.maxDeathStates ?? DEFAULT_MAX_DEATH_STATES;
+  const maxReviveActions = opts.maxReviveActions ?? DEFAULT_MAX_REVIVE_ACTIONS;
   const totalStart = performance.now();
   let totalStates = 0;
 
@@ -65,6 +93,11 @@ export function solveDeathCheckpoint(
   /** deathQueues[d] = death states reached at exactly depth d */
   const deathQueues: DeathEntry[][] = [];
   deathQueues[0] = [];
+
+  /** Total death states FOUND (including those beyond maxDeathStates that were dropped) */
+  let totalDeathStatesFound = 0;
+  /** Number of death states dropped due to maxDeathStates cap */
+  let deathStatesDropped = 0;
 
   /**
    * globalVisited: stateKey → best (lowest) death depth at which
@@ -87,8 +120,8 @@ export function solveDeathCheckpoint(
   }
 
   function timeoutReason(): string {
-    if (totalStates > maxStates) return `State limit reached (${maxStates})`;
-    return `Timeout (${timeoutMs}ms)`;
+    if (totalStates > maxStates) return `状态数超限 (${maxStates})`;
+    return `超时 (${timeoutMs / 1000}s)`;
   }
 
   // ═══════════════════════════════════════════════════
@@ -98,16 +131,19 @@ export function solveDeathCheckpoint(
 
   /**
    * Standard DFS with 0 revive budget.
-   * On isDead: saves the state into deathQueues[currentDepth],
-   *            then backtracks (does NOT return false immediately).
-   * On isWin:  records the winning path and returns true.
+   *
+   * On isDead: saves the state into deathQueues[currentDepth] with FULL paths,
+   *            then backtracks.  If the queue is at capacity, the death is
+   *            counted but NOT stored (search becomes incomplete at this depth).
+   * On isWin:  records the FULL winning path (prefix + current) and returns true.
    */
   function dfs(
     g: OfflineGame,
-    /** Which death-depth bucket new deaths belong to */
     currentDepth: number,
     picks: number[],
     reviveSteps: ReviveStep[],
+    prefixPicks: number[],
+    prefixRevives: ReviveStep[],
   ): boolean {
     totalStates++;
     if (exhausted()) return false;
@@ -116,8 +152,10 @@ export function solveDeathCheckpoint(
     if (g.isWin) {
       winReviveDepth = currentDepth;
       winReviveSteps.length = 0;
+      winReviveSteps.push(...prefixRevives);
       winReviveSteps.push(...reviveSteps);
       winPicks.length = 0;
+      winPicks.push(...prefixPicks);
       winPicks.push(...picks);
       return true;
     }
@@ -126,17 +164,24 @@ export function solveDeathCheckpoint(
     const baseKey = g.buildStateKey();
     const prevDepth = globalVisited.get(baseKey);
     if (prevDepth !== undefined && prevDepth <= currentDepth) {
-      return false; // already visited at same or better depth
+      return false;
     }
     globalVisited.set(baseKey, currentDepth);
 
-    // ── Death: save snapshot, backtrack ──
+    // ── Death: save snapshot (if under cap), backtrack ──
     if (g.isDead) {
       if (!deathQueues[currentDepth]) deathQueues[currentDepth] = [];
-      deathQueues[currentDepth].push({
-        game: g.clone(),
-        picksToDeath: [...picks],
-      });
+      totalDeathStatesFound++;
+
+      if (deathQueues[currentDepth].length < maxDeathStates) {
+        deathQueues[currentDepth].push({
+          game: g.clone(),
+          picksToDeath: [...prefixPicks, ...picks],
+          reviveStepsToDeath: [...prefixRevives],
+        });
+      } else {
+        deathStatesDropped++;
+      }
       return false;
     }
 
@@ -152,7 +197,7 @@ export function solveDeathCheckpoint(
       next.collect(tile);
       picks.push(tileId);
 
-      if (dfs(next, currentDepth, picks, reviveSteps)) return true;
+      if (dfs(next, currentDepth, picks, reviveSteps, prefixPicks, prefixRevives)) return true;
 
       picks.pop();
     }
@@ -165,7 +210,7 @@ export function solveDeathCheckpoint(
   // ═══════════════════════════════════════════════════
 
   const root = game.clone();
-  if (dfs(root, 0, [], [])) {
+  if (dfs(root, 0, [], [], [], [])) {
     return {
       win: true,
       failReason: null,
@@ -180,12 +225,12 @@ export function solveDeathCheckpoint(
   }
 
   // ── If no death states at all, truly unsolvable ──
-  if (deathQueues[0].length === 0) {
+  if (deathQueues[0].length === 0 && totalDeathStatesFound === 0) {
     return {
       win: false,
       failReason: exhausted()
         ? timeoutReason()
-        : 'DFS exhausted; no death states found (board may be dependency-deadlocked)',
+        : 'DFS 耗尽，未发现任何死亡状态（牌局可能存在依赖死锁）',
       picks: [],
       stepCount: 0,
       deadStates: [],
@@ -203,49 +248,54 @@ export function solveDeathCheckpoint(
 
   for (let d = 0; d < MAX_DEATH_DEPTH; d++) {
     if (exhausted()) {
-      return {
-        win: false,
-        failReason: `超时，已搜索到死亡深度 ${d}`,
-        picks: [],
-        stepCount: 0,
-        deadStates: [],
-        statesVisited: totalStates,
-        elapsedMs: performance.now() - totalStart,
-        minRevives: -1,
-      };
+      return buildFailResult(
+        `${timeoutReason()}，已搜索到死亡深度 ${d}`,
+        totalStates, totalStart,
+      );
     }
 
     const queue = deathQueues[d];
     if (!queue || queue.length === 0) {
-      // No death states at this depth → can't progress further
-      return {
-        win: false,
-        failReason: exhausted()
+      const truncatedNote = deathStatesDropped > 0
+        ? `（注：因内存限制，${deathStatesDropped} 个死亡状态未被存储，搜索结果可能不完整）`
+        : '';
+      return buildFailResult(
+        exhausted()
           ? timeoutReason()
-          : `所有分支在死亡深度 ${d} 耗尽，最少需 >${d} 次复活`,
-        picks: [],
-        stepCount: 0,
-        deadStates: [],
-        statesVisited: totalStates,
-        elapsedMs: performance.now() - totalStart,
-        minRevives: -1,
-      };
+          : `死亡深度 ${d} 无可用状态（深度 ${d - 1} 的所有复活分支已穷尽），最少需 >${d} 次复活${truncatedNote}`,
+        totalStates, totalStart,
+      );
     }
 
     // Ensure the NEXT depth bucket exists
     if (!deathQueues[d + 1]) deathQueues[d + 1] = [];
 
+    let unrevivableCount = 0;
+    let revivedCount = 0;
+    const depthDroppedBefore = deathStatesDropped;
+
     for (let i = 0; i < queue.length; i++) {
       if (exhausted()) break;
 
       const entry = queue[i];
-      const reviveActions = generateReviveActions(entry.game);
+      const reviveActions = generateReviveActions(entry.game, maxReviveActions);
+
+      if (reviveActions.length === 0) {
+        unrevivableCount++;
+        continue;
+      }
 
       for (const ra of reviveActions) {
         if (exhausted()) break;
 
         const next = entry.game.clone();
-        next.revive(ra.dockTileId, ra.deskTileIds[0], ra.deskTileIds[1]);
+        try {
+          next.revive(ra.dockTileId, ra.deskTileIds[0], ra.deskTileIds[1]);
+        } catch (_err) {
+          continue;
+        }
+
+        revivedCount++;
 
         const reviveStep: ReviveStep = {
           stepIndex: entry.picksToDeath.length,
@@ -255,70 +305,100 @@ export function solveDeathCheckpoint(
         };
 
         const childPicks: number[] = [];
-        const childReviveSteps: ReviveStep[] = [reviveStep];
+        const childReviveSteps: ReviveStep[] = [];
+        const prefixRevives = [...entry.reviveStepsToDeath, reviveStep];
 
-        if (dfs(next, d + 1, childPicks, childReviveSteps)) {
-          // Win!  Combine paths: picksToDeath + childPicks
-          const fullPicks = [...entry.picksToDeath, ...winPicks];
-          const fullReviveSteps = [reviveStep, ...winReviveSteps];
+        if (dfs(next, d + 1, childPicks, childReviveSteps, entry.picksToDeath, prefixRevives)) {
           return {
             win: true,
             failReason: null,
-            picks: fullPicks,
-            stepCount: fullPicks.length + fullReviveSteps.length,
+            picks: [...winPicks],
+            stepCount: winPicks.length + winReviveSteps.length,
             deadStates: [],
             statesVisited: totalStates,
             elapsedMs: performance.now() - totalStart,
-            minRevives: d + 1,
-            reviveSteps: fullReviveSteps,
+            minRevives: winReviveDepth,
+            reviveSteps: [...winReviveSteps],
           };
         }
       }
     }
+
+    // ── Free depth d clones for GC (no longer needed) ──
+    deathQueues[d] = undefined!;
+
+    // ── Post-depth diagnostics ──
+    if (deathQueues[d + 1].length === 0) {
+      const totalInQueue = queue.length;
+      const newDropped = deathStatesDropped - depthDroppedBefore;
+      const truncatedNote = newDropped > 0
+        ? `（注：深度 ${d + 1} 的 DFS 中 ${newDropped} 个死亡状态因内存限制未存储）`
+        : '';
+
+      if (unrevivableCount === totalInQueue) {
+        return buildFailResult(
+          `死亡深度 ${d}: 全部 ${totalInQueue} 个死亡状态均无可用复活动作（Dock 中无可配对的 Desk 同色牌对）`,
+          totalStates, totalStart,
+        );
+      }
+      if (revivedCount === 0 && unrevivableCount === 0) {
+        return buildFailResult(
+          `死亡深度 ${d}: ${totalInQueue} 个死亡状态均无法产生复活动作`,
+          totalStates, totalStart,
+        );
+      }
+      // Had revive actions but none led to a solution or new deaths
+      return buildFailResult(
+        `死亡深度 ${d}: ${totalInQueue} 个死亡状态的所有复活动作均未找到解或新死亡状态${truncatedNote}`,
+        totalStates, totalStart,
+      );
+    }
   }
 
+  const truncatedNote = deathStatesDropped > 0
+    ? `（${deathStatesDropped} 个死亡状态因内存限制未存储）`
+    : '';
+  return buildFailResult(
+    `已搜索到死亡深度上限 ${MAX_DEATH_DEPTH}${truncatedNote}`,
+    totalStates, totalStart,
+  );
+}
+
+// ═══════════════════════════════════════════════════
+//  Helpers
+// ═══════════════════════════════════════════════════
+
+function buildFailResult(
+  failReason: string,
+  statesVisited: number,
+  totalStart: number,
+): SolverResult {
   return {
     win: false,
-    failReason: `已搜索到死亡深度上限 ${MAX_DEATH_DEPTH}`,
+    failReason,
     picks: [],
     stepCount: 0,
     deadStates: [],
-    statesVisited: totalStates,
+    statesVisited,
     elapsedMs: performance.now() - totalStart,
     minRevives: -1,
   };
 }
 
 // ═══════════════════════════════════════════════════
-//  Action ordering (same heuristic as solver-dfs)
-// ═══════════════════════════════════════════════════
-
-function orderActions(game: OfflineGame): number[] {
-  const dockCounts = game.getDockCounts();
-
-  return game.deskTiles
-    .filter(t => t.isClickable)
-    .map(t => {
-      const sameInDock = dockCounts.get(t.elementValue) ?? 0;
-      const clearScore = sameInDock >= 2 ? 1 : 0;
-      const pairScore = sameInDock === 1 ? 1 : 0;
-      const unlockGain = game.countUnlockGain(t.id);
-      return { tile: t, clearScore, pairScore, unlockGain };
-    })
-    .sort((a, b) => {
-      if (b.clearScore !== a.clearScore) return b.clearScore - a.clearScore;
-      if (b.pairScore !== a.pairScore) return b.pairScore - a.pairScore;
-      if (b.unlockGain !== a.unlockGain) return b.unlockGain - a.unlockGain;
-      return a.tile.id - b.tile.id;
-    })
-    .map(e => e.tile.id);
-}
-
-// ═══════════════════════════════════════════════════
 //  Revive action generation
 // ═══════════════════════════════════════════════════
 
-function generateReviveActions(game: OfflineGame): ReviveAction[] {
+/**
+ * Generate legal revive actions from a death state.
+ *
+ * Actions are sorted: prefer colors with exactly 2 desk tiles (clean elimination),
+ * then by dock count descending (clear dock pressure).
+ *
+ * @param game  Death state (dock full)
+ * @param limit Max actions to return (default: no limit)
+ */
+function generateReviveActions(game: OfflineGame, limit?: number): ReviveAction[] {
   const dockByColor = new Map<number, number[]>();
   for (const t of game.dockTiles) {
     const list = dockByColor.get(t.elementValue);
@@ -348,8 +428,12 @@ function generateReviveActions(game: OfflineGame): ReviveAction[] {
           deskTileIds: [deskIds[i], deskIds[j]],
           color,
         });
+        // Early break if we hit the per-color limit
+        if (limit !== undefined && actions.length >= limit) break;
       }
+      if (limit !== undefined && actions.length >= limit) break;
     }
+    if (limit !== undefined && actions.length >= limit) break;
   }
 
   actions.sort((a, b) => {
@@ -363,5 +447,5 @@ function generateReviveActions(game: OfflineGame): ReviveAction[] {
     return bDock - aDock;
   });
 
-  return actions;
+  return limit !== undefined ? actions.slice(0, limit) : actions;
 }

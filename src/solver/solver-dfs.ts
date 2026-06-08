@@ -109,7 +109,7 @@ export function solveDFS(
  *   3. UnlockGain desc — how many blocked tiles become clickable
  *   4. Tile ID asc    — stable tiebreaker
  */
-function orderActions(game: OfflineGame): number[] {
+export function orderActions(game: OfflineGame): number[] {
   const dockCounts = game.getDockCounts();
 
   return game.deskTiles

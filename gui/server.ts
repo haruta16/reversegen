@@ -36,8 +36,28 @@ import { solveDeathCheckpoint } from '../src/solver/solver-death-checkpoint.js';
 import { solvePlayerBatch } from '../src/solver/solver-player.js';
 import { OfflineTile, PileType } from '../src/solver/types.js';
 
-/** 内存中的分析结果缓存 (keyed by terrainHash) */
+/** 内存中的分析结果缓存 (keyed by terrainHash)，最多保留 50 条，LRU 淘汰 */
+const ANALYSIS_CACHE_MAX = 50;
 const analysisCache = new Map<string, ReturnType<typeof analyzeTriples>>();
+
+function cacheGet(key: string): ReturnType<typeof analyzeTriples> | undefined {
+  // LRU: delete + re-insert to move to end
+  const val = analysisCache.get(key);
+  if (val !== undefined) {
+    analysisCache.delete(key);
+    analysisCache.set(key, val);
+  }
+  return val;
+}
+
+function cacheSet(key: string, value: ReturnType<typeof analyzeTriples>): void {
+  // Evict oldest if at capacity (Map iterates in insertion order)
+  if (analysisCache.size >= ANALYSIS_CACHE_MAX && !analysisCache.has(key)) {
+    const oldest = analysisCache.keys().next().value;
+    if (oldest !== undefined) analysisCache.delete(oldest);
+  }
+  analysisCache.set(key, value);
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const GUI_DIR = __dirname;
@@ -460,7 +480,7 @@ const server = createServer(async (req, res) => {
           .digest('hex').substring(0, 8);
         mcKey += `-replay-${suitHash}`;
       }
-      let analysisResult = analysisCache.get(mcKey);
+      let analysisResult = cacheGet(mcKey);
       if (!analysisResult || forceRefresh) {
         analysisResult = analyzeTriples(terrain, {
           force: !!forceRefresh,
@@ -468,7 +488,7 @@ const server = createServer(async (req, res) => {
           maxEdgesPerNode: 20,
           suitMap,
         });
-        analysisCache.set(mcKey, analysisResult);
+        cacheSet(mcKey, analysisResult);
       }
 
       // 过滤图数据
@@ -538,7 +558,7 @@ const server = createServer(async (req, res) => {
 
       // 用分析时返回的精确 cacheKey 查找（确保不同花色分布的缓存不串）
       const mcKey = cacheKey || '';
-      const analysisResult = analysisCache.get(mcKey);
+      const analysisResult = cacheGet(mcKey);
       if (!analysisResult) throw new Error('请先运行分析 (/api/analyze-triples)');
 
       const detail = getTripleDetail(analysisResult, tk);
@@ -687,7 +707,7 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/dfs-verify' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, timeout, mode, maxReviveSearch } = body as {
+      const { replayCode, levelId, levelsDir, timeout, mode, maxReviveSearch: _maxReviveSearch } = body as {
         replayCode?: string; levelId?: string; levelsDir?: string;
         timeout?: number; mode?: string; maxReviveSearch?: number;
       };
@@ -735,9 +755,10 @@ const server = createServer(async (req, res) => {
 
       if (mode === 'revive') {
         // ── 死亡卡点模式：BFS-by-death-depth ──
+        // maxReviveSearch 是预留参数（限制复活动作数量），并非 maxStates。
+        // 此处传 timeoutMs 即可，maxStates 使用求解器默认值（10M）。
         const reviveResult = solveDeathCheckpoint(game, {
           timeoutMs: tMs,
-          maxStates: maxReviveSearch ? undefined : undefined, // use defaults
         });
 
         json(res, {
