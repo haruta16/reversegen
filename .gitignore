@@ -2,4 +2,5 @@ node_modules/
 dist/
 *.tsbuildinfo
 .reversegen-cache/
-.reversegen-cache/
+.DS_Store
+*.zip

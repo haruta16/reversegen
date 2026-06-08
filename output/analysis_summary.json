@@ -1,0 +1,397 @@
+{
+  "count": 2742,
+  "pearsonR": 0.5305353711644454,
+  "spearmanRho": 0.5573472248585374,
+  "linearFit": {
+    "slope": 0.5389039666916595,
+    "intercept": 59.274214567228256,
+    "r2": 0.2814677800565979
+  },
+  "mae": 39.964868708971565,
+  "rmse": 45.589215065696706,
+  "bias": 39.63849380014589,
+  "biasPct": 93.08113755724496,
+  "onlineMean": 42.58488329686365,
+  "onlineStd": 23.061248805425993,
+  "simMean": 82.22337709700948,
+  "simStd": 23.42501392664963,
+  "within5pct": 99,
+  "within10pct": 205,
+  "within20pct": 550,
+  "simOverestimates": 2608,
+  "simUnderestimates": 35,
+  "roughlyMatch": 99,
+  "tiers": [
+    {
+      "label": "极难 (0-30%)",
+      "range": [
+        0,
+        30
+      ],
+      "count": 922,
+      "onlineMean": 17.014219088937104,
+      "simMean": 66.62039045553145,
+      "pearsonR": 0.20749907295009865,
+      "mae": 49.90697396963128,
+      "bias": 49.60617136659442
+    },
+    {
+      "label": "困难 (30-50%)",
+      "range": [
+        30,
+        50
+      ],
+      "count": 766,
+      "onlineMean": 40.00023498694521,
+      "simMean": 83.68472584856397,
+      "pearsonR": 0.20966593475044415,
+      "mae": 44.26597911227148,
+      "bias": 43.684490861618734
+    },
+    {
+      "label": "中等 (50-70%)",
+      "range": [
+        50,
+        70
+      ],
+      "count": 654,
+      "onlineMean": 59.13643730886845,
+      "simMean": 92.85779816513761,
+      "pearsonR": 0.19635368481915547,
+      "mae": 33.92114678899081,
+      "bias": 33.7213608562691
+    },
+    {
+      "label": "较易 (70-85%)",
+      "range": [
+        70,
+        85
+      ],
+      "count": 314,
+      "onlineMean": 76.60926751592363,
+      "simMean": 97.60031847133757,
+      "pearsonR": 0.20228883692619015,
+      "mae": 21.123216560509558,
+      "bias": 20.991050955414014
+    },
+    {
+      "label": "极易 (85-100%)",
+      "range": [
+        85,
+        100
+      ],
+      "count": 86,
+      "onlineMean": 89.65023255813952,
+      "simMean": 99.47093023255815,
+      "pearsonR": 0.29393294374847095,
+      "mae": 9.820697674418609,
+      "bias": 9.820697674418609
+    }
+  ],
+  "byTileCount": [
+    {
+      "label": "极小 (<40)",
+      "range": [
+        0,
+        40
+      ],
+      "count": 31,
+      "onlineMean": 72.24838709677421,
+      "simMean": 97.43548387096774,
+      "pearsonR": 0.27627589980318074,
+      "mae": 25.73225806451613
+    },
+    {
+      "label": "小 (40-55)",
+      "range": [
+        40,
+        55
+      ],
+      "count": 602,
+      "onlineMean": 53.04765780730896,
+      "simMean": 93.02408637873754,
+      "pearsonR": 0.4122873881835534,
+      "mae": 40.13071428571429
+    },
+    {
+      "label": "中 (55-70)",
+      "range": [
+        55,
+        70
+      ],
+      "count": 414,
+      "onlineMean": 50.827512077294706,
+      "simMean": 86.61352657004831,
+      "pearsonR": 0.41549043914102995,
+      "mae": 36.435434782608695
+    },
+    {
+      "label": "大 (70-85)",
+      "range": [
+        70,
+        85
+      ],
+      "count": 643,
+      "onlineMean": 46.32242612752722,
+      "simMean": 83.73716951788491,
+      "pearsonR": 0.4802179232151016,
+      "mae": 37.67869362363917
+    },
+    {
+      "label": "超大 (85+)",
+      "range": [
+        85,
+        null
+      ],
+      "count": 1052,
+      "onlineMean": 30.195294676806114,
+      "simMean": 72.94153992395437,
+      "pearsonR": 0.521099644306964,
+      "mae": 43.07567490494299
+    }
+  ],
+  "topOverestimates": [
+    {
+      "replayKey": "9-4-1-11-1537696548",
+      "terrainId": "100004",
+      "onlineWR": 0,
+      "simWR": 100,
+      "diff": 100,
+      "totalTiles": 60
+    },
+    {
+      "replayKey": "2-6-4-15-1590135530",
+      "terrainId": "100004",
+      "onlineWR": 0,
+      "simWR": 100,
+      "diff": 100,
+      "totalTiles": 60
+    },
+    {
+      "replayKey": "1-9-8-13-415996617",
+      "terrainId": "100004",
+      "onlineWR": 0,
+      "simWR": 100,
+      "diff": 100,
+      "totalTiles": 60
+    },
+    {
+      "replayKey": "1-8-4-13-1311921252",
+      "terrainId": "100004",
+      "onlineWR": 0,
+      "simWR": 100,
+      "diff": 100,
+      "totalTiles": 60
+    },
+    {
+      "replayKey": "9-2-1-14-2082277003",
+      "terrainId": "100004",
+      "onlineWR": 0,
+      "simWR": 100,
+      "diff": 100,
+      "totalTiles": 60
+    },
+    {
+      "replayKey": "1-8-4-13-740399715",
+      "terrainId": "100004",
+      "onlineWR": 0,
+      "simWR": 100,
+      "diff": 100,
+      "totalTiles": 60
+    },
+    {
+      "replayKey": "9-2-1-14-526351310",
+      "terrainId": "100004",
+      "onlineWR": 0,
+      "simWR": 100,
+      "diff": 100,
+      "totalTiles": 60
+    },
+    {
+      "replayKey": "4-3-3-9-416782947",
+      "terrainId": "100004",
+      "onlineWR": 0,
+      "simWR": 100,
+      "diff": 100,
+      "totalTiles": 60
+    },
+    {
+      "replayKey": "9-2-1-14-665616712",
+      "terrainId": "100004",
+      "onlineWR": 0,
+      "simWR": 100,
+      "diff": 100,
+      "totalTiles": 60
+    },
+    {
+      "replayKey": "6-2-1-15-1592321240",
+      "terrainId": "100004",
+      "onlineWR": 0,
+      "simWR": 100,
+      "diff": 100,
+      "totalTiles": 60
+    },
+    {
+      "replayKey": "8-8-7-11-1405460881",
+      "terrainId": "100004",
+      "onlineWR": 0,
+      "simWR": 100,
+      "diff": 100,
+      "totalTiles": 60
+    },
+    {
+      "replayKey": "8-8-7-11-718159359",
+      "terrainId": "100004",
+      "onlineWR": 0,
+      "simWR": 100,
+      "diff": 100,
+      "totalTiles": 60
+    },
+    {
+      "replayKey": "6-2-1-15-1852401444",
+      "terrainId": "100004",
+      "onlineWR": 0,
+      "simWR": 100,
+      "diff": 100,
+      "totalTiles": 60
+    },
+    {
+      "replayKey": "8-8-7-11-1442421654",
+      "terrainId": "100004",
+      "onlineWR": 0,
+      "simWR": 100,
+      "diff": 100,
+      "totalTiles": 60
+    },
+    {
+      "replayKey": "5-1-6-11-1598070172",
+      "terrainId": "100004",
+      "onlineWR": 0,
+      "simWR": 100,
+      "diff": 100,
+      "totalTiles": 60
+    }
+  ],
+  "topUnderestimates": [
+    {
+      "replayKey": "5-3-1-15-2028795947",
+      "terrainId": "100005",
+      "onlineWR": 32.39,
+      "simWR": 5.5,
+      "diff": -26.89,
+      "totalTiles": 66
+    },
+    {
+      "replayKey": "7-4-3-22-1733967065",
+      "terrainId": "100094",
+      "onlineWR": 39.97,
+      "simWR": 14.5,
+      "diff": -25.47,
+      "totalTiles": 99
+    },
+    {
+      "replayKey": "3-2-3-19-140012296",
+      "terrainId": "200007",
+      "onlineWR": 54.79,
+      "simWR": 34,
+      "diff": -20.79,
+      "totalTiles": 57
+    },
+    {
+      "replayKey": "4-7-2-20-265826208",
+      "terrainId": "400012",
+      "onlineWR": 46.72,
+      "simWR": 27.5,
+      "diff": -19.22,
+      "totalTiles": 108
+    },
+    {
+      "replayKey": "9-5-7-18-211767935",
+      "terrainId": "100083",
+      "onlineWR": 45.82,
+      "simWR": 27.5,
+      "diff": -18.32,
+      "totalTiles": 90
+    },
+    {
+      "replayKey": "3-3-5-15-95066677",
+      "terrainId": "100046",
+      "onlineWR": 53.9,
+      "simWR": 37.5,
+      "diff": -16.4,
+      "totalTiles": 57
+    },
+    {
+      "replayKey": "7-4-3-24-1990649438",
+      "terrainId": "100065",
+      "onlineWR": 30.77,
+      "simWR": 15,
+      "diff": -15.77,
+      "totalTiles": 108
+    },
+    {
+      "replayKey": "7-9-6-16-877269147",
+      "terrainId": "200053",
+      "onlineWR": 35.4,
+      "simWR": 20.5,
+      "diff": -14.899999999999999,
+      "totalTiles": 72
+    },
+    {
+      "replayKey": "8-9-2-14-1899146332",
+      "terrainId": "100033",
+      "onlineWR": 40.85,
+      "simWR": 26,
+      "diff": -14.850000000000001,
+      "totalTiles": 60
+    },
+    {
+      "replayKey": "9-5-2-8-640786469",
+      "terrainId": "100009",
+      "onlineWR": 80.93,
+      "simWR": 68,
+      "diff": -12.930000000000007,
+      "totalTiles": 42
+    },
+    {
+      "replayKey": "5-6-5-14-234627817",
+      "terrainId": "100020",
+      "onlineWR": 35.85,
+      "simWR": 24,
+      "diff": -11.850000000000001,
+      "totalTiles": 66
+    },
+    {
+      "replayKey": "9-5-9-21-801754513",
+      "terrainId": "100097",
+      "onlineWR": 28.13,
+      "simWR": 16.5,
+      "diff": -11.629999999999999,
+      "totalTiles": 84
+    },
+    {
+      "replayKey": "9-5-7-18-1749085059",
+      "terrainId": "100083",
+      "onlineWR": 13.04,
+      "simWR": 2,
+      "diff": -11.04,
+      "totalTiles": 90
+    },
+    {
+      "replayKey": "1-1-2-13-1282619271",
+      "terrainId": "100009",
+      "onlineWR": 17.65,
+      "simWR": 7,
+      "diff": -10.649999999999999,
+      "totalTiles": 42
+    },
+    {
+      "replayKey": "3-2-9-22-1120454893",
+      "terrainId": "400015",
+      "onlineWR": 67.74,
+      "simWR": 57.5,
+      "diff": -10.239999999999995,
+      "totalTiles": 90
+    }
+  ]
+}
