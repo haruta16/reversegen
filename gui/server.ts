@@ -32,6 +32,8 @@ import {
 import { buildEliminationPlan } from '../tools/planning/elimination-plan.js';
 import { OfflineGame } from '../src/solver/offline-game.js';
 import { solveDFS } from '../src/solver/solver-dfs.js';
+import { solveDeathCheckpoint } from '../src/solver/solver-death-checkpoint.js';
+import { solvePlayerBatch } from '../src/solver/solver-player.js';
 import { OfflineTile, PileType } from '../src/solver/types.js';
 
 /** 内存中的分析结果缓存 (keyed by terrainHash) */
@@ -681,12 +683,13 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  // ── API: DFS verify ──
+  // ── API: DFS verify & revive ──
   if (url.pathname === '/api/dfs-verify' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, timeout } = body as {
-        replayCode?: string; levelId?: string; levelsDir?: string; timeout?: number;
+      const { replayCode, levelId, levelsDir, timeout, mode, maxReviveSearch } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string;
+        timeout?: number; mode?: string; maxReviveSearch?: number;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
 
@@ -721,21 +724,119 @@ const server = createServer(async (req, res) => {
           dependencies: tile.dependencies,
           isConst: tile.isConst,
           constElementValue: tile.constElementValue,
+          posX: tile.posX,
+          posY: tile.posY,
         }, elemValue);
         offlineTiles.push(ot);
       }
 
       const game = new OfflineGame(offlineTiles);
       const tMs = (timeout || 10) * 1000;
-      const result = solveDFS(game, { timeoutMs: tMs });
+
+      if (mode === 'revive') {
+        // ── 死亡卡点模式：BFS-by-death-depth ──
+        const reviveResult = solveDeathCheckpoint(game, {
+          timeoutMs: tMs,
+          maxStates: maxReviveSearch ? undefined : undefined, // use defaults
+        });
+
+        json(res, {
+          ok: true,
+          mode: 'revive',
+          solvable: reviveResult.win,
+          failReason: reviveResult.failReason,
+          minRevives: reviveResult.minRevives,
+          reviveSteps: reviveResult.reviveSteps,
+          stepCount: reviveResult.stepCount,
+          statesVisited: reviveResult.statesVisited,
+          elapsedMs: Math.round(reviveResult.elapsedMs),
+        });
+      } else {
+        // ── 普通 DFS 模式 ──
+        const result = solveDFS(game, { timeoutMs: tMs });
+
+        json(res, {
+          ok: true,
+          mode: 'normal',
+          solvable: result.win,
+          failReason: result.failReason,
+          statesVisited: result.statesVisited,
+          elapsedMs: Math.round(result.elapsedMs),
+          stepCount: result.stepCount,
+        });
+      }
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
+  // ── API: player simulation ──
+  if (url.pathname === '/api/player-sim' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const { replayCode, levelId, levelsDir, runs } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string;
+        runs?: number;
+      };
+      if (!replayCode) throw new Error('缺少 replayCode');
+
+      // 解析 ReplayCode
+      const replayData = decodeFromString(replayCode);
+      if (!replayData) throw new Error('ReplayCode 解码失败');
+
+      // 加载地形
+      let path: string | null = null;
+      if (replayData.levelHash !== 0n) {
+        const hashStr = replayData.levelHash.toString(16).padStart(16, '0');
+        path = findTerrainByLevelHash(hashStr, levelsDir || defaultLevelsDir);
+      }
+      if (!path && levelId) {
+        path = resolveTerrainPath(levelId, levelsDir, undefined);
+      }
+      if (!path) throw new Error('无法解析地形（需要 levelId 或有效的 ReplayCode）');
+
+      const terrain = loadTerrainFromFile(path);
+      const allTiles = getAllTiles(terrain);
+      const ordered = getCanonicalTileOrder(allTiles);
+
+      // 构建 OfflineTile 列表
+      const offlineTiles: OfflineTile[] = [];
+      for (let i = 0; i < ordered.length && i < replayData.instanceArray.length; i++) {
+        const tile = ordered[i];
+        const b = replayData.instanceArray[i];
+        const elemValue = (b & 0x3F) + 1;
+        const ot = new OfflineTile({
+          id: tile.id,
+          layer: tile.layer,
+          dependencies: tile.dependencies,
+          isConst: tile.isConst,
+          constElementValue: tile.constElementValue,
+          posX: tile.posX,
+          posY: tile.posY,
+        }, elemValue);
+        offlineTiles.push(ot);
+      }
+
+      const game = new OfflineGame(offlineTiles);
+      const simRuns = runs ?? 100;
+      const baseSeed = Date.now() & 0x7fffffff;
+
+      const result = solvePlayerBatch(game, simRuns, baseSeed);
 
       json(res, {
         ok: true,
-        solvable: result.win,
-        failReason: result.failReason,
-        statesVisited: result.statesVisited,
+        runs: simRuns,
+        wins: result.wins,
+        losses: result.losses,
+        winRate: result.winRate,
+        avgStepsOnWin: result.avgStepsOnWin,
         elapsedMs: Math.round(result.elapsedMs),
-        stepCount: result.stepCount,
+        // 只返回前 10 个详细结果（避免数据太大）
+        sampleResults: result.results.slice(0, 10).map(r => ({
+          win: r.win,
+          failReason: r.failReason,
+          stepCount: r.stepCount,
+          seed: r.seed,
+        })),
       });
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
     return;

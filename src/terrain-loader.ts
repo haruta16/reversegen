@@ -60,6 +60,8 @@ function normalizeTile(raw: Record<string, unknown>): TerrainTile {
       : [],
     isConst: (raw.IsConst ?? raw.isConst ?? false) as boolean,
     constElementValue: (raw.ConstElementValue ?? raw.constElementValue ?? 0) as number,
+    posX: (raw.PosX ?? raw.posX ?? 0) as number,
+    posY: (raw.PosY ?? raw.posY ?? 0) as number,
   };
 }
 

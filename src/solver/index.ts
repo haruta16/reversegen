@@ -14,6 +14,7 @@ export type {
   RandomResult,
   BoardAnalysis,
   DAGFeatures,
+  ReviveStep,
 } from './types.js';
 
 export { OfflineTile, TileFlag, PileType } from './types.js';
@@ -24,5 +25,8 @@ export type { GameFactoryInput } from './offline-game.js';
 
 // Solvers
 export { solveDFS, hasColorParityIssue } from './solver-dfs.js';
+export { solveDeathCheckpoint } from './solver-death-checkpoint.js';
 export { solveGreedy } from './solver-greedy.js';
 export { solveRandom, solveRandomBatch } from './solver-random.js';
+export { solvePlayer, solvePlayerBatch } from './solver-player.js';
+export type { PlayerSimResult, PlayerSimBatchResult } from './solver-player.js';

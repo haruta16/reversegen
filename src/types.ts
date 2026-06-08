@@ -17,6 +17,10 @@ export interface TerrainTile {
   isConst: boolean;
   /** 固定花色的值（仅 isConst 为 true 时有效） */
   constElementValue: number;
+  /** 牌面中心坐标 X（用于几何可视性计算） */
+  posX: number;
+  /** 牌面中心坐标 Y（用于几何可视性计算） */
+  posY: number;
 }
 
 /** 一层牌 */

@@ -17,6 +17,7 @@ import type { TerrainTile } from '../types.js';
 // ═══════════════════════════════════════════════════
 
 const MAX_DOCK_SLOTS = 7;
+const TILE_SIZE = 10; // tile is 10×10 units, centered at (posX, posY)
 
 // ═══════════════════════════════════════════════════
 //  OfflineGame
@@ -138,27 +139,102 @@ export class OfflineGame {
   }
 
   /**
+   * Revive: eliminate 1 dock tile + 2 matching desk tiles (same color).
+   * Used when dock is full to recover from a death state.
+   * Does NOT check clickability — desk tiles can be blocked.
+   * After elimination, updateTilesState() recomputes all dependencies.
+   */
+  revive(dockTileId: number, deskTileId1: number, deskTileId2: number): void {
+    const dockTile = this.allTiles.get(dockTileId);
+    if (!dockTile || dockTile.pileType !== PileType.Dock) {
+      throw new Error(`Tile ${dockTileId} is not in Dock`);
+    }
+    const deskTile1 = this.allTiles.get(deskTileId1);
+    const deskTile2 = this.allTiles.get(deskTileId2);
+    if (!deskTile1 || deskTile1.pileType !== PileType.Desk) {
+      throw new Error(`Tile ${deskTileId1} is not on Desk`);
+    }
+    if (!deskTile2 || deskTile2.pileType !== PileType.Desk) {
+      throw new Error(`Tile ${deskTileId2} is not on Desk`);
+    }
+    const color = dockTile.elementValue;
+    if (deskTile1.elementValue !== color || deskTile2.elementValue !== color) {
+      throw new Error(
+        `Revive color mismatch: dock=${color}, desk=[${deskTile1.elementValue},${deskTile2.elementValue}]`,
+      );
+    }
+
+    // Eliminate dock tile → Discard
+    const dockIdx = this.dockTiles.indexOf(dockTile);
+    if (dockIdx >= 0) this.dockTiles.splice(dockIdx, 1);
+    dockTile.pileType = PileType.Discard;
+    dockTile.flags = TileFlag.Destroyed;
+    this.discardTiles.push(dockTile);
+
+    // Eliminate both desk tiles → Discard
+    for (const dt of [deskTile1, deskTile2]) {
+      const deskIdx = this.deskTiles.indexOf(dt);
+      if (deskIdx >= 0) this.deskTiles.splice(deskIdx, 1);
+      dt.pileType = PileType.Discard;
+      dt.flags = TileFlag.Destroyed;
+      this.discardTiles.push(dt);
+    }
+
+    // Recompute all tile states (dependencies may have changed)
+    this.updateTilesState();
+  }
+
+  /**
    * Rebuild RuntimeDependencies for all Desk tiles.
    * A dependency counts only if the dep tile is still on Desk (not collected).
    * If RuntimeDependencies is empty → tile is Clickable.
+   * Also refreshes PerfectCovered and Invisible flags.
    */
   private updateTilesState(): void {
+    // Phase 1: Compute RuntimeDependencies and Clickable
     for (const tile of this.allTiles.values()) {
       tile.runtimeDependencies.clear();
 
-      if (tile.pileType !== PileType.Desk || (tile.flags & TileFlag.Destroyed) !== 0) {
-        tile.setClickable(false);
+      if (tile.pileType !== PileType.Desk || tile.hasFlag(TileFlag.Destroyed)) {
+        tile.removeFlag(TileFlag.Clickable | TileFlag.Invisible | TileFlag.PerfectCovered);
         continue;
       }
 
       for (const depId of tile.config.dependencies) {
         const dep = this.allTiles.get(depId);
-        if (dep && dep.pileType === PileType.Desk && (dep.flags & TileFlag.Destroyed) === 0) {
+        if (dep && dep.pileType === PileType.Desk && !dep.hasFlag(TileFlag.Destroyed)) {
           tile.runtimeDependencies.add(depId);
         }
       }
 
       tile.setClickable(tile.runtimeDependencies.size === 0);
+
+      // Phase 1.5: Compute PerfectCovered
+      tile.removeFlag(TileFlag.PerfectCovered);
+      for (const depId of tile.runtimeDependencies) {
+        const dep = this.allTiles.get(depId);
+        if (dep && dep.pileType === PileType.Desk) {
+          if (overlapArea(tile, dep) >= 90) {
+            tile.setFlag(TileFlag.PerfectCovered);
+            break;
+          }
+        }
+      }
+    }
+
+    // Phase 2: Compute Invisible (depends on PerfectCovered + projection coverage)
+    // Must run AFTER all PerfectCovered flags are set
+    for (const tile of this.allTiles.values()) {
+      if (tile.pileType !== PileType.Desk || tile.hasFlag(TileFlag.Destroyed)) {
+        tile.removeFlag(TileFlag.Invisible);
+        continue;
+      }
+
+      const invisible =
+        tile.hasFlag(TileFlag.PerfectCovered) ||
+        isProjectionFullyCovered(tile, this.allTiles);
+      if (invisible) tile.setFlag(TileFlag.Invisible);
+      else tile.removeFlag(TileFlag.Invisible);
     }
   }
 
@@ -318,6 +394,8 @@ export function createGame(input: GameFactoryInput): OfflineGame {
       dependencies: [...tt.dependencies],
       isConst: tt.isConst,
       constElementValue: tt.constElementValue,
+      posX: tt.posX,
+      posY: tt.posY,
     };
     const ev = elementValues.get(tt.id) ?? 1;
     const tile = new OfflineTile(config, ev);
@@ -338,4 +416,92 @@ export function createGame(input: GameFactoryInput): OfflineGame {
   });
 
   return new OfflineGame(tiles);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Geometry helpers（移植自 C# Geometry 类）
+// ═══════════════════════════════════════════════════════════════
+
+/** 共享覆盖缓冲区，用代数标记避免每次 reset（单线程安全） */
+let _coverageGen = 0;
+const _coverageBuf = new Uint8Array(TILE_SIZE * TILE_SIZE);
+
+/**
+ * 计算两张 10×10 tile 的重叠面积。
+ * 每张 tile 的中心在 (posX, posY)，边界从 pos-5 到 pos+5。
+ */
+function overlapArea(a: OfflineTile, b: OfflineTile): number {
+  const aMinX = a.config.posX - 5;
+  const aMaxX = a.config.posX + 5;
+  const aMinY = a.config.posY - 5;
+  const aMaxY = a.config.posY + 5;
+  const bMinX = b.config.posX - 5;
+  const bMaxX = b.config.posX + 5;
+  const bMinY = b.config.posY - 5;
+  const bMaxY = b.config.posY + 5;
+
+  const w = Math.min(aMaxX, bMaxX) - Math.max(aMinX, bMinX);
+  const h = Math.min(aMaxY, bMaxY) - Math.max(aMinY, bMinY);
+  return w <= 0 || h <= 0 ? 0 : w * h;
+}
+
+/**
+ * 判断 tile 的所有 RuntimeDependencies 在 Desk 上的投影
+ * 是否完全覆盖了 tile 的 10×10 区域。
+ *
+ * 如果所有依赖的投影并集覆盖了 tile 整个区域 → 玩家看不到这张牌。
+ *
+ * 使用共享缓冲区 + 代数标记避免每次数组分配（DFS 百万状态时 GC 压力巨大）。
+ */
+function isProjectionFullyCovered(
+  tile: OfflineTile,
+  allTiles: Map<number, OfflineTile>,
+  excludedDepId?: number,
+): boolean {
+  if (tile.runtimeDependencies.size === 0) return false;
+
+  // 代数递增（Uint8 在 255 后回绕，但 _coverageGen 溢出后依赖 fill(0) 重置）
+  _coverageGen++;
+  if (_coverageGen === 0) {
+    // 回绕到 0：重置整个缓冲区（概率极低）
+    _coverageGen = 1;
+    _coverageBuf.fill(0);
+  }
+
+  const gen = _coverageGen;
+  const tileMinX = tile.config.posX - 5;
+  const tileMinY = tile.config.posY - 5;
+  let contributors = 0;
+
+  for (const depId of tile.runtimeDependencies) {
+    if (excludedDepId !== undefined && depId === excludedDepId) continue;
+
+    const dep = allTiles.get(depId);
+    if (!dep || dep.pileType !== PileType.Desk) continue;
+    contributors++;
+
+    const depMinX = dep.config.posX - 5;
+    const depMinY = dep.config.posY - 5;
+    const depMaxX = dep.config.posX + 5;
+    const depMaxY = dep.config.posY + 5;
+
+    const startX = Math.max(depMinX - tileMinX, 0);
+    const startY = Math.max(depMinY - tileMinY, 0);
+    const endX = Math.min(depMaxX - tileMinX, TILE_SIZE);
+    const endY = Math.min(depMaxY - tileMinY, TILE_SIZE);
+    if (startX >= endX || startY >= endY) continue;
+
+    for (let y = startY; y < endY; y++) {
+      const row = y * TILE_SIZE;
+      for (let x = startX; x < endX; x++) {
+        _coverageBuf[row + x] = gen;
+      }
+    }
+  }
+
+  if (contributors === 0) return false;
+  for (let i = 0; i < TILE_SIZE * TILE_SIZE; i++) {
+    if (_coverageBuf[i] !== gen) return false;
+  }
+  return true;
 }

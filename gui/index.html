@@ -166,9 +166,24 @@
     <h2 style="margin-top:12px">🔍 DFS 校验</h2>
     <div class="inrow" style="margin-bottom:6px">
       <button class="btn-sm" onclick="verifyDFS()" id="btnDFS" style="flex:1">运行 DFS 求解</button>
-      <span style="font-size:10px;color:var(--m);line-height:2.2">超时 <input type="number" id="dfsTimeout" value="90" min="1" max="300" style="width:40px;font-size:10px">s</span>
+      <span style="font-size:11px;color:var(--m);line-height:2.2">超时 <input type="number" id="dfsTimeout" value="90" min="1" max="300" style="width:50px;font-size:12px;text-align:center">s</span>
     </div>
     <div class="info" id="dfsResult"></div>
+
+    <h2 style="margin-top:12px">💀 死亡卡点</h2>
+    <div class="inrow" style="margin-bottom:6px">
+      <button class="btn-sm" onclick="verifyRevive()" id="btnRevive" style="flex:1">DFS 卡点求解</button>
+      <span style="font-size:11px;color:var(--m);line-height:2.2">超时 <input type="number" id="dfsTimeout2" value="90" min="1" max="300" style="width:50px;font-size:12px;text-align:center">s</span>
+    </div>
+    <div class="info" id="reviveResult"></div>
+
+    <h2 style="margin-top:12px">🎮 玩家模拟</h2>
+    <div style="font-size:10px;color:var(--m);margin-bottom:6px">模拟人类玩家：在安全的三连组中随机选择；无安全选择时揭最多的牌</div>
+    <div class="inrow" style="margin-bottom:6px">
+      <button class="btn-sm" onclick="playerSim()" id="btnPlayerSim" style="flex:1">运行玩家模拟</button>
+      <span style="font-size:11px;color:var(--m);line-height:2.2">次数 <input type="number" id="psRuns" value="100" min="10" max="10000" step="10" style="width:60px;font-size:12px;text-align:center"></span>
+    </div>
+    <div class="info" id="playerSimResult"></div>
   </div>
 </div>
 </div>
@@ -663,6 +678,93 @@ async function verifyDFS(){
   finally{btn.textContent='运行 DFS 求解';btn.disabled=false}
 }
 
+// ═══════════════════════════════════
+// 死亡卡点 (revive) DFS
+// ═══════════════════════════════════
+async function verifyRevive(){
+  var d=window._lastGen;
+  if(!d){document.getElementById('reviveResult').innerHTML='<span style="color:var(--o)">请先生成牌局</span>';return}
+  var btn=document.getElementById('btnRevive');
+  var out=document.getElementById('reviveResult');
+  btn.textContent='⏳ 卡点求解中...';btn.disabled=true;
+  out.textContent='';
+  try{
+    var timeout=parseInt(document.getElementById('dfsTimeout2').value)||90;
+    var r=await fetch('/api/dfs-verify',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        replayCode:d.replayCode,
+        levelId:document.getElementById('levelId').value,
+        timeout:timeout,
+        mode:'revive',
+        maxReviveSearch:20
+      })
+    });
+    var v=await r.json();
+    if(!v.ok){out.innerHTML='<span style="color:var(--r)">'+v.error+'</span>';return}
+
+    if(v.solvable){
+      var cls=v.minRevives===0?'g':'o';
+      var txt=v.minRevives===0
+        ? '✓ 无需死亡恢复即可通关'
+        : '最少需要 <b>'+v.minRevives+'</b> 次死亡恢复';
+      var html='<span style="color:var(--'+cls+')"><b>'+txt+'</b></span>';
+      if(v.reviveSteps&&v.reviveSteps.length>0){
+        html+='<br>复活详情:';
+        for(var i=0;i<v.reviveSteps.length;i++){
+          var rs=v.reviveSteps[i];
+          html+='<br>&nbsp;&nbsp;#'+(i+1)+' 步骤'+(rs.stepIndex+1)+': 花色<b style="color:'+ec(rs.color)+'">'+rs.color+'</b> → 消除 Desk['+rs.deskTileIds.join(',')+']';
+        }
+      }
+      html+=' · '+v.stepCount+'步 · 搜索 '+v.statesVisited+' 状态 · '+(v.elapsedMs/1000).toFixed(1)+'s';
+      out.innerHTML=html;
+    }else{
+      out.innerHTML='<span style="color:var(--r)"><b>✗ 无解</b> ('+v.failReason+')</span>'+
+        ' · 搜索 '+v.statesVisited+' 状态 · '+(v.elapsedMs/1000).toFixed(1)+'s';
+    }
+  }catch(e){out.innerHTML='<span style="color:var(--r)">'+e.message+'</span>'}
+  finally{btn.textContent='DFS 卡点求解';btn.disabled=false}
+}
+
+// ═══════════════════════════════════
+// 玩家模拟
+// ═══════════════════════════════════
+async function playerSim(){
+  var d=window._lastGen;
+  if(!d){document.getElementById('playerSimResult').innerHTML='<span style="color:var(--o)">请先生成牌局</span>';return}
+  var btn=document.getElementById('btnPlayerSim');
+  var out=document.getElementById('playerSimResult');
+  btn.textContent='⏳ 模拟中...';btn.disabled=true;
+  out.textContent='';
+  try{
+    var runs=parseInt(document.getElementById('psRuns').value)||100;
+    var r=await fetch('/api/player-sim',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        replayCode:d.replayCode,
+        levelId:document.getElementById('levelId').value,
+        runs:runs
+      })
+    });
+    var v=await r.json();
+    if(!v.ok){out.innerHTML='<span style="color:var(--r)">'+v.error+'</span>';return}
+
+    var rateCls=v.winRate>=0.8?'g':v.winRate>=0.4?'o':'r';
+    var pct=(v.winRate*100).toFixed(1);
+    var html='<span style="color:var(--'+rateCls+')"><b>胜率 '+pct+'%</b></span>';
+    html+=' · <b>'+v.wins+'</b>胜 <b>'+v.losses+'</b>败';
+    html+=' · 共<b>'+v.runs+'</b>局';
+    if(v.avgStepsOnWin>0) html+=' · 平均 <b>'+v.avgStepsOnWin.toFixed(0)+'</b>步/胜局';
+    html+=' · '+(v.elapsedMs/1000).toFixed(1)+'s';
+
+    // 进度条
+    html+='<br><div style="background:var(--bg);border-radius:3px;height:12px;margin-top:4px;overflow:hidden">';
+    html+='<div style="background:var(--'+(rateCls==='g'?'g':rateCls==='o'?'o':'r')+');height:100%;width:'+pct+'%;border-radius:3px;transition:width .3s"></div></div>';
+
+    out.innerHTML=html;
+  }catch(e){out.innerHTML='<span style="color:var(--r)">'+e.message+'</span>'}
+  finally{btn.textContent='运行玩家模拟';btn.disabled=false}
+}
+
+// ═══════════════════════════════════
 // 复制
 // ═══════════════════════════════════
 function copyCode(btn){

@@ -9,8 +9,10 @@
 
 export enum TileFlag {
   None = 0,
-  Clickable = 1 << 0,
-  Destroyed = 1 << 3,
+  Clickable = 1 << 0,     // 1
+  Destroyed = 1 << 3,     // 8
+  PerfectCovered = 1 << 6, // 64  — another tile overlaps ≥90% of this tile's area
+  Invisible = 1 << 9,     // 512 — not visible to the player (PerfectCovered or fully projection-covered)
 }
 
 // ── Pile location ──
@@ -30,6 +32,10 @@ export interface TileConfig {
   dependencies: number[];
   isConst: boolean;
   constElementValue: number;
+  /** Tile center X coordinate (for geometry visibility) */
+  posX: number;
+  /** Tile center Y coordinate (for geometry visibility) */
+  posY: number;
 }
 
 // ── Offline tile (mutable runtime state) ──
@@ -56,6 +62,18 @@ export class OfflineTile {
     return (this.flags & TileFlag.Clickable) !== 0;
   }
 
+  hasFlag(flag: TileFlag): boolean {
+    return (this.flags & flag) !== 0;
+  }
+
+  setFlag(flag: TileFlag): void {
+    this.flags |= flag;
+  }
+
+  removeFlag(flag: number): void {
+    this.flags &= ~flag;
+  }
+
   setClickable(v: boolean): void {
     if (v) this.flags |= TileFlag.Clickable;
     else this.flags &= ~TileFlag.Clickable;
@@ -79,6 +97,20 @@ export interface GameStateKey {
   dockSignature: string;
 }
 
+// ── Revive step (death recovery) ──
+
+/** A single revive operation: eliminate 1 dock tile + 2 matching desk tiles. */
+export interface ReviveStep {
+  /** Overall step index (0-based, counting both clicks and prior revives) */
+  stepIndex: number;
+  /** The dock tile eliminated */
+  dockTileId: number;
+  /** The two desk tiles eliminated */
+  deskTileIds: [number, number];
+  /** Color (element value) shared by all three tiles */
+  color: number;
+}
+
 // ── Solver results ──
 
 export interface SolverResult {
@@ -96,6 +128,10 @@ export interface SolverResult {
   statesVisited: number;
   /** Elapsed ms */
   elapsedMs: number;
+  /** Minimum death recovery points needed to win (-1 if not evaluated) */
+  minRevives?: number;
+  /** Revive actions in the found path (empty if none used) */
+  reviveSteps?: ReviveStep[];
 }
 
 export interface GreedyResult {
