@@ -184,6 +184,37 @@ function buildMatrixByCloseRates(
       }
     }
 
+    // ── 闭合预算检查：后续容量必须足够闭合所有花色 ──
+    // 这是 mod3 硬约束的前瞻保障：如果 closeRates 要求保持太多花色开放，
+    // 导致最终层容量不足以闭合全部花色，则在此层强制多闭合几个。
+    if (d < D - 1) {
+      let projectedDebt = 0;
+      for (const c of active) {
+        projectedDebt += (3 - (cumulative[c] % 3)) % 3;
+      }
+      for (const c of toClose) {
+        projectedDebt -= closeCost(cumulative[c]);
+      }
+      for (const _ of toOpen) {
+        projectedDebt += 2; // 闭合→开放：产生 2 张牌的债务
+      }
+      let futureCapacity = 0;
+      for (let dd = d + 1; dd < D; dd++) {
+        futureCapacity += tilesPerDepth[dd];
+      }
+      if (projectedDebt > futureCapacity) {
+        let excess = projectedDebt - futureCapacity;
+        const forceCloseCandidates = [...active]
+          .filter(c => cumulative[c] % 3 !== 0 && remaining[c] > 0 && !toClose.includes(c))
+          .sort((a, b) => closeCost(cumulative[a]) - closeCost(cumulative[b]));
+        for (const c of forceCloseCandidates) {
+          if (excess <= 0) break;
+          excess -= closeCost(cumulative[c]);
+          toClose.push(c);
+        }
+      }
+    }
+
     // ── 分配：先满足状态变更，再填满容量 ──
     const plan: number[] = new Array(C).fill(0);
     let used = 0;
@@ -218,47 +249,95 @@ function buildMatrixByCloseRates(
       }
     }
 
-    // 第三轮：填满剩余容量（在"不破坏目标状态"的前提下）
+    // 第三轮：填满剩余容量
     if (used < capacity) {
       let slack = capacity - used;
 
-      // 给关着的颜色加 3 张（关→...→关）
       const byRemaining = [...active].sort((a, b) =>
         (remaining[b] - plan[b]) - (remaining[a] - plan[a]),
       );
-      for (const c of byRemaining) {
-        if (slack <= 0) break;
-        const maxAdd = remaining[c] - plan[c];
-        if (maxAdd <= 0) continue;
-        const triplets = Math.floor(maxAdd / 3);
-        if (triplets > 0) {
-          const give = Math.min(triplets * 3, slack);
-          plan[c] += give;
-          used += give;
-          slack -= give;
-        }
-      }
 
-      if (slack > 0) {
+      if (d === D - 1) {
+        // ── 最后一层：闭合优先（close-fill），绝不做 safe-fill ──
+        // Step A: 闭合所有仍开着的花色
         for (const c of byRemaining) {
           if (slack <= 0) break;
-          const maxAdd = remaining[c] - plan[c];
-          if (maxAdd <= 0) continue;
-          const curMod = (cumulative[c] + plan[c]) % 3;
-          const safe = curMod === 1 ? [1, 3] : curMod === 2 ? [2, 3] : [1, 2];
-          for (const s of safe) {
-            if (slack <= 0) break;
-            const give = Math.min(s, maxAdd, slack);
-            if (give > 0 && (curMod + give) % 3 !== 0) {
+          const cur = cumulative[c] + plan[c];
+          const need = (3 - (cur % 3)) % 3;
+          if (need > 0) {
+            const maxAdd = remaining[c] - plan[c];
+            const give = Math.min(need, maxAdd, slack);
+            if (give > 0) {
               plan[c] += give;
               used += give;
               slack -= give;
             }
           }
         }
+        // Step B: 剩余容量只给 3 的倍数（保持闭合，绝不重新打开）
+        for (const c of byRemaining) {
+          if (slack <= 0) break;
+          const maxAdd = remaining[c] - plan[c];
+          if (maxAdd < 3) continue;
+          const triplets = Math.floor(maxAdd / 3);
+          const give = Math.min(triplets * 3, slack);
+          if (give > 0) {
+            plan[c] += give;
+            used += give;
+            slack -= give;
+          }
+        }
+      } else {
+        // ── 中间层：safe-fill（尽量不破坏目标闭合状态）──
+        // Step A: 给 3 的倍数
+        for (const c of byRemaining) {
+          if (slack <= 0) break;
+          const maxAdd = remaining[c] - plan[c];
+          if (maxAdd <= 0) continue;
+          const triplets = Math.floor(maxAdd / 3);
+          if (triplets > 0) {
+            const give = Math.min(triplets * 3, slack);
+            plan[c] += give;
+            used += give;
+            slack -= give;
+          }
+        }
+        // Step B: safe-fill — 每次迭代重算 curMod 和 maxAdd
+        if (slack > 0) {
+          for (const c of byRemaining) {
+            if (slack <= 0) break;
+            let maxAdd = remaining[c] - plan[c];
+            if (maxAdd <= 0) continue;
+            let curMod = (cumulative[c] + plan[c]) % 3;
+            const safe = curMod === 1 ? [1, 3] : curMod === 2 ? [2, 3] : [1, 2];
+            for (const s of safe) {
+              if (slack <= 0) break;
+              // ★ 每次重算：plan[c] 已在上轮 s 迭代中更新
+              maxAdd = remaining[c] - plan[c];
+              curMod = (cumulative[c] + plan[c]) % 3;
+              const give = Math.min(s, maxAdd, slack);
+              if (give > 0 && (curMod + give) % 3 !== 0) {
+                plan[c] += give;
+                used += give;
+                slack -= give;
+              }
+            }
+          }
+        }
       }
 
-      // 实在填不满就算了
+      // ── 兜底：如果仍填不满，强制填满（闭合率是软目标，mod3 是硬约束）──
+      if (slack > 0) {
+        for (const c of byRemaining) {
+          if (slack <= 0) break;
+          const maxAdd = remaining[c] - plan[c];
+          if (maxAdd <= 0) continue;
+          const give = Math.min(maxAdd, slack);
+          plan[c] += give;
+          used += give;
+          slack -= give;
+        }
+      }
     }
 
     // ── 应用计划 ──
