@@ -157,7 +157,7 @@
     </div>
 
     <h2 style="margin-top:12px">花色分布</h2>
-    <canvas id="elemChart" height="80"></canvas>
+    <div id="elemDist" style="font-size:11px;color:var(--t);line-height:1.6"></div>
 
     <h2 style="margin-top:12px">ReplayCode <button class="btn-sm" onclick="copyCode(this)">📋 复制</button></h2>
     <div class="code" id="codeBox"></div>
@@ -268,7 +268,7 @@ function updateCostHint(steps){
   }
 }
 
-// 根据深度信息生成闭合率滑块（与 HTML 版算法一致）
+// 根据深度信息生成闭合率滑块
 function updateCloseRatesHint(d){
   var cc=parseInt(document.getElementById('colorCount').value)||8;
   var container=document.getElementById('closeRateSliders');
@@ -276,23 +276,23 @@ function updateCloseRatesHint(d){
   for(var i=0;i<d.depthCount-1;i++){
     cum+=d.tilesPerDepth[i];
     var maxClosed=Math.floor(cum/3)*3;
-    // suitMinClosed
     var maxWaste=Math.min(2*cc,cum);
     while(maxWaste>=0&&(cum-maxWaste)%3!==0)maxWaste--;
     if(maxWaste<0)maxWaste=0;
     var minClosed=cum-maxWaste;
-    var suitMinRate=Math.round(minClosed/cum*100);
+    var suitMinRate=cum>0?Math.round(minClosed/cum*100):0;
+    var maxRate=cum>0?Math.round(maxClosed/cum*100):100;
+    var step=(3/cum*100);
     // 初始值 = maxClosed 的 80%
     var initClosed=Math.round(maxClosed*0.8/3)*3;
     initClosed=Math.max(initClosed,minClosed);
     if(initClosed<0)initClosed=0;
     var pct=Math.round(initClosed/cum*100);
-    var step=(3/cum*100);
-    var maxRate=Math.round(maxClosed/cum*100);
+    pct=Math.max(suitMinRate,Math.min(maxRate,pct));
     html+='<div class="cr-slider-row">'+
       '<span class="label">1~'+(i+1)+'<br>'+cum+'tile</span>'+
-      '<input class="cr-slider" type="range" min="0" max="100" value="'+pct+'" step="'+step.toFixed(3)+'"'+
-      ' data-layer="'+(i+1)+'" data-total="'+cum+'" data-minrate="'+suitMinRate+'" data-maxrate="'+maxRate+'"'+
+      '<input class="cr-slider" type="range" min="'+suitMinRate+'" max="'+maxRate+'" value="'+pct+'" step="'+step.toFixed(3)+'"'+
+      ' data-layer="'+(i+1)+'" data-total="'+cum+'"'+
       ' oninput="syncCloseRates(this)">'+
       '<span class="val" id="crv'+i+'">'+pct+'%<br>'+initClosed+'/'+cum+'</span>'+
       '</div>';
@@ -302,63 +302,50 @@ function updateCloseRatesHint(d){
   syncCloseRates();
 }
 
-// 滑块值 → 隐藏 input + 更新渐变轨道 + 显示值
+// 滑块值 → 隐藏 input + 更新显示值（动态 min/max，整个滑条均可拖拽）
 function syncCloseRates(triggerSlider){
   var sliders=document.querySelectorAll('.cr-slider');
-  var rates=[];
+  var curCC=parseInt(document.getElementById('colorCount').value)||8;
 
-  // 收集各层对齐后的值
+  // 1. 收集原始值，对齐到 3 的倍数
   var vals=[];
   sliders.forEach(function(s){
     var total=parseInt(s.dataset.total);
-    var dc=Math.round(parseFloat(s.value)/100*total);
-    dc=Math.round(dc/3)*3;
-    vals.push({slider:s, total:total, dc:dc, minrate:parseFloat(s.dataset.minrate), maxrate:parseFloat(s.dataset.maxrate)});
+    // 动态重算该层 min/max（基于当前花色数）
+    var maxClosed=Math.floor(total/3)*3;
+    var maxWaste=Math.min(2*curCC,total);
+    while(maxWaste>=0&&(total-maxWaste)%3!==0)maxWaste--;
+    var minClosed=total-(maxWaste<0?0:maxWaste);
+    var minRt=total>0?minClosed/total*100:0;
+    var maxRt=total>0?maxClosed/total*100:100;
+    // 更新 slider 的 min/max 属性（动态）
+    s.min=minRt; s.max=maxRt;
+    // 读值并对齐到 3 的倍数
+    var pct=parseFloat(s.value);
+    pct=Math.max(minRt,Math.min(maxRt,pct));
+    var dc=Math.round(pct/100*total/3)*3;
+    dc=Math.max(minClosed,Math.min(maxClosed,dc));
+    vals.push({slider:s, total:total, dc:dc});
   });
 
-  // 反向收紧：浅层闭合数不能超过深层
+  // 2. 单调性：浅层不能超过深层
   for(var i=vals.length-2;i>=0;i--){
     if(vals[i].dc>vals[i+1].dc) vals[i].dc=vals[i+1].dc;
   }
-  // 硬下限
-  var cc=parseInt(document.getElementById('colorCount').value)||8;
-  for(var i=0;i<vals.length;i++){
-    var maxWaste=Math.min(2*cc,vals[i].total);
-    while(maxWaste>=0&&(vals[i].total-maxWaste)%3!==0)maxWaste--;
-    var minC=vals[i].total-(maxWaste<0?0:maxWaste);
-    if(vals[i].dc<minC) vals[i].dc=minC;
-  }
-  // 正向收紧
   for(var i=1;i<vals.length;i++){
     if(vals[i].dc<vals[i-1].dc) vals[i].dc=vals[i-1].dc;
   }
 
-  // 基于当前花色数重算边界（实时响应花色数变动）
-  var curCC=parseInt(document.getElementById('colorCount').value)||8;
-
-  // 更新滑块值和渐变
+  // 3. 更新滑块值和显示
+  var rates=[];
   vals.forEach(function(v){
     var s=v.slider, total=v.total, dc=v.dc;
-    var pct=total>0?dc/total*100:0;
+    var pct=total>0?Math.round(dc/total*100):0;
     s.value=pct;
-    // 基于当前花色数重算边界
-    var maxClosed2=Math.floor(total/3)*3;
-    var maxWaste2=Math.min(2*curCC,total);
-    while(maxWaste2>=0&&(total-maxWaste2)%3!==0)maxWaste2--;
-    var minClosed2=total-(maxWaste2<0?0:maxWaste2);
-    var suitMinRt2=total>0?minClosed2/total*100:0;
-    var maxRt2=total>0?maxClosed2/total*100:100;
-    // 更新 data 属性（下次用）
-    s.dataset.minrate=suitMinRt2;
-    s.dataset.maxrate=maxRt2;
-    // 渐变：暗灰(不可达低) → 蓝色(可调节范围) → 暗灰(不可达高)
-    s.style.background='linear-gradient(to right,'+
-      '#262626 0%,#262626 '+suitMinRt2+'%,'+
-      '#1e3a5f '+suitMinRt2+'%,#1e3a5f '+maxRt2+'%,'+
-      '#262626 '+maxRt2+'%,#262626 100%)';
-    // 更新显示
+    // 整个滑条均可拖拽 → 纯色背景
+    s.style.background='#1e3a5f';
     var vid=document.getElementById('crv'+(parseInt(s.dataset.layer)-1));
-    if(vid) vid.innerHTML=Math.round(pct)+'%<br>'+dc+'/'+total;
+    if(vid) vid.innerHTML=pct+'%<br>'+dc+'/'+total;
     rates.push(pct/100);
   });
 
@@ -429,7 +416,16 @@ function showResult(d){
   // 保存上下文供 DFS 校验使用
   window._lastGen=d;
 
-  drawElemChart(d);
+  // 花色分布纯文字（替换原来的柱状图）
+  var ed=document.getElementById('elemDist');
+  if(ed){
+    var dist2={};
+    for(var i=0;i<d.tiles.length;i++){var ev2=d.tiles[i].element;if(ev2)dist2[ev2]=(dist2[ev2]||0)+1}
+    var ents2=Object.entries(dist2).sort(function(a,b){return +a[0]-+b[0]});
+    ed.innerHTML=ents2.length
+      ?ents2.map(function(e){return '<span style="color:'+ec(+e[0])+'">花'+e[0]+':'+e[1]+'</span>'}).join(' · ')
+      :'<span style="color:var(--m)">无花色数据</span>';
+  }
 }
 
 function showClosureResult(d){
@@ -470,6 +466,8 @@ function showClosureResult(d){
   // Bars: 设定 vs 实际
   var origStr=document.getElementById('closeRates').value;
   var origRates=origStr?origStr.split(',').map(Number):[];
+  var maxD=m.colorCount||1;
+  var debtPts=[], expPts=[];
   for(var i=0;i<n;i++){
     var x=pad.l+gw*i;
     // 设定（用户输入的闭合率，最后一层固定100%）
@@ -482,13 +480,38 @@ function showClosureResult(d){
     ctx.fillRect(x+bw*0.5,pad.t+ch-actH,bw*0.35,actH);
     ctx.fillStyle='#8b949e';ctx.font='9px system-ui';ctx.textAlign='center';
     ctx.fillText('L'+(i+1),x+bw/2,H-pad.b+14);
+    // 柱顶: 债务 d/exp
+    var dv=m.debtByLayer&&m.debtByLayer[i]!=null?m.debtByLayer[i]:0;
+    var ev=m.expDebtByLayer&&m.expDebtByLayer[i]!=null?m.expDebtByLayer[i]:0;
+    var barTop=pad.t+ch-Math.max(setH,actH)-2;
+    ctx.fillStyle='#f0883e';ctx.font='bold 8px system-ui';ctx.textAlign='center';
+    ctx.fillText(dv+'/'+ev, x+bw/2, barTop);
+    debtPts.push({x:x+bw/2, y:pad.t+ch-(dv/maxD*ch)});
+    expPts.push({x:x+bw/2, y:pad.t+ch-(ev/maxD*ch)});
+  }
+  // 债务折线（归一化: 100%=全花色开着=colorCount）
+  if(debtPts.length>1){
+    ctx.strokeStyle='#f0883e';ctx.lineWidth=1.2;ctx.setLineDash([3,2]);
+    ctx.beginPath();ctx.moveTo(debtPts[0].x,debtPts[0].y);
+    for(var k=1;k<debtPts.length;k++)ctx.lineTo(debtPts[k].x,debtPts[k].y);
+    ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle='#f0883e';
+    for(var k=0;k<debtPts.length;k++){ctx.beginPath();ctx.arc(debtPts[k].x,debtPts[k].y,2.2,0,Math.PI*2);ctx.fill();}
+  }
+  if(expPts.length>1){
+    ctx.strokeStyle='#e6b422';ctx.lineWidth=1.2;
+    ctx.beginPath();ctx.moveTo(expPts[0].x,expPts[0].y);
+    for(var k=1;k<expPts.length;k++)ctx.lineTo(expPts[k].x,expPts[k].y);
+    ctx.stroke();
+    ctx.fillStyle='#e6b422';
+    for(var k=0;k<expPts.length;k++){ctx.beginPath();ctx.arc(expPts[k].x,expPts[k].y,2.2,0,Math.PI*2);ctx.fill();}
   }
   document.getElementById('chartLabel').textContent='闭合率 设定 vs 实际 ▸ 峰值债务:'+m.peakDebt+' 暴露峰值:'+m.peakExpDebt+' OI:'+m.oi;
 
   // LayerClosure 不需要步骤详情表
   document.getElementById('stepSection').style.display='none';
   document.getElementById('chartTitle').textContent='闭合率 设定 vs 实际';
-  document.getElementById('chartLegend').innerHTML='<span style="color:#58a6ff">🟦 设定</span> <span style="color:#3fb950">🟩 实际</span> <span id="chartLabel" style="margin-left:8px"></span>';
+  document.getElementById('chartLegend').innerHTML='<span style="color:#58a6ff">🟦 设定</span> <span style="color:#3fb950">🟩 实际</span> <span style="color:#f0883e">┄ debt</span> <span style="color:#e6b422">── exp</span> <span id="chartLabel" style="margin-left:8px"></span>';
 }
 
 function showCostLadderResult(d){
@@ -606,32 +629,6 @@ function renderStepTable(d){
 // ═══════════════════════════════════
 // Elem Chart
 // ═══════════════════════════════════
-function drawElemChart(d){
-  var c=document.getElementById('elemChart');
-  var ctx=c.getContext('2d');
-  var dpr=window.devicePixelRatio||1;
-  var r=c.getBoundingClientRect();
-  var W=r.width,H=80;
-  c.width=W*dpr;c.height=H*dpr;ctx.scale(dpr,dpr);
-  ctx.clearRect(0,0,W,H);
-  var dist={};
-  for(var k in d.assignments){var e=d.assignments[k];dist[e]=(dist[e]||0)+1}
-  var ents=Object.entries(dist).sort(function(a,b){return +a[0]-+b[0]});
-  if(!ents.length)return;
-  var mx=Math.max.apply(null,ents.map(function(e){return e[1]}));
-  var pad={t:6,r:10,b:18,l:10},cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
-  var gap=cw/ents.length,bw=Math.min(30,gap*0.7);
-  ents.forEach(function(e,i){
-    var x=pad.l+gap*i+(gap-bw)/2;
-    var bh=Math.max(1,(e[1]/mx)*ch),y=pad.t+ch-bh;
-    ctx.fillStyle=ec(+e[0]);
-    ctx.fillRect(x,y,bw,bh);
-    ctx.fillStyle='#c9d1d9';ctx.font='9px system-ui';ctx.textAlign='center';
-    ctx.fillText(e[1],x+bw/2,y-3);
-    ctx.fillText('花'+e[0],x+bw/2,H-4);
-  });
-}
-
 // ═══════════════════════════════════
 // 解码
 // ═══════════════════════════════════
