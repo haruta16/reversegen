@@ -98,8 +98,8 @@
       <label style="margin-top:10px">Cost 数组（逗号分隔）</label>
       <div class="inrow" style="margin-bottom:6px">
         <input type="number" id="targetStd" value="1.0" min="0" max="3" step="0.1" style="width:70px;font-size:11px" placeholder="σ">
-        <input type="number" id="costSeed" placeholder="种子（留空=随机）" style="flex:1;font-size:11px">
-        <button class="btn-sm" onclick="generateCost()" style="flex:0">生成</button>
+        <button class="btn-sm" onclick="generateCost()">🎲 生成Cost</button>
+        <span style="font-size:10px;color:var(--m);line-height:2.2;flex:1">标准差 σ</span>
       </div>
       <textarea id="costArray" placeholder="如: 3,3,2,2,2,1"></textarea>
     </div>
@@ -111,7 +111,7 @@
       <input type="hidden" id="closeRates" value="">
 
       <div class="inrow" style="margin-top:8px">
-
+        
         <div style="flex:1"><label>Dock容量</label><input type="number" id="dock" value="7" min="1" max="20"></div>
       </div>
     </div>
@@ -133,30 +133,30 @@
     <div class="info" id="decodeOut"></div>
   </div>
 </div>
-<div class="col" id="resultCol" style="display:none">
+
+<div class="col">
   <!-- ═══ 结果 ═══ -->
-  <div class="card">
-    <h2>📦 生成结果</h2>
-    <div class="stats">
-      <div class="stat"><div class="v g" id="resStatus">-</div><div class="l">状态</div></div>
-      <div class="stat"><div class="v" id="resTiles">-</div><div class="l">自由牌</div></div>
-      <div class="stat"><div class="v o" id="resSteps">-</div><div class="l">步数</div></div>
-      <div class="stat"><div class="v" id="resColors">-</div><div class="l">花色数</div></div>
+  <div class="card" id="resultCard" style="display:none">
+    <h2>📊 结果</h2>
+
+    <div class="stats" id="stats"></div>
+
+    <h2 style="margin-top:12px" id="chartTitle">Cost Ladder 对比</h2>
+    <canvas id="costChart" height="180"></canvas>
+    <div style="font-size:10px;color:var(--m);margin-top:4px" id="chartLegend">
+      <span>🟦 目标</span> <span>🟩 实际</span>
+      <span id="chartLabel" style="margin-left:8px"></span>
     </div>
 
-    <!-- 闭合率对比 + 债务折线 -->
-    <div id="chartSection" style="display:none">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <span style="font-size:10px;color:var(--m);font-weight:700" id="chartTitle">闭合率 设定 vs 实际 | 逐层债务</span>
-        <span style="font-size:9px;color:var(--m)" id="chartLabel"></span>
-      </div>
-      <canvas id="chart" width="380" height="200"></canvas>
-      <div class="stats" style="margin-top:4px">
-        <div class="stat"><div class="v o" id="resPeakDebt">-</div><div class="l">峰值债务</div></div>
-        <div class="stat"><div class="v" id="resOI">-</div><div class="l">OI</div></div>
-      </div>
+    <div id="stepSection">
+    <h2 style="margin-top:12px">步骤详情 <span style="font-weight:400;font-size:10px;color:var(--m)" id="stepCnt"></span></h2>
+    <div style="max-height:260px;overflow-y:auto;border:1px solid var(--b);border-radius:5px">
+      <table><thead><tr><th>步</th><th>选中 ID</th><th>cost</th><th>sim</th><th>目标</th><th>候选</th><th>封杀</th><th>色</th><th>备注</th></tr></thead>
+      <tbody id="stepBody"></tbody></table>
+    </div>
     </div>
 
+    <h2 style="margin-top:12px">花色分布</h2>
     <div id="elemDist" style="font-size:11px;color:var(--t);line-height:1.6"></div>
 
     <h2 style="margin-top:12px">ReplayCode <button class="btn-sm" onclick="copyCode(this)">📋 复制</button></h2>
@@ -227,53 +227,73 @@ window.onerror = function(msg,src,line,col,err){
 };
 
 // ═══════════════════════════════════
-// 元素花色色板
+// 颜色
 // ═══════════════════════════════════
-var ELM_COLORS=['#f85149','#3fb950','#58a6ff','#d2991d','#a371f7','#ff7b72','#7ee787','#79c0ff',
-  '#e3b341','#bc8cff','#ffa657','#56d364','#f778ba','#e5534b','#539bf5','#db6d28'];
-function ec(e){return ELM_COLORS[(e-1)%ELM_COLORS.length];}
+var PAL=['#58a6ff','#3fb950','#d2991d','#f85149','#a371f7','#39d2c0','#ff7b72','#79c0ff','#e3b341','#f0883e','#56d364','#db6dab','#a5d6ff','#7ee787','#d2a82e','#ffa657','#f778ba','#96d0ff','#8bdd98','#c69026'];
+function ec(e){return PAL[(e-1)%PAL.length]}
 
 // ═══════════════════════════════════
-// 关卡加载
+// 扫描关卡（填充 datalist 自动补全）
 // ═══════════════════════════════════
-async function loadLevel(){
-  var levelId=document.getElementById('levelId').value.trim();
-  var terrainPath=document.getElementById('terrainPath')?document.getElementById('terrainPath').value.trim():'';
-  var levelsDir=document.getElementById('levelsDir').value.trim();
-  if(!levelId&&!terrainPath)return alert('请输入关卡ID或文件路径');
-  var info=document.getElementById('levelInfo');
-  info.textContent='加载中...';
-  try{
-    var body={levelId:levelId||undefined,terrainPath:terrainPath||undefined,levelsDir:levelsDir||undefined};
-    var r=await fetch('/api/terrain-info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    var d=await r.json();
-    if(!d.ok)throw new Error(d.error);
-    info.innerHTML='<b>#'+d.levelResId+'</b> · '+d.totalTiles+'张牌 ('+d.freeTiles+'自由) · '+d.layers+'层 · '+d.steps+'步 · Hash:'+(d.levelHash||'?');
-    // 生成闭合率滑块
-    if(d.depthCount&&d.tilesPerDepth)updateCloseRatesHint(d);
-    // 默认切换图层闭合面板
-    document.getElementById('algorithm').value='closure';switchAlgoPanel();
-  }catch(e){info.textContent='❌ '+e.message;}
-}
-
 async function scanLevels(){
   var dir=document.getElementById('levelsDir').value.trim();
+  var list=document.getElementById('levelList');
+  list.innerHTML='';
   try{
-    var r=await fetch('/api/levels'+(dir?'?dir='+encodeURIComponent(dir):''));
+    var url=dir?'/api/levels?dir='+encodeURIComponent(dir):'/api/levels';
+    var r=await fetch(url);
     var d=await r.json();
-    if(!d.ok)throw new Error(d.error);
-    var list=document.getElementById('levelList');
-    list.innerHTML=d.levels.map(function(l){return '<option value="'+l.id+'">#'+l.id+' '+l.name+' ('+l.tiles+'tiles)</option>';}).join('');
-    if(d.levels.length&&!document.getElementById('levelId').value)document.getElementById('levelId').value=d.levels[0].id;
+    if(!d.ok)return;
+    for(var i=0;i<d.levels.length;i++){
+      var lv=d.levels[i];
+      var opt=document.createElement('option');
+      opt.value=lv.id;
+      opt.label=lv.id+' ('+lv.tiles+'张)';
+      list.appendChild(opt);
+    }
+    document.getElementById('levelsDir').placeholder=d.dir||'';
   }catch(e){}
 }
 
-// LayerClosure: 自动生成闭合率
-window.addEventListener('DOMContentLoaded',function(){
-  scanLevels();
-  var autoId=document.getElementById('levelId').value;
-  if(autoId)loadLevel();
-});
+// ═══════════════════════════════════
+// 加载关卡信息
+// ═══════════════════════════════════
+async function loadLevel(){
+  var id=document.getElementById('levelId').value.trim();
+  var info=document.getElementById('levelInfo');
+  if(!id){info.innerHTML='<span style="color:var(--o)">请输入关卡ID</span>';return}
+  info.textContent='加载中...';
+  try{
+    var body={levelId:id};
+    var dir=document.getElementById('levelsDir').value.trim();
+    if(dir)body.levelsDir=dir;
+    var r=await fetch('/api/terrain-info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var d=await r.json();
+    if(!d.ok){info.innerHTML='<span style="color:var(--r)">❌ '+d.error+'</span>';return}
+    var html='<span class="tag" style="color:var(--a);border-color:var(--a)">关卡 '+ (d.levelResId||id) +'</span> ';
+    html+=d.layers+'层 · '+d.totalTiles+'张牌 · <b>'+d.freeTiles+'</b>自由牌';
+    if(d.constTiles>0)html+=' · '+d.constTiles+'固定牌';
+    html+='<br>自由牌÷3 = <b>'+d.steps+'</b>步 · Hash: '+(d.levelHash||'(无)');
+    // 深度信息
+    if(d.depthCount){
+      html+='<br>依赖深度: <b>'+d.depthCount+'</b>层 ['+d.tilesPerDepth.join(', ')+']';
+    }
+    html+='<br><span style="font-size:9px">'+ (d.resolvedPath||'') +'</span>';
+    info.innerHTML=html;
+    // CostLadder 提示
+    updateCostHint(d.steps);
+    // LayerClosure: 自动生成闭合率
+    if(d.depthCount) updateCloseRatesHint(d);
+  }catch(e){info.innerHTML='<span style="color:var(--r)">❌ '+e.message+'</span>'}
+}
+
+function updateCostHint(steps){
+  if(!steps)return;
+  var ta=document.getElementById('costArray');
+  if(!ta.value.trim()){
+    ta.placeholder='需要'+steps+'步，如: '+Array(steps).fill(3).join(',');
+  }
+}
 
 // 根据深度信息生成闭合率滑块
 function updateCloseRatesHint(d){
@@ -293,7 +313,7 @@ function updateCloseRatesHint(d){
     initClosed=Math.max(initClosed,minClosed);
     if(initClosed<0)initClosed=0;
     var pct=Math.round(initClosed/cum*100);
-    // 滑条范围固定 0-100（track 显示完整灰底），蓝色段 = [minRt, maxRt]
+    // 滑块范围固定 0-100（取消动态上下限），只在下方的 valid range 展示合法区间
     html+='<div class="cr-slider-row">'+
       '<span class="label">1~'+(i+1)+'<br>'+cum+'tile</span>'+
       '<input class="cr-slider" type="range" min="0" max="100" value="'+pct+'" step="'+step.toFixed(3)+'"'+
@@ -308,12 +328,12 @@ function updateCloseRatesHint(d){
 }
 
 // 滑块值 → 隐藏 input + 更新显示值
-//   每个 slider range=0~100（完整灰底），蓝色段标记合法可拖区间
+//   滑块 range 固定 0-100（track 显示完整范围），dc 侧 clamp 到合法区间保证功能
 //   双向联动：上层拉高→下层跟随上升 / 下层压低→上层跟随下降
 function syncCloseRates(triggerSlider){
   var sliders=document.querySelectorAll('.cr-slider');
 
-  // ── 1. 读取所有滑块，即时 clamp 到合法区间 ──
+  // ── 1. 读取所有滑块，计算 dc（clamp 到 [minClosed, maxClosed]）──
   var vals=[];
   sliders.forEach(function(s){
     var total=parseInt(s.dataset.total);
@@ -328,7 +348,7 @@ function syncCloseRates(triggerSlider){
       ' #1e3a5f '+minRt.toFixed(1)+'%, #1e3a5f '+maxRt.toFixed(1)+'%,'+
       ' #262626 '+maxRt.toFixed(1)+'%, #262626 100%)';
 
-    // 即时约束：值不能超出合法区间
+    // 即时 clamp：滑块值不超出合法区间
     var raw=parseFloat(s.value);
     if(raw<minRt) s.value=minRt;
     else if(raw>maxRt) s.value=maxRt;
@@ -352,8 +372,9 @@ function syncCloseRates(triggerSlider){
     }
   }
 
-  // ── 3. 单调性约束（按方向决定 pass 顺序，实现双向联动）──
+  // ── 3. 单调性约束（根据方向决定 pass 顺序，实现双向联动）──
   if(goUp){
+    // 向上拉 → L→R 优先（抬高右侧所有层）
     for(var i=1;i<vals.length;i++){
       if(vals[i].dc<vals[i-1].dc) vals[i].dc=vals[i-1].dc;
     }
@@ -361,6 +382,7 @@ function syncCloseRates(triggerSlider){
       if(vals[i].dc>vals[i+1].dc) vals[i].dc=vals[i+1].dc;
     }
   } else if(goDown){
+    // 向下拉 → R→L 优先（压低左侧所有层）
     for(var i=vals.length-2;i>=0;i--){
       if(vals[i].dc>vals[i+1].dc) vals[i].dc=vals[i+1].dc;
     }
@@ -368,6 +390,7 @@ function syncCloseRates(triggerSlider){
       if(vals[i].dc<vals[i-1].dc) vals[i].dc=vals[i-1].dc;
     }
   } else {
+    // 无触发 / 初始加载 → 保守顺序（R→L 先，保持兼容）
     for(var i=vals.length-2;i>=0;i--){
       if(vals[i].dc>vals[i+1].dc) vals[i].dc=vals[i+1].dc;
     }
@@ -381,14 +404,15 @@ function syncCloseRates(triggerSlider){
   vals.forEach(function(v){
     var s=v.slider, total=v.total, dc=v.dc;
     var pct=total>0?Math.round(dc/total*100):0;
+    // 写入 s.value 不会触发 oninput（浏览器行为），安全
     if(Math.abs(parseFloat(s.value)-pct)>0.1) s.value=pct;
+    // 总更新 prevDc（下次移动靠它判方向）
     s.dataset.prevDc=String(dc);
     var vid=document.getElementById('crv'+(parseInt(s.dataset.layer)-1));
     if(vid){
-      var minClosed=v.minDc, maxClosed=v.maxDc;
       var note='';
-      if(dc===maxClosed) note=' <span style="color:var(--r);font-size:9px">MAX</span>';
-      else if(dc===minClosed) note=' <span style="color:var(--o);font-size:9px">MIN</span>';
+      if(dc===v.maxDc) note=' <span style="color:var(--r);font-size:9px">MAX</span>';
+      else if(dc===v.minDc) note=' <span style="color:var(--o);font-size:9px">MIN</span>';
       vid.innerHTML=pct+'%<br>'+dc+'/'+total+note;
     }
     rates.push(pct/100);
@@ -411,158 +435,266 @@ async function generate(){
   var btn=document.querySelector('.btn-blue');
   var err=document.getElementById('genErr');
   err.textContent='';
+  btn.textContent='生成中...';btn.disabled=true;
+
+  var lid=document.getElementById('levelId').value.trim();
+  var info=document.getElementById('levelInfo');
+  if(!lid || info.innerHTML.indexOf('关卡')<0){
+    err.textContent='请先加载关卡';
+    btn.textContent='🔄 生成牌局';btn.disabled=false;
+    return;
+  }
+
   var algo=document.getElementById('algorithm').value;
-  btn.textContent='⏳ 生成中...';btn.disabled=true;
+  var body={levelId:lid, algorithm:algo};
+  var dir=document.getElementById('levelsDir').value.trim();
+  if(dir)body.levelsDir=dir;
+  body.colorCount=document.getElementById('colorCount').value;
+  body.levelHash=document.getElementById('levelHash').value.trim()||undefined;
+
+  if(algo==='closure'){
+    body.closeRates=document.getElementById('closeRates').value.trim();
+    
+    body.dock=document.getElementById('dock').value;
+  }else{
+    body.costArray=document.getElementById('costArray').value.trim();
+  }
 
   try{
-    var body={
-      algorithm:algo,
-      levelId:document.getElementById('levelId').value.trim()||undefined,
-      terrainPath:document.getElementById('terrainPath')?document.getElementById('terrainPath').value.trim():undefined,
-      levelsDir:document.getElementById('levelsDir').value.trim()||undefined,
-      levelHash:document.getElementById('levelHash').value.trim()||undefined
-    };
-
-    if(algo==='closure'){
-      body.closeRates=document.getElementById('closeRates').value.trim();
-      body.colorCount=document.getElementById('colorCount').value;
-      body.dock=document.getElementById('dock').value;
-    } else {
-      body.costArray=document.getElementById('costArray').value.trim();
-      body.colorCount=document.getElementById('colorCount').value;
-    }
-
     var r=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var d=await r.json();
-    if(!d.ok)throw new Error(d.error);
-
-    document.getElementById('resultCol').style.display='';
-    document.getElementById('codeBox').textContent=d.replayCode;
-    document.getElementById('resStatus').textContent=d.algorithm==='closure'?'✅ 生成':'✅ 完成';
-    document.getElementById('resTiles').textContent=d.terrainSummary.freeTiles;
-    document.getElementById('resSteps').textContent=d.tripletCount||d.totalSteps||'-';
-    document.getElementById('resColors').textContent=d.colorCount;
-
-    // 花色分布
-    var dist={};
-    for(var i=0;i<d.tiles.length;i++){var el=d.tiles[i].element;if(el)dist[el]=(dist[el]||0)+1;}
-    var distHTML='';
-    for(var k in dist)distHTML+='<span style="color:'+ec(+k)+'">花'+k+':<b>'+dist[k]+'</b></span> &nbsp; ';
-    document.getElementById('elemDist').innerHTML=distHTML;
-
-    // 闭合率图表
-    if(d.algorithm==='closure'&&d.metrics){
-      document.getElementById('chartSection').style.display='';
-      drawClosureChart(d.metrics);
-      document.getElementById('resPeakDebt').textContent=d.metrics.peakDebt;
-      document.getElementById('resOI').textContent=d.metrics.oi;
-    } else {
-      document.getElementById('chartSection').style.display='none';
-    }
-
-    // 保存上下文供 DFS 校验使用
-    window._lastGen=d;
-    document.getElementById('dfsResult').innerHTML='';
-    document.getElementById('reviveResult').innerHTML='';
-    document.getElementById('playerSimResult').innerHTML='';
-    document.getElementById('playerSimRiskyResult').innerHTML='';
-    document.getElementById('playerSimCostCapResult').innerHTML='';
-    document.getElementById('playerSimMistakeResult').innerHTML='';
-
-  }catch(e){err.textContent=e.message;}
-  finally{btn.textContent='🔄 生成牌局';btn.disabled=false;}
+    if(!d.ok){err.textContent=d.error;return}
+    showResult(d);
+  }catch(e){err.textContent=e.message}
+  finally{btn.textContent='🔄 生成牌局';btn.disabled=false}
 }
 
 // ═══════════════════════════════════
-// 闭合率对比 chart
+// 显示结果
 // ═══════════════════════════════════
-function drawClosureChart(m){
-  var canvas=document.getElementById('chart');
-  var ctx=canvas.getContext('2d');
-  var W=canvas.width, H=canvas.height;
+function showResult(d){
+  document.getElementById('resultCard').style.display='block';
+  document.getElementById('codeBox').textContent=d.replayCode;
+
+  if(d.algorithm==='closure'){
+    showClosureResult(d);
+  }else{
+    showCostLadderResult(d);
+  }
+
+  // 保存上下文供 DFS 校验使用
+  window._lastGen=d;
+
+  // 花色分布纯文字（替换原来的柱状图）
+  var ed=document.getElementById('elemDist');
+  if(ed){
+    var dist2={};
+    for(var i=0;i<d.tiles.length;i++){var ev2=d.tiles[i].element;if(ev2)dist2[ev2]=(dist2[ev2]||0)+1}
+    var ents2=Object.entries(dist2).sort(function(a,b){return +a[0]-+b[0]});
+    ed.innerHTML=ents2.length
+      ?ents2.map(function(e){return '<span style="color:'+ec(+e[0])+'">花'+e[0]+':'+e[1]+'</span>'}).join(' · ')
+      :'<span style="color:var(--m)">无花色数据</span>';
+  }
+}
+
+function showClosureResult(d){
+  var m=d.metrics;
+  var doomCls=m.isDoomed?'r':'g';
+  var doomTxt=m.isDoomed?'⚠ 是':'✓ 否';
+
+  document.getElementById('stats').innerHTML=
+    '<div class="stat"><div class="v '+doomCls+'">'+doomTxt+'</div><div class="l">必输判定</div></div>'+
+    '<div class="stat"><div class="v">'+m.peakDebt+'/'+m.peakExpDebt+'</div><div class="l">债务峰值/暴露</div></div>'+
+    '<div class="stat"><div class="v o">'+m.oi+'</div><div class="l">OI</div></div>'+
+    '<div class="stat"><div class="v">'+m.colorCount+'</div><div class="l">花色数</div></div>'+
+    '<div class="stat"><div class="v">'+m.depthCount+'</div><div class="l">深度层数</div></div>'+
+    '<div class="stat"><div class="v">'+d.terrainSummary.totalTiles+'</div><div class="l">总牌数</div></div>'+
+    '<div class="stat"><div class="v">'+m.averageOcclusion+'</div><div class="l">平均遮挡</div></div>'+
+    '<div class="stat"><div class="v '+(m.allSuitsClosed?'g':'r')+'">'+(m.allSuitsClosed?'✓':'✗')+'</div><div class="l">花色*3</div></div>';
+
+  // 闭合率对比 chart
+  var c=document.getElementById('costChart');
+  var ctx=c.getContext('2d');
+  var dpr=window.devicePixelRatio||1;
+  var rect=c.getBoundingClientRect();
+  var W=rect.width,H=180;
+  c.width=W*dpr;c.height=H*dpr;ctx.scale(dpr,dpr);
   ctx.clearRect(0,0,W,H);
 
+  var pad={t:14,r:14,b:28,l:48},cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
+  var n=m.depthCount,gw=cw/n,bw=Math.max(4,gw*0.5);
+
+  // Grid
+  for(var v=0;v<=100;v+=20){
+    var y=pad.t+ch-(v/100)*ch;
+    ctx.strokeStyle=v?'#21262d':'#30363d';ctx.lineWidth=v?0.5:1;
+    ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();
+    ctx.fillStyle='#8b949e';ctx.font='9px system-ui';ctx.textAlign='right';
+    ctx.fillText(v+'%',pad.l-4,y+3);
+  }
+  // Bars: 设定 vs 实际
   var origStr=document.getElementById('closeRates').value;
-  if(!origStr||!m||m.peakDebt===undefined)return;
-
-  var origRates=origStr.split(',').map(Number);
-  var layers=m.debtPerLayer?m.debtPerLayer.length:0;
-  if(layers===0)return;
-
-  // 设定（用户输入的闭合率，最后一层固定100%）
-  var setRates=[];
-  for(var i=0;i<layers-1;i++)setRates.push(i<origRates.length?origRates[i]:0);
-  setRates.push(1);
-
-  // 实际（算法执行后的真实闭合率）
-  var actRates=m.actualCloseRates||[];
-
-  var pad={t:20,r:30,b:30,l:40};
-  var w=W-pad.l-pad.r, h=H-pad.t-pad.b;
-
-  // 网格
-  ctx.strokeStyle='rgba(139,148,158,0.12)';ctx.lineWidth=1;
-  for(var i=0;i<=4;i++){var y=pad.t+h*i/4;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();}
-  for(var i=0;i<layers;i++){var x=pad.l+w*i/(layers-1);ctx.beginPath();ctx.moveTo(x,pad.t);ctx.lineTo(x,H-pad.b);ctx.stroke();}
-
-  function yPos(v){return pad.t+h*(1-v);}
-  function xPos(i){return pad.l+w*i/(layers-1);}
-
-  // 闭合率设定线（虚线）
-  ctx.strokeStyle='rgba(88,166,255,0.5)';ctx.lineWidth=1.5;ctx.setLineDash([5,3]);
-  ctx.beginPath();ctx.moveTo(xPos(0),yPos(setRates[0]));
-  for(var i=1;i<setRates.length;i++)ctx.lineTo(xPos(i),yPos(setRates[i]));
-  ctx.stroke();ctx.setLineDash([]);
-
-  // 闭合率实际线（实线）
-  if(actRates.length>0){
-    ctx.strokeStyle='#58a6ff';ctx.lineWidth=2;
-    ctx.beginPath();ctx.moveTo(xPos(0),yPos(actRates[0]));
-    for(var i=1;i<actRates.length;i++)ctx.lineTo(xPos(Math.min(i,layers-1)),yPos(actRates[i]));
-    ctx.stroke();
-    // 点
-    for(var i=0;i<actRates.length;i++){
-      ctx.fillStyle='#58a6ff';ctx.beginPath();
-      ctx.arc(xPos(Math.min(i,layers-1)),yPos(actRates[i]),3,0,Math.PI*2);ctx.fill();
-    }
+  var origRates=origStr?origStr.split(',').map(Number):[];
+  var maxD=m.colorCount||1;
+  var debtPts=[], expPts=[];
+  for(var i=0;i<n;i++){
+    var x=pad.l+gw*i;
+    // 设定（用户输入的闭合率，最后一层固定100%）
+    ctx.fillStyle='rgba(88,166,255,0.3)';
+    var setH=(origRates&&i<origRates.length?origRates[i]:(i===n-1?1:0))*ch;
+    ctx.fillRect(x+bw*0.1,pad.t+ch-setH,bw*0.35,setH);
+    // 实际（算法执行后的真实闭合率）
+    ctx.fillStyle='#3fb950';
+    var actH=m.actualCloseRates[i]*ch;
+    ctx.fillRect(x+bw*0.5,pad.t+ch-actH,bw*0.35,actH);
+    ctx.fillStyle='#8b949e';ctx.font='9px system-ui';ctx.textAlign='center';
+    ctx.fillText('L'+(i+1),x+bw/2,H-pad.b+14);
+    // 柱顶: 债务 d/exp
+    var dv=m.debtByLayer&&m.debtByLayer[i]!=null?m.debtByLayer[i]:0;
+    var ev=m.expDebtByLayer&&m.expDebtByLayer[i]!=null?m.expDebtByLayer[i]:0;
+    var barTop=pad.t+ch-Math.max(setH,actH)-2;
+    ctx.fillStyle='#f0883e';ctx.font='bold 8px system-ui';ctx.textAlign='center';
+    ctx.fillText(dv+'/'+ev, x+bw/2, barTop);
+    debtPts.push({x:x+bw/2, y:pad.t+ch-(dv/maxD*ch)});
+    expPts.push({x:x+bw/2, y:pad.t+ch-(ev/maxD*ch)});
   }
-
-  // 债务折线（右侧Y轴，橙红色）
-  var debts=m.debtPerLayer||[];
-  if(debts.length>0){
-    var maxDebt=Math.max.apply(null,debts.concat(m.peakDebt||0));
-    if(maxDebt===0)maxDebt=1;
-    function yD(v){return pad.t+h*(1-v/maxDebt);}
-
-    // 债务阈值 = 7（MAX_DOCK_SLOTS）
-    var yThresh=yD(7);
-    ctx.strokeStyle='rgba(248,81,73,0.25)';ctx.lineWidth=1;ctx.setLineDash([2,4]);
-    ctx.beginPath();ctx.moveTo(pad.l,yThresh);ctx.lineTo(W-pad.r,yThresh);ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle='rgba(248,81,73,0.5)';ctx.font='8px monospace';
-    ctx.fillText('7',W-pad.r+3,yThresh+3);
-
-    ctx.strokeStyle='#f85149';ctx.lineWidth=2;
-    ctx.beginPath();ctx.moveTo(xPos(0),yD(debts[0]));
-    for(var i=1;i<debts.length;i++)ctx.lineTo(xPos(i),yD(debts[i]));
-    ctx.stroke();
-
-    // 暴露债务折线（虚线，紫色）
-    var expDebts=m.exposedDebtPerLayer||[];
-    if(expDebts.length>0){
-      ctx.strokeStyle='rgba(163,113,247,0.7)';ctx.lineWidth=1.5;ctx.setLineDash([4,3]);
-      ctx.beginPath();ctx.moveTo(xPos(0),yD(expDebts[0]));
-      for(var i=1;i<expDebts.length;i++)ctx.lineTo(xPos(i),yD(expDebts[i]));
-      ctx.stroke();ctx.setLineDash([]);
-    }
+  // 债务折线（归一化: 100%=全花色开着=colorCount）
+  if(debtPts.length>1){
+    ctx.strokeStyle='#f0883e';ctx.lineWidth=1.2;ctx.setLineDash([3,2]);
+    ctx.beginPath();ctx.moveTo(debtPts[0].x,debtPts[0].y);
+    for(var k=1;k<debtPts.length;k++)ctx.lineTo(debtPts[k].x,debtPts[k].y);
+    ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle='#f0883e';
+    for(var k=0;k<debtPts.length;k++){ctx.beginPath();ctx.arc(debtPts[k].x,debtPts[k].y,2.2,0,Math.PI*2);ctx.fill();}
   }
-
+  if(expPts.length>1){
+    ctx.strokeStyle='#e6b422';ctx.lineWidth=1.2;
+    ctx.beginPath();ctx.moveTo(expPts[0].x,expPts[0].y);
+    for(var k=1;k<expPts.length;k++)ctx.lineTo(expPts[k].x,expPts[k].y);
+    ctx.stroke();
+    ctx.fillStyle='#e6b422';
+    for(var k=0;k<expPts.length;k++){ctx.beginPath();ctx.arc(expPts[k].x,expPts[k].y,2.2,0,Math.PI*2);ctx.fill();}
+  }
   document.getElementById('chartLabel').textContent='闭合率 设定 vs 实际 ▸ 峰值债务:'+m.peakDebt+' 暴露峰值:'+m.peakExpDebt+' OI:'+m.oi;
+
+  // LayerClosure 不需要步骤详情表
+  document.getElementById('stepSection').style.display='none';
+  document.getElementById('chartTitle').textContent='闭合率 设定 vs 实际';
+  document.getElementById('chartLegend').innerHTML='<span style="color:#58a6ff">🟦 设定</span> <span style="color:#3fb950">🟩 实际</span> <span style="color:#f0883e">┄ debt</span> <span style="color:#e6b422">── exp</span> <span id="chartLabel" style="margin-left:8px"></span>';
+}
+
+function showCostLadderResult(d){
+  var m=d.matchRate!=null?d.matchRate.toFixed(0)+'%':'N/A';
+  var mc=d.matchRate!=null?(d.matchRate>=80?'g':d.matchRate>=50?'o':'r'):'';
+  document.getElementById('stats').innerHTML=
+    '<div class="stat"><div class="v '+mc+'">'+m+'</div><div class="l">匹配率</div></div>'+
+    '<div class="stat"><div class="v">'+d.totalSteps+'</div><div class="l">总步数</div></div>'+
+    '<div class="stat"><div class="v">'+d.colorCount+'</div><div class="l">花色数</div></div>'+
+    '<div class="stat"><div class="v">'+d.stats.min+'/'+d.stats.max+'</div><div class="l">Cost min/max</div></div>'+
+    '<div class="stat"><div class="v">'+d.stats.avg.toFixed(1)+'</div><div class="l">Cost 均值</div></div>'+
+    '<div class="stat"><div class="v o">'+d.banSetSize+'</div><div class="l">黑名单</div></div>'+
+    '<div class="stat"><div class="v">'+d.terrainSummary.totalTiles+'</div><div class="l">总牌数</div></div>'+
+    '<div class="stat"><div class="v">'+d.terrainSummary.freeTiles+'/'+d.terrainSummary.constTiles+'</div><div class="l">自由/固定</div></div>';
+
+  document.getElementById('chartLabel').textContent=
+    '匹配'+m+' · '+d.deviationCount+'处偏差'+
+    ' · min='+d.stats.min+' max='+d.stats.max+' avg='+d.stats.avg.toFixed(1);
+
+  drawCostChart(d);
+  renderStepTable(d);
+  document.getElementById('stepSection').style.display='';
+  document.getElementById('chartTitle').textContent='Cost Ladder 对比';
+  document.getElementById('chartLegend').innerHTML='<span>🟦 目标</span> <span>🟩 实际</span> <span id="chartLabel" style="margin-left:8px"></span>';
 }
 
 // ═══════════════════════════════════
-// 步骤 detail 表
+// Cost Chart
 // ═══════════════════════════════════
+function drawCostChart(d){
+  var c=document.getElementById('costChart');
+  var ctx=c.getContext('2d');
+  var dpr=window.devicePixelRatio||1;
+  var r=c.getBoundingClientRect();
+  var W=r.width,H=180;
+  c.width=W*dpr;c.height=H*dpr;ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+  var steps=d.costLog.length;
+  if(!steps)return;
+  var tgt=d.costTargets||[];
+  var mx=Math.max.apply(null,d.costLog.concat(tgt));
+  if(mx<1)mx=1;
+  var pad={t:14,r:14,b:28,l:28},cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
+  var gw=cw/steps,bw=Math.max(3,gw*0.55);
+
+  // Grid
+  for(var v=0;v<=mx;v++){
+    var y=pad.t+ch-(v/mx)*ch;
+    ctx.strokeStyle=v?'#21262d':'#30363d';ctx.lineWidth=v?0.5:1;
+    ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();
+    ctx.fillStyle='#8b949e';ctx.font='9px system-ui';ctx.textAlign='right';
+    ctx.fillText(v,pad.l-4,y+3);
+  }
+  // Labels
+  ctx.textAlign='center';
+  var iv=Math.max(1,Math.floor(steps/14));
+  for(var i=0;i<steps;i+=iv){
+    ctx.fillStyle='#8b949e';ctx.fillText(i+1,pad.l+gw*i+gw/2,H-pad.b+14);
+  }
+  ctx.fillText('步数',W/2,H-2);
+
+  // Bars
+  for(var i=0;i<steps;i++){
+    var x=pad.l+gw*i;
+    var ah=(d.costLog[i]/mx)*ch,ay=pad.t+ch-ah;
+    if(tgt.length&&i<tgt.length){
+      var th=(tgt[i]/mx)*ch,ty=pad.t+ch-th;
+      var ok=d.costLog[i]===tgt[i];
+      ctx.fillStyle=ok?'rgba(88,166,255,.15)':'rgba(88,166,255,.08)';
+      ctx.fillRect(x+gw*0.05,ty,gw*0.9,th);
+      ctx.strokeStyle='rgba(88,166,255,.3)';ctx.lineWidth=1;
+      ctx.setLineDash([2,2]);ctx.strokeRect(x+gw*0.05,ty,gw*0.9,th);ctx.setLineDash([]);
+      ctx.fillStyle=ok?'#3fb950':'#f85149';
+      ctx.fillRect(x+gw*0.2,ay,gw*0.6,Math.max(1,ah));
+    }else{
+      ctx.fillStyle=ec((i%8)+1);
+      ctx.fillRect(x+gw*0.1,ay,gw*0.8,Math.max(1,ah));
+    }
+  }
+}
+
+// ═══════════════════════════════════
+// 步骤详情表
+// ═══════════════════════════════════
+function renderStepTable(d){
+  var log=d.stepLog||[];
+  document.getElementById('stepCnt').textContent=log.length+'步';
+  var rows='';
+  for(var i=0;i<log.length;i++){
+    var s=log[i];
+    var note='';
+    if(s.rescued) note='<span style=\"color:#f85149;font-weight:600\">⚠抢救(第'+s.bannedAtStep+'步拉黑)</span>';
+    var costCol=s.target>0&&s.cost!==s.target
+      ? '<span style=\"color:#f85149\">'+s.cost+'</span>'
+      : '<span style=\"color:#3fb950\">'+s.cost+'</span>';
+    var simVal=s.simCost!==undefined?s.simCost:'-';
+    var simCol=s.target>0&&s.simCost!==s.target
+      ? '<span style=\"color:#f85149\">'+simVal+'</span>'
+      : '<span style=\"color:#3fb950\">'+simVal+'</span>';
+    rows+='<tr>'+
+      '<td>'+s.step+'</td>'+
+      '<td><b>['+s.tileIds.join(',')+']</b></td>'+
+      '<td>'+costCol+'</td>'+
+      '<td>'+simCol+'</td>'+
+      '<td>'+(s.target>0?s.target:'-')+'</td>'+
+      '<td>'+s.candidateCount+'</td>'+
+      '<td>'+s.bannedCount+'</td>'+
+      '<td>'+s.colorIndex+'</td>'+
+      '<td>'+note+'</td>'+
+      '</tr>';
+  }
+  document.getElementById('stepBody').innerHTML=rows;
+}
+
 // ═══════════════════════════════════
 // Elem Chart
 // ═══════════════════════════════════
@@ -871,33 +1003,79 @@ function generateCost(){
         if(rr<0)ok2=false;
         if(rr>2*(cand.length-1-jj))ok2=false;
       }
-      if(ok2&&rr===0){arr[hi]--;arr[lo2]++;}
+      if(ok2&&rr===0){arr[hi]=cand[hi];arr[lo2]=cand[lo2];}
     }
 
-    // 用模拟退火趋近目标 std
-    var std=function(a){var avg=a.reduce(function(x,y){return x+y;},0)/a.length;return Math.sqrt(a.reduce(function(x,y){return x+Math.pow(y-avg,2);},0)/a.length);};
-    for(var iter=0;iter<5000;iter++){
-      var curStd=std(arr);
-      if(Math.abs(curStd-targetStd)<0.02)break;
-      var a=Math.floor(rng()*steps);
-      var b=Math.floor(rng()*steps);
-      if(a===b||arr[a]<=1||arr[b]>=8)continue;
-      var trial=[].concat(arr);trial[a]--;trial[b]++;
-      var r2=0,ok2=true;
-      for(var j=0;j<trial.length&&ok2;j++){
-        var c2=trial[j];
-        if(c2<1||c2>8)ok2=false;
-        r2=r2+c2-3;
-        if(r2<0||r2>2*(trial.length-1-j))ok2=false;
+    var best=[].concat(arr);
+    var bestStd=0;
+
+    function calcStd(a){var v=0;for(var j=0;j<a.length;j++){v+=(a[j]-3)*(a[j]-3);}return Math.sqrt(v/a.length);}
+
+    function isValid(a){
+      var r=0;
+      for(var j=0;j<a.length;j++){
+        var c=a[j];
+        if(c<1||c>8)return false;
+        r=r+c-3;
+        if(r<0)return false;
+        if(r>2*(a.length-1-j))return false;
       }
-      if(!ok2||r2!==0)continue;
-      var newStd=std(trial);
-      if(Math.abs(newStd-targetStd)<Math.abs(curStd-targetStd)){arr[a]--;arr[b]++;}
+      return r===0;
     }
+
+    function shuffle(a){
+      for(var j=a.length-1;j>0;j--){
+        var k=Math.floor(rng()*(j+1));
+        var t=a[j];a[j]=a[k];a[k]=t;
+      }
+    }
+
+    bestStd=calcStd(best);
+
+    for(var iter=0;iter<2000;iter++){
+      var curStd=calcStd(best);
+      if(Math.abs(curStd-targetStd)<=0.1)break;
+
+      var needMore=curStd<targetStd;
+      var dec=[],inc=[];
+      for(var j=0;j<best.length;j++){
+        if(best[j]>1)dec.push(j);
+        if(best[j]<8)inc.push(j);
+      }
+      if(!dec.length||!inc.length)break;
+
+      shuffle(dec);shuffle(inc);
+      var found=false;
+
+      for(var di=0;di<dec.length&&!found;di++){
+        for(var ii=0;ii<inc.length&&!found;ii++){
+          var hi=dec[di],lo=inc[ii];
+          if(hi===lo)continue;
+
+          var cand=[].concat(best);
+          if(cand[hi]<=cand[lo])continue;
+          cand[hi]-=1;
+          cand[lo]+=1;
+
+          if(isValid(cand)){
+            var ns=calcStd(cand);
+            if(Math.abs(ns-targetStd)<Math.abs(bestStd-targetStd)){
+              best=cand;bestStd=ns;found=true;
+            }
+          }
+        }
+      }
+      if(!found)break;
+    }
+    arr=best;
   }
 
   document.getElementById('costArray').value=arr.join(',');
 }
+
+// ═══════════════════════════════════
+// 启动：自动扫描关卡目录（填充 datalist 自动补全）
+scanLevels();
 </script>
 </body>
 </html>
