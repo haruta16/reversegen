@@ -731,9 +731,6 @@ async function decodeCode(){
       '<div class="stat"><div class="v g">'+d.elementCount+'</div><div class="l">花色数</div></div>'+
       '<div class="stat"><div class="v">v'+d.version+'</div><div class="l">版本</div></div>'+
       '<div class="stat"><div class="v o">'+d.dockEntries.length+'</div><div class="l">初始Dock</div></div>';
-    document.getElementById('chartTitle').style.display='none';
-    document.getElementById('costChart').style.display='none';
-    if(document.getElementById('chartLegend'))document.getElementById('chartLegend').style.display='none';
     document.getElementById('stepSection').style.display='none';
     document.getElementById('elemDist').innerHTML=distHTML;
     document.getElementById('codeBox').textContent=code;
@@ -747,7 +744,74 @@ async function decodeCode(){
     document.getElementById('playerSimRiskyResult').innerHTML='';
     document.getElementById('playerSimCostCapResult').innerHTML='';
     document.getElementById('playerSimMistakeResult').innerHTML='';
+
+    // 异步获取闭合率
+    fetchClosureRates(code);
   }catch(e){out.innerHTML='<span style="color:var(--r)">'+e.message+'</span>'}
+}
+
+async function fetchClosureRates(code){
+  try{
+    var r=await fetch('/api/replay-closure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code})});
+    var m=await r.json();
+    if(!m.ok) return;
+
+    // 标题 + 闭合率统计
+    document.getElementById('chartTitle').style.display='';
+    document.getElementById('chartTitle').textContent='逐层闭合率';
+    document.getElementById('costChart').style.display='';
+    var legend=document.getElementById('chartLegend');
+    if(legend){legend.style.display='';legend.innerHTML='花色: <b>'+m.colorCount+'</b> · 深度: <b>'+m.depthCount+'</b>层 · 自由牌: <b>'+m.totalFreeTiles+'</b>';}
+
+    // 画图
+    var c=document.getElementById('costChart');
+    var ctx=c.getContext('2d');
+    var dpr=window.devicePixelRatio||1;
+    var rect=c.getBoundingClientRect();
+    var W=rect.width,H=180;
+    c.width=W*dpr;c.height=H*dpr;ctx.scale(dpr,dpr);
+    ctx.clearRect(0,0,W,H);
+
+    var pad={t:14,r:14,b:28,l:48},cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
+    var n=m.depthCount,gw=cw/n,bw=Math.max(6,gw*0.55);
+
+    // Grid
+    for(var v=0;v<=100;v+=20){
+      var y=pad.t+ch-(v/100)*ch;
+      ctx.strokeStyle=v?'#21262d':'#30363d';ctx.lineWidth=v?0.5:1;
+      ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();
+      ctx.fillStyle='#8b949e';ctx.font='9px system-ui';ctx.textAlign='right';
+      ctx.fillText(v+'%',pad.l-4,y+3);
+    }
+    // 债务阈值线
+    if(m.debts&&m.debts.length>0){
+      var maxDebt=Math.max.apply(null,m.debts);
+      if(maxDebt===0)maxDebt=1;
+      var y7=pad.t+ch-(7/maxDebt)*ch;
+      ctx.strokeStyle='rgba(248,81,73,0.35)';ctx.lineWidth=1;ctx.setLineDash([3,3]);
+      ctx.beginPath();ctx.moveTo(pad.l,y7);ctx.lineTo(W-pad.r,y7);ctx.stroke();ctx.setLineDash([]);
+      ctx.fillStyle='rgba(248,81,73,0.6)';ctx.font='8px monospace';ctx.textAlign='left';
+      ctx.fillText('债务=7',W-pad.r+4,y7+3);
+    }
+    // 闭合率柱状图
+    for(var i=0;i<n;i++){
+      var x=pad.l+gw*i;
+      var rate=m.closeRates[i];
+      var h=rate*ch;
+      // 柱子
+      var gnd=ctx.createLinearGradient(x,pad.t+ch-h,x,pad.t+ch);
+      gnd.addColorStop(0,'#3fb950');gnd.addColorStop(1,'rgba(63,185,80,0.2)');
+      ctx.fillStyle=gnd;
+      ctx.fillRect(x+bw*0.1,pad.t+ch-h,bw*0.8,h);
+      // 数值
+      ctx.fillStyle='#8b949e';ctx.font='8px monospace';ctx.textAlign='center';
+      ctx.fillText(Math.round(rate*100)+'%',x+gw/2,pad.t+ch-h-3);
+      // 闭合数/总色数
+      if(m.closedCounts){
+        ctx.fillText(m.closedCounts[i]+'/'+m.colorCount,x+gw/2,pad.t+ch+14);
+      }
+    }
+  }catch(e){}
 }
 
 // ═══════════════════════════════════

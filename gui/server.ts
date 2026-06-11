@@ -24,6 +24,7 @@ import {
   LogLevel,
   computeDependencyDepth,
 } from '../src/index.js';
+import type { TerrainTile } from '../src/index.js';
 import {
   analyzeTriples,
   filterGraphData,
@@ -461,6 +462,97 @@ const server = createServer(async (req, res) => {
         elementCount: data.elementCount, levelHash: formatHash(data.levelHash),
         dockEntries: data.dockEntries.map(e => ({ tileId: e.tileId, element: e.element })),
         tiles,
+      });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
+  // ── API: replay closure rates ──
+  if (url.pathname === '/api/replay-closure' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const { replayCode, levelsDir } = body as {
+        replayCode?: string; levelsDir?: string;
+      };
+      if (!replayCode) throw new Error('Missing replayCode');
+
+      // 解析 ReplayCode
+      const replayData = decodeFromString(replayCode);
+      if (!replayData) throw new Error('ReplayCode 解码失败');
+
+      // 解析地形
+      let path: string | null = null;
+      if (replayData.levelHash !== 0n) {
+        const hashStr = replayData.levelHash.toString(16).padStart(16, '0');
+        path = findTerrainByLevelHash(hashStr, levelsDir || defaultLevelsDir);
+      }
+      if (!path) throw new Error('无法解析地形（ReplayCode 中无 levelHash 或无匹配关卡文件）');
+
+      const terrain = loadTerrainFromFile(path);
+      const allTiles = getAllTiles(terrain);
+      const freeTiles = allTiles.filter(t => !t.isConst);
+      const ordered = getCanonicalTileOrder(allTiles);
+
+      // 构建 tileId → element 映射
+      const elemMap = new Map<number, number>();
+      for (let i = 0; i < ordered.length && i < replayData.instanceArray.length; i++) {
+        elemMap.set(ordered[i].id, (replayData.instanceArray[i] & 0x3F) + 1);
+      }
+
+      // 计算依赖深度
+      const freeOnly = freeTiles;
+      const tileMap = new Map(freeOnly.map(t => [t.id, t]));
+      const depthMap = computeDependencyDepth(freeOnly, tileMap);
+      const maxDepth = freeOnly.length > 0 ? Math.max(...depthMap.values()) : 0;
+
+      // 按深度分层
+      const depthLayers: TerrainTile[][] = [];
+      for (let d = 1; d <= maxDepth; d++) {
+        depthLayers.push(freeOnly.filter(t => depthMap.get(t.id) === d));
+      }
+
+      // 收集所有花色
+      const allColors = new Set<number>();
+      for (const [, color] of elemMap) { if (color > 0) allColors.add(color); }
+      const colorCount = allColors.size;
+
+      // 逐层累积，计算闭合率
+      const cumByColor = new Map<number, number>(); // color → cumulative count
+      const layerClosureRates: number[] = [];
+      const layerClosedCounts: number[] = [];
+      const layerTilesPerDepth: number[] = [];
+      const layerDebts: number[] = [];
+
+      for (const layer of depthLayers) {
+        layerTilesPerDepth.push(layer.length);
+        for (const tile of layer) {
+          const color = elemMap.get(tile.id) ?? 0;
+          if (color > 0) {
+            cumByColor.set(color, (cumByColor.get(color) ?? 0) + 1);
+          }
+        }
+        // 计算闭合的花色数（累计数 % 3 === 0）
+        let closed = 0;
+        let debt = 0;
+        for (const [, cnt] of cumByColor) {
+          if (cnt % 3 === 0) closed++;
+          debt += cnt % 3;
+        }
+        layerClosedCounts.push(closed);
+        layerClosureRates.push(colorCount > 0 ? closed / colorCount : 0);
+        layerDebts.push(debt);
+      }
+
+      json(res, {
+        ok: true,
+        levelHash: terrain.levelHash || '',
+        depthCount: maxDepth,
+        colorCount,
+        tilesPerDepth: layerTilesPerDepth,
+        closeRates: layerClosureRates,
+        closedCounts: layerClosedCounts,
+        debts: layerDebts,
+        totalFreeTiles: freeOnly.length,
       });
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
     return;
