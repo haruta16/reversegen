@@ -184,6 +184,33 @@
       <span style="font-size:11px;color:var(--m);line-height:2.2">次数 <input type="number" id="psRuns" value="100" min="10" max="10000" step="10" style="width:60px;font-size:12px;text-align:center"></span>
     </div>
     <div class="info" id="playerSimResult"></div>
+
+    <h2 style="margin-top:12px">⚡ 激进玩家 (Risky)</h2>
+    <div style="font-size:10px;color:var(--m);margin-bottom:6px">当 dock剩余 ≥ <b>水位线</b> 时放宽为 <b>totalCost ≤ dockRemain + 1</b>；紧张时保守</div>
+    <div class="inrow" style="margin-bottom:6px">
+      <button class="btn-sm" onclick="playerSimRisky()" id="btnPlayerSimRisky" style="flex:1">运行激进玩家模拟</button>
+      <span style="font-size:11px;color:var(--m);line-height:2.2">水位线 <input type="number" id="psRiskyThreshold" value="3" min="0" max="7" style="width:40px;font-size:12px;text-align:center"></span>
+      <span style="font-size:11px;color:var(--m);line-height:2.2">次数 <input type="number" id="psRiskyRuns" value="100" min="10" max="10000" step="10" style="width:60px;font-size:12px;text-align:center"></span>
+    </div>
+    <div class="info" id="playerSimRiskyResult"></div>
+
+    <h2 style="margin-top:12px">💰 成本上限 (CostCap)</h2>
+    <div style="font-size:10px;color:var(--m);margin-bottom:6px">只考虑 <b>totalCost ≤ maxCost</b> 的三连候选组，忽略高成本目标</div>
+    <div class="inrow" style="margin-bottom:6px">
+      <button class="btn-sm" onclick="playerSimCostCap()" id="btnPlayerSimCostCap" style="flex:1">运行成本上限模拟</button>
+      <span style="font-size:11px;color:var(--m);line-height:2.2">上限 <input type="number" id="psMaxCost" value="5" min="1" max="20" style="width:50px;font-size:12px;text-align:center"></span>
+      <span style="font-size:11px;color:var(--m);line-height:2.2">次数 <input type="number" id="psCostCapRuns" value="100" min="10" max="10000" step="10" style="width:60px;font-size:12px;text-align:center"></span>
+    </div>
+    <div class="info" id="playerSimCostCapResult"></div>
+
+    <h2 style="margin-top:12px">🎲 失误率 (Mistake)</h2>
+    <div style="font-size:10px;color:var(--m);margin-bottom:6px">每步以概率 <b>mistakeRate</b> 随机选牌（模拟操作失误），其余时间正常策略</div>
+    <div class="inrow" style="margin-bottom:6px">
+      <button class="btn-sm" onclick="playerSimMistake()" id="btnPlayerSimMistake" style="flex:1">运行失误率模拟</button>
+      <span style="font-size:11px;color:var(--m);line-height:2.2">失误率 <input type="number" id="psMistakeRate" value="0.1" min="0" max="1" step="0.05" style="width:55px;font-size:12px;text-align:center"></span>
+      <span style="font-size:11px;color:var(--m);line-height:2.2">次数 <input type="number" id="psMistakeRuns" value="100" min="10" max="10000" step="10" style="width:60px;font-size:12px;text-align:center"></span>
+    </div>
+    <div class="info" id="playerSimMistakeResult"></div>
   </div>
 </div>
 </div>
@@ -759,6 +786,122 @@ async function playerSim(){
     out.innerHTML=html;
   }catch(e){out.innerHTML='<span style="color:var(--r)">'+e.message+'</span>'}
   finally{btn.textContent='运行玩家模拟';btn.disabled=false}
+}
+
+// ═══════════════════════════════════
+// 激进玩家模拟 (Risky)
+// ═══════════════════════════════════
+async function playerSimRisky(){
+  var d=window._lastGen;
+  if(!d){document.getElementById('playerSimRiskyResult').innerHTML='<span style="color:var(--o)">请先生成牌局</span>';return}
+  var btn=document.getElementById('btnPlayerSimRisky');
+  var out=document.getElementById('playerSimRiskyResult');
+  btn.textContent='⏳ 模拟中...';btn.disabled=true;
+  out.textContent='';
+  try{
+    var riskThreshold=parseInt(document.getElementById('psRiskyThreshold').value);
+    if(isNaN(riskThreshold)||riskThreshold<0)riskThreshold=3;
+    var runs=parseInt(document.getElementById('psRiskyRuns').value)||100;
+    var r=await fetch('/api/player-sim-risky',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        replayCode:d.replayCode,
+        levelId:document.getElementById('levelId').value,
+        runs:runs,
+        riskThreshold:riskThreshold
+      })
+    });
+    var v=await r.json();
+    if(!v.ok){out.innerHTML='<span style="color:var(--r)">'+v.error+'</span>';return}
+
+    var rateCls=v.winRate>=0.8?'g':v.winRate>=0.4?'o':'r';
+    var pct=(v.winRate*100).toFixed(1);
+    var html='<span style="color:var(--'+rateCls+')"><b>胜率 '+pct+'%</b> (水位='+v.riskThreshold+')</span>';
+    html+=' · <b>'+v.wins+'</b>胜 <b>'+v.losses+'</b>败';
+    html+=' · 共<b>'+v.runs+'</b>局';
+    if(v.avgStepsOnWin>0) html+=' · 平均 <b>'+v.avgStepsOnWin.toFixed(0)+'</b>步/胜局';
+    html+=' · '+(v.elapsedMs/1000).toFixed(1)+'s';
+    html+='<br><div style="background:var(--bg);border-radius:3px;height:12px;margin-top:4px;overflow:hidden">';
+    html+='<div style="background:var(--'+(rateCls==='g'?'g':rateCls==='o'?'o':'r')+');height:100%;width:'+pct+'%;border-radius:3px;transition:width .3s"></div></div>';
+    out.innerHTML=html;
+  }catch(e){out.innerHTML='<span style="color:var(--r)">'+e.message+'</span>'}
+  finally{btn.textContent='运行激进玩家模拟';btn.disabled=false}
+}
+
+// ═══════════════════════════════════
+// 成本上限模拟 (CostCap)
+// ═══════════════════════════════════
+async function playerSimCostCap(){
+  var d=window._lastGen;
+  if(!d){document.getElementById('playerSimCostCapResult').innerHTML='<span style="color:var(--o)">请先生成牌局</span>';return}
+  var btn=document.getElementById('btnPlayerSimCostCap');
+  var out=document.getElementById('playerSimCostCapResult');
+  btn.textContent='⏳ 模拟中...';btn.disabled=true;
+  out.textContent='';
+  try{
+    var maxCost=parseInt(document.getElementById('psMaxCost').value)||5;
+    var runs=parseInt(document.getElementById('psCostCapRuns').value)||100;
+    var r=await fetch('/api/player-sim-costcap',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        replayCode:d.replayCode,
+        levelId:document.getElementById('levelId').value,
+        runs:runs,
+        maxCost:maxCost
+      })
+    });
+    var v=await r.json();
+    if(!v.ok){out.innerHTML='<span style="color:var(--r)">'+v.error+'</span>';return}
+
+    var rateCls=v.winRate>=0.8?'g':v.winRate>=0.4?'o':'r';
+    var pct=(v.winRate*100).toFixed(1);
+    var html='<span style="color:var(--'+rateCls+')"><b>胜率 '+pct+'%</b> (cost ≤ '+v.maxCost+')</span>';
+    html+=' · <b>'+v.wins+'</b>胜 <b>'+v.losses+'</b>败';
+    html+=' · 共<b>'+v.runs+'</b>局';
+    if(v.avgStepsOnWin>0) html+=' · 平均 <b>'+v.avgStepsOnWin.toFixed(0)+'</b>步/胜局';
+    html+=' · '+(v.elapsedMs/1000).toFixed(1)+'s';
+    html+='<br><div style="background:var(--bg);border-radius:3px;height:12px;margin-top:4px;overflow:hidden">';
+    html+='<div style="background:var(--'+(rateCls==='g'?'g':rateCls==='o'?'o':'r')+');height:100%;width:'+pct+'%;border-radius:3px;transition:width .3s"></div></div>';
+    out.innerHTML=html;
+  }catch(e){out.innerHTML='<span style="color:var(--r)">'+e.message+'</span>'}
+  finally{btn.textContent='运行成本上限模拟';btn.disabled=false}
+}
+
+// ═══════════════════════════════════
+// 失误率模拟 (Mistake)
+// ═══════════════════════════════════
+async function playerSimMistake(){
+  var d=window._lastGen;
+  if(!d){document.getElementById('playerSimMistakeResult').innerHTML='<span style="color:var(--o)">请先生成牌局</span>';return}
+  var btn=document.getElementById('btnPlayerSimMistake');
+  var out=document.getElementById('playerSimMistakeResult');
+  btn.textContent='⏳ 模拟中...';btn.disabled=true;
+  out.textContent='';
+  try{
+    var mistakeRate=parseFloat(document.getElementById('psMistakeRate').value);
+    if(isNaN(mistakeRate)||mistakeRate<0||mistakeRate>1){out.innerHTML='<span style="color:var(--r)">失误率需在 0.0 ~ 1.0 之间</span>';btn.disabled=false;btn.textContent='运行失误率模拟';return}
+    var runs=parseInt(document.getElementById('psMistakeRuns').value)||100;
+    var r=await fetch('/api/player-sim-mistake',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        replayCode:d.replayCode,
+        levelId:document.getElementById('levelId').value,
+        runs:runs,
+        mistakeRate:mistakeRate
+      })
+    });
+    var v=await r.json();
+    if(!v.ok){out.innerHTML='<span style="color:var(--r)">'+v.error+'</span>';return}
+
+    var rateCls=v.winRate>=0.8?'g':v.winRate>=0.4?'o':'r';
+    var pct=(v.winRate*100).toFixed(1);
+    var html='<span style="color:var(--'+rateCls+')"><b>胜率 '+pct+'%</b> (失误率='+(v.mistakeRate*100).toFixed(0)+'%)</span>';
+    html+=' · <b>'+v.wins+'</b>胜 <b>'+v.losses+'</b>败';
+    html+=' · 共<b>'+v.runs+'</b>局';
+    if(v.avgStepsOnWin>0) html+=' · 平均 <b>'+v.avgStepsOnWin.toFixed(0)+'</b>步/胜局';
+    html+=' · '+(v.elapsedMs/1000).toFixed(1)+'s';
+    html+='<br><div style="background:var(--bg);border-radius:3px;height:12px;margin-top:4px;overflow:hidden">';
+    html+='<div style="background:var(--'+(rateCls==='g'?'g':rateCls==='o'?'o':'r')+');height:100%;width:'+pct+'%;border-radius:3px;transition:width .3s"></div></div>';
+    out.innerHTML=html;
+  }catch(e){out.innerHTML='<span style="color:var(--r)">'+e.message+'</span>'}
+  finally{btn.textContent='运行失误率模拟';btn.disabled=false}
 }
 
 // ═══════════════════════════════════

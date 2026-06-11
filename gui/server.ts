@@ -34,6 +34,9 @@ import { OfflineGame } from '../src/solver/offline-game.js';
 import { solveDFS } from '../src/solver/solver-dfs.js';
 import { solveDeathCheckpoint } from '../src/solver/solver-death-checkpoint.js';
 import { solvePlayerBatch } from '../src/solver/solver-player.js';
+import { solvePlayerRiskyBatch } from '../src/solver/solver-player-risky.js';
+import { solvePlayerCostCapBatch } from '../src/solver/solver-player-costcap.js';
+import { solvePlayerMistakeBatch } from '../src/solver/solver-player-mistake.js';
 import { OfflineTile, PileType } from '../src/solver/types.js';
 
 /** 内存中的分析结果缓存 (keyed by terrainHash)，最多保留 50 条，LRU 淘汰 */
@@ -177,6 +180,51 @@ function listLevels(dir: string): Array<{ id: number; name: string; tiles: numbe
   } catch { /* ignore */ }
   results.sort((a, b) => a.id - b.id);
   return results;
+}
+
+/** 从 ReplayCode + 关卡信息构建 OfflineGame 实例（玩家模拟类求解器共用）。 */
+function buildGameFromReplay(
+  replayCode: string,
+  levelId?: string,
+  levelsDir?: string,
+): OfflineGame {
+  const replayData = decodeFromString(replayCode);
+  if (!replayData) throw new Error('ReplayCode 解码失败');
+
+  // 加载地形
+  let path: string | null = null;
+  if (replayData.levelHash !== 0n) {
+    const hashStr = replayData.levelHash.toString(16).padStart(16, '0');
+    path = findTerrainByLevelHash(hashStr, levelsDir || defaultLevelsDir);
+  }
+  if (!path && levelId) {
+    path = resolveTerrainPath(levelId, levelsDir, undefined);
+  }
+  if (!path) throw new Error('无法解析地形（需要 levelId 或有效的 ReplayCode）');
+
+  const terrain = loadTerrainFromFile(path);
+  const allTiles = getAllTiles(terrain);
+  const ordered = getCanonicalTileOrder(allTiles);
+
+  // 构建 OfflineTile 列表
+  const offlineTiles: OfflineTile[] = [];
+  for (let i = 0; i < ordered.length && i < replayData.instanceArray.length; i++) {
+    const tile = ordered[i];
+    const b = replayData.instanceArray[i];
+    const elemValue = (b & 0x3F) + 1;
+    const ot = new OfflineTile({
+      id: tile.id,
+      layer: tile.layer,
+      dependencies: tile.dependencies,
+      isConst: tile.isConst,
+      constElementValue: tile.constElementValue,
+      posX: tile.posX,
+      posY: tile.posY,
+    }, elemValue);
+    offlineTiles.push(ot);
+  }
+
+  return new OfflineGame(offlineTiles);
 }
 
 // ── Server ──
@@ -800,44 +848,7 @@ const server = createServer(async (req, res) => {
       };
       if (!replayCode) throw new Error('缺少 replayCode');
 
-      // 解析 ReplayCode
-      const replayData = decodeFromString(replayCode);
-      if (!replayData) throw new Error('ReplayCode 解码失败');
-
-      // 加载地形
-      let path: string | null = null;
-      if (replayData.levelHash !== 0n) {
-        const hashStr = replayData.levelHash.toString(16).padStart(16, '0');
-        path = findTerrainByLevelHash(hashStr, levelsDir || defaultLevelsDir);
-      }
-      if (!path && levelId) {
-        path = resolveTerrainPath(levelId, levelsDir, undefined);
-      }
-      if (!path) throw new Error('无法解析地形（需要 levelId 或有效的 ReplayCode）');
-
-      const terrain = loadTerrainFromFile(path);
-      const allTiles = getAllTiles(terrain);
-      const ordered = getCanonicalTileOrder(allTiles);
-
-      // 构建 OfflineTile 列表
-      const offlineTiles: OfflineTile[] = [];
-      for (let i = 0; i < ordered.length && i < replayData.instanceArray.length; i++) {
-        const tile = ordered[i];
-        const b = replayData.instanceArray[i];
-        const elemValue = (b & 0x3F) + 1;
-        const ot = new OfflineTile({
-          id: tile.id,
-          layer: tile.layer,
-          dependencies: tile.dependencies,
-          isConst: tile.isConst,
-          constElementValue: tile.constElementValue,
-          posX: tile.posX,
-          posY: tile.posY,
-        }, elemValue);
-        offlineTiles.push(ot);
-      }
-
-      const game = new OfflineGame(offlineTiles);
+      const game = buildGameFromReplay(replayCode, levelId, levelsDir);
       const simRuns = runs ?? 100;
       const baseSeed = Date.now() & 0x7fffffff;
 
@@ -852,6 +863,121 @@ const server = createServer(async (req, res) => {
         avgStepsOnWin: result.avgStepsOnWin,
         elapsedMs: Math.round(result.elapsedMs),
         // 只返回前 10 个详细结果（避免数据太大）
+        sampleResults: result.results.slice(0, 10).map(r => ({
+          win: r.win,
+          failReason: r.failReason,
+          stepCount: r.stepCount,
+          seed: r.seed,
+        })),
+      });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
+  // ── API: player simulation (risky) ──
+  if (url.pathname === '/api/player-sim-risky' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const { replayCode, levelId, levelsDir, runs, riskThreshold } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string;
+        runs?: number; riskThreshold?: number;
+      };
+      if (!replayCode) throw new Error('缺少 replayCode');
+
+      const game = buildGameFromReplay(replayCode, levelId, levelsDir);
+      const simRuns = runs ?? 100;
+      const baseSeed = Date.now() & 0x7fffffff;
+
+      const result = solvePlayerRiskyBatch(game, simRuns, baseSeed, { riskThreshold });
+
+      json(res, {
+        ok: true,
+        mode: 'risky',
+        riskThreshold: riskThreshold ?? 3,
+        runs: simRuns,
+        wins: result.wins,
+        losses: result.losses,
+        winRate: result.winRate,
+        avgStepsOnWin: result.avgStepsOnWin,
+        elapsedMs: Math.round(result.elapsedMs),
+        sampleResults: result.results.slice(0, 10).map(r => ({
+          win: r.win,
+          failReason: r.failReason,
+          stepCount: r.stepCount,
+          seed: r.seed,
+        })),
+      });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
+  // ── API: player simulation (cost cap) ──
+  if (url.pathname === '/api/player-sim-costcap' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const { replayCode, levelId, levelsDir, runs, maxCost } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string;
+        runs?: number; maxCost?: number;
+      };
+      if (!replayCode) throw new Error('缺少 replayCode');
+      if (maxCost == null || maxCost < 1) throw new Error('请提供有效的成本上限 (maxCost ≥ 1)');
+
+      const game = buildGameFromReplay(replayCode, levelId, levelsDir);
+      const simRuns = runs ?? 100;
+      const baseSeed = Date.now() & 0x7fffffff;
+
+      const result = solvePlayerCostCapBatch(game, simRuns, baseSeed, { maxCost });
+
+      json(res, {
+        ok: true,
+        mode: 'costcap',
+        maxCost,
+        runs: simRuns,
+        wins: result.wins,
+        losses: result.losses,
+        winRate: result.winRate,
+        avgStepsOnWin: result.avgStepsOnWin,
+        elapsedMs: Math.round(result.elapsedMs),
+        sampleResults: result.results.slice(0, 10).map(r => ({
+          win: r.win,
+          failReason: r.failReason,
+          stepCount: r.stepCount,
+          seed: r.seed,
+        })),
+      });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
+  // ── API: player simulation (mistake) ──
+  if (url.pathname === '/api/player-sim-mistake' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const { replayCode, levelId, levelsDir, runs, mistakeRate } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string;
+        runs?: number; mistakeRate?: number;
+      };
+      if (!replayCode) throw new Error('缺少 replayCode');
+      if (mistakeRate == null || mistakeRate < 0 || mistakeRate > 1) {
+        throw new Error('失误率需在 0.0 ~ 1.0 之间');
+      }
+
+      const game = buildGameFromReplay(replayCode, levelId, levelsDir);
+      const simRuns = runs ?? 100;
+      const baseSeed = Date.now() & 0x7fffffff;
+
+      const result = solvePlayerMistakeBatch(game, simRuns, baseSeed, { mistakeRate });
+
+      json(res, {
+        ok: true,
+        mode: 'mistake',
+        mistakeRate,
+        runs: simRuns,
+        wins: result.wins,
+        losses: result.losses,
+        winRate: result.winRate,
+        avgStepsOnWin: result.avgStepsOnWin,
+        elapsedMs: Math.round(result.elapsedMs),
         sampleResults: result.results.slice(0, 10).map(r => ({
           win: r.win,
           failReason: r.failReason,

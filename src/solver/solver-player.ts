@@ -16,7 +16,7 @@ import { OfflineTile, PileType, TileFlag } from './types.js';
 // ── 内部类型 ──
 
 /** 一个三连消除候选组 */
-interface MatchGroup {
+export interface MatchGroup {
   /** 花色值 */
   color: number;
   /** 三张匹配牌 */
@@ -119,7 +119,7 @@ function isAllVisible(tiles: OfflineTile[]): boolean {
  * 为当前游戏状态计算所有可见的三连匹配组。
  * 按 TotalCost 升序排列。
  */
-function computeVisibleMatchGroups(game: OfflineGame): MatchGroup[] {
+export function computeVisibleMatchGroups(game: OfflineGame): MatchGroup[] {
   // 按花色分组：收集所有非销毁、非弃牌的 tile
   const byColor = new Map<number, OfflineTile[]>();
   for (const tile of game.allTiles.values()) {
@@ -174,7 +174,7 @@ function computeVisibleMatchGroups(game: OfflineGame): MatchGroup[] {
  * 从匹配组的依赖路径中选一张可点击的牌。
  * 按路径顺序（BFS 收集顺序）找第一个 clickable 的。
  */
-function pickClickableFromPath(
+export function pickClickableFromPath(
   group: MatchGroup,
   game: OfflineGame,
 ): OfflineTile | null {
@@ -207,7 +207,7 @@ function pickClickableFromPath(
  * 即：点了这张牌后，能让最多被遮挡的牌解除依赖。
  * 平局时随机选。
  */
-function pickMostRevealingTile(
+export function pickMostRevealingTile(
   game: OfflineGame,
   rng: () => number,
 ): OfflineTile | null {
