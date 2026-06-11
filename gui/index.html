@@ -45,7 +45,7 @@
   .cr-slider-row{display:flex;align-items:center;margin-top:2px;gap:6px}
   .cr-slider-row span.label{width:52px;font-size:10px;color:var(--m);text-align:right;line-height:1.3}
   .cr-slider-row span.val{width:44px;font-size:10px;color:var(--t);text-align:right;font-family:monospace}
-  .cr-slider{flex:1;-webkit-appearance:none;appearance:none;height:8px;border-radius:4px;outline:none;background:linear-gradient(to right, #262626 0%, #262626 20%, #1e3a5f 20%, #1e3a5f 60%, #262626 60%, #262626 100%)}
+  .cr-slider{flex:1;-webkit-appearance:none;appearance:none;height:8px;border-radius:4px;outline:none;background:#1e3a5f}
   .cr-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;border-radius:50%;background:#fff;border:2px solid var(--a);cursor:pointer}
   .cr-slider::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#fff;border:2px solid var(--a);cursor:pointer}
   table{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px}
@@ -307,19 +307,17 @@ function updateCloseRatesHint(d){
     while(maxWaste>=0&&(cum-maxWaste)%3!==0)maxWaste--;
     if(maxWaste<0)maxWaste=0;
     var minClosed=cum-maxWaste;
-    var suitMinRate=cum>0?Math.round(minClosed/cum*100):0;
-    var maxRate=cum>0?Math.round(maxClosed/cum*100):100;
     var step=(3/cum*100);
     // 初始值 = maxClosed 的 80%
     var initClosed=Math.round(maxClosed*0.8/3)*3;
     initClosed=Math.max(initClosed,minClosed);
     if(initClosed<0)initClosed=0;
     var pct=Math.round(initClosed/cum*100);
-    pct=Math.max(suitMinRate,Math.min(maxRate,pct));
+    // 滑块范围固定 0-100（取消动态上下限），只在下方的 valid range 展示合法区间
     html+='<div class="cr-slider-row">'+
       '<span class="label">1~'+(i+1)+'<br>'+cum+'tile</span>'+
-      '<input class="cr-slider" type="range" min="'+suitMinRate+'" max="'+maxRate+'" value="'+pct+'" step="'+step.toFixed(3)+'"'+
-      ' data-layer="'+(i+1)+'" data-total="'+cum+'"'+
+      '<input class="cr-slider" type="range" min="0" max="100" value="'+pct+'" step="'+step.toFixed(3)+'"'+
+      ' data-layer="'+(i+1)+'" data-total="'+cum+'" data-min-dc="'+minClosed+'" data-max-dc="'+maxClosed+'"'+
       ' oninput="syncCloseRates(this)">'+
       '<span class="val" id="crv'+i+'">'+pct+'%<br>'+initClosed+'/'+cum+'</span>'+
       '</div>';
@@ -329,38 +327,53 @@ function updateCloseRatesHint(d){
   syncCloseRates();
 }
 
-// 滑块值 → 隐藏 input + 更新显示值（动态 min/max，整个滑条均可拖拽）
+// 滑块值 → 隐藏 input + 更新显示值（固定范围 0-100，双向联动）
 function syncCloseRates(triggerSlider){
   var sliders=document.querySelectorAll('.cr-slider');
-  var curCC=parseInt(document.getElementById('colorCount').value)||8;
 
   // 1. 收集原始值，对齐到 3 的倍数
   var vals=[];
   sliders.forEach(function(s){
     var total=parseInt(s.dataset.total);
-    // 动态重算该层 min/max（基于当前花色数）
-    var maxClosed=Math.floor(total/3)*3;
-    var maxWaste=Math.min(2*curCC,total);
-    while(maxWaste>=0&&(total-maxWaste)%3!==0)maxWaste--;
-    var minClosed=total-(maxWaste<0?0:maxWaste);
-    var minRt=total>0?minClosed/total*100:0;
-    var maxRt=total>0?maxClosed/total*100:100;
-    // 更新 slider 的 min/max 属性（动态）
-    s.min=minRt; s.max=maxRt;
-    // 读值并对齐到 3 的倍数
+    var minClosed=parseInt(s.dataset.minDc)||0;
+    var maxClosed=parseInt(s.dataset.maxDc)||0;
+    // 读值并对齐到 3 的倍数（clamp 到合法区间）
     var pct=parseFloat(s.value);
-    pct=Math.max(minRt,Math.min(maxRt,pct));
     var dc=Math.round(pct/100*total/3)*3;
     dc=Math.max(minClosed,Math.min(maxClosed,dc));
-    vals.push({slider:s, total:total, dc:dc});
+    vals.push({slider:s, total:total, minDc:minClosed, maxDc:maxClosed, dc:dc});
   });
 
-  // 2. 单调性：浅层不能超过深层
-  for(var i=vals.length-2;i>=0;i--){
-    if(vals[i].dc>vals[i+1].dc) vals[i].dc=vals[i+1].dc;
+  // 2. 双向单调性联动：根据触发滑块的移动方向决定传播方向
+  //    上层拉高 → 下层跟随上升（L→R）
+  //    下层压低 → 上层跟随下降（R→L）
+  var triggerIdx=triggerSlider ? vals.findIndex(function(v){return v.slider===triggerSlider;}) : -1;
+  if(triggerIdx>=0){
+    var oldDc=parseInt(triggerSlider.dataset.prevDc)||0;
+    var newDc=vals[triggerIdx].dc;
+    if(newDc > oldDc){
+      // 向上拉 → 向右传播：右侧所有层不能低于当前值
+      for(var i=triggerIdx+1;i<vals.length;i++){
+        if(vals[i].dc<vals[triggerIdx].dc) vals[i].dc=vals[triggerIdx].dc;
+        else break; // 后面的层已经 >= 当前值，无需继续
+      }
+    } else if(newDc < oldDc){
+      // 向下拉 → 向左传播：左侧所有层不能高于当前值
+      for(var i=triggerIdx-1;i>=0;i--){
+        if(vals[i].dc>vals[triggerIdx].dc) vals[i].dc=vals[triggerIdx].dc;
+        else break;
+      }
+    }
+    // 存储新值作为下次的 prevDc
+    triggerSlider.dataset.prevDc=String(newDc);
   }
+
+  // 全局兜底：L→R + R→L 各跑一遍，确保整体单调（处理非触发场景如花色数变化）
   for(var i=1;i<vals.length;i++){
     if(vals[i].dc<vals[i-1].dc) vals[i].dc=vals[i-1].dc;
+  }
+  for(var i=vals.length-2;i>=0;i--){
+    if(vals[i].dc>vals[i+1].dc) vals[i].dc=vals[i+1].dc;
   }
 
   // 3. 更新滑块值和显示
@@ -368,11 +381,17 @@ function syncCloseRates(triggerSlider){
   vals.forEach(function(v){
     var s=v.slider, total=v.total, dc=v.dc;
     var pct=total>0?Math.round(dc/total*100):0;
-    s.value=pct;
-    // 整个滑条均可拖拽 → 纯色背景
-    s.style.background='#1e3a5f';
+    // 仅当值确实变化时才更新（避免 oninput 递归）
+    if(Math.abs(parseFloat(s.value)-pct)>0.1) s.value=pct;
+    // 更新 prevDc（新创建的 slider 还没有 prevDc）
+    if(s.dataset.prevDc===undefined) s.dataset.prevDc=String(dc);
     var vid=document.getElementById('crv'+(parseInt(s.dataset.layer)-1));
-    if(vid) vid.innerHTML=pct+'%<br>'+dc+'/'+total;
+    if(vid){
+      var minDc=v.minDc, maxDc=v.maxDc;
+      var rangeNote=dc===maxDc?' <span style="color:var(--r);font-size:9px">MAX</span>':
+                    dc===minDc?' <span style="color:var(--o);font-size:9px">MIN</span>':'';
+      vid.innerHTML=pct+'%<br>'+dc+'/'+total+rangeNote;
+    }
     rates.push(pct/100);
   });
 
