@@ -327,70 +327,79 @@ function updateCloseRatesHint(d){
   syncCloseRates();
 }
 
-// 滑块值 → 隐藏 input + 更新显示值（固定范围 0-100，双向联动）
+// 滑块值 → 隐藏 input + 更新显示值
+//   滑块 range 固定 0-100（track 显示完整范围），dc 侧 clamp 到合法区间保证功能
+//   双向联动：上层拉高→下层跟随上升 / 下层压低→上层跟随下降
 function syncCloseRates(triggerSlider){
   var sliders=document.querySelectorAll('.cr-slider');
 
-  // 1. 收集原始值，对齐到 3 的倍数
+  // ── 1. 读取所有滑块，计算 dc（clamp 到 [minClosed, maxClosed]）──
   var vals=[];
   sliders.forEach(function(s){
     var total=parseInt(s.dataset.total);
     var minClosed=parseInt(s.dataset.minDc)||0;
     var maxClosed=parseInt(s.dataset.maxDc)||0;
-    // 读值并对齐到 3 的倍数（clamp 到合法区间）
     var pct=parseFloat(s.value);
     var dc=Math.round(pct/100*total/3)*3;
     dc=Math.max(minClosed,Math.min(maxClosed,dc));
     vals.push({slider:s, total:total, minDc:minClosed, maxDc:maxClosed, dc:dc});
   });
 
-  // 2. 双向单调性联动：根据触发滑块的移动方向决定传播方向
-  //    上层拉高 → 下层跟随上升（L→R）
-  //    下层压低 → 上层跟随下降（R→L）
-  var triggerIdx=triggerSlider ? vals.findIndex(function(v){return v.slider===triggerSlider;}) : -1;
-  if(triggerIdx>=0){
-    var oldDc=parseInt(triggerSlider.dataset.prevDc)||0;
-    var newDc=vals[triggerIdx].dc;
-    if(newDc > oldDc){
-      // 向上拉 → 向右传播：右侧所有层不能低于当前值
-      for(var i=triggerIdx+1;i<vals.length;i++){
-        if(vals[i].dc<vals[triggerIdx].dc) vals[i].dc=vals[triggerIdx].dc;
-        else break; // 后面的层已经 >= 当前值，无需继续
-      }
-    } else if(newDc < oldDc){
-      // 向下拉 → 向左传播：左侧所有层不能高于当前值
-      for(var i=triggerIdx-1;i>=0;i--){
-        if(vals[i].dc>vals[triggerIdx].dc) vals[i].dc=vals[triggerIdx].dc;
-        else break;
+  // ── 2. 判断触发滑块的移动方向 ──
+  var goUp=false, goDown=false;
+  if(triggerSlider){
+    var oldDc=parseInt(triggerSlider.dataset.prevDc);
+    if(!isNaN(oldDc)){
+      var idx=vals.findIndex(function(v){return v.slider===triggerSlider;});
+      if(idx>=0){
+        if(vals[idx].dc>oldDc) goUp=true;
+        else if(vals[idx].dc<oldDc) goDown=true;
       }
     }
-    // 存储新值作为下次的 prevDc
-    triggerSlider.dataset.prevDc=String(newDc);
   }
 
-  // 全局兜底：L→R + R→L 各跑一遍，确保整体单调（处理非触发场景如花色数变化）
-  for(var i=1;i<vals.length;i++){
-    if(vals[i].dc<vals[i-1].dc) vals[i].dc=vals[i-1].dc;
-  }
-  for(var i=vals.length-2;i>=0;i--){
-    if(vals[i].dc>vals[i+1].dc) vals[i].dc=vals[i+1].dc;
+  // ── 3. 单调性约束（根据方向决定 pass 顺序，实现双向联动）──
+  if(goUp){
+    // 向上拉 → L→R 优先（抬高右侧所有层）
+    for(var i=1;i<vals.length;i++){
+      if(vals[i].dc<vals[i-1].dc) vals[i].dc=vals[i-1].dc;
+    }
+    for(var i=vals.length-2;i>=0;i--){
+      if(vals[i].dc>vals[i+1].dc) vals[i].dc=vals[i+1].dc;
+    }
+  } else if(goDown){
+    // 向下拉 → R→L 优先（压低左侧所有层）
+    for(var i=vals.length-2;i>=0;i--){
+      if(vals[i].dc>vals[i+1].dc) vals[i].dc=vals[i+1].dc;
+    }
+    for(var i=1;i<vals.length;i++){
+      if(vals[i].dc<vals[i-1].dc) vals[i].dc=vals[i-1].dc;
+    }
+  } else {
+    // 无触发 / 初始加载 → 保守顺序（R→L 先，保持兼容）
+    for(var i=vals.length-2;i>=0;i--){
+      if(vals[i].dc>vals[i+1].dc) vals[i].dc=vals[i+1].dc;
+    }
+    for(var i=1;i<vals.length;i++){
+      if(vals[i].dc<vals[i-1].dc) vals[i].dc=vals[i-1].dc;
+    }
   }
 
-  // 3. 更新滑块值和显示
+  // ── 4. 回写滑块 & 显示 ──
   var rates=[];
   vals.forEach(function(v){
     var s=v.slider, total=v.total, dc=v.dc;
     var pct=total>0?Math.round(dc/total*100):0;
-    // 仅当值确实变化时才更新（避免 oninput 递归）
+    // 写入 s.value 不会触发 oninput（浏览器行为），安全
     if(Math.abs(parseFloat(s.value)-pct)>0.1) s.value=pct;
-    // 更新 prevDc（新创建的 slider 还没有 prevDc）
-    if(s.dataset.prevDc===undefined) s.dataset.prevDc=String(dc);
+    // 总更新 prevDc（下次移动靠它判方向）
+    s.dataset.prevDc=String(dc);
     var vid=document.getElementById('crv'+(parseInt(s.dataset.layer)-1));
     if(vid){
-      var minDc=v.minDc, maxDc=v.maxDc;
-      var rangeNote=dc===maxDc?' <span style="color:var(--r);font-size:9px">MAX</span>':
-                    dc===minDc?' <span style="color:var(--o);font-size:9px">MIN</span>':'';
-      vid.innerHTML=pct+'%<br>'+dc+'/'+total+rangeNote;
+      var note='';
+      if(dc===v.maxDc) note=' <span style="color:var(--r);font-size:9px">MAX</span>';
+      else if(dc===v.minDc) note=' <span style="color:var(--o);font-size:9px">MIN</span>';
+      vid.innerHTML=pct+'%<br>'+dc+'/'+total+note;
     }
     rates.push(pct/100);
   });
