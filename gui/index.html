@@ -475,6 +475,12 @@ async function generate(){
 function showResult(d){
   document.getElementById('resultCard').style.display='block';
   document.getElementById('codeBox').textContent=d.replayCode;
+  // 恢复可能被 decode 隐藏的元素
+  document.getElementById('chartTitle').style.display='';
+  document.getElementById('costChart').style.display='';
+  var legend=document.getElementById('chartLegend');
+  if(legend)legend.style.display='';
+  document.getElementById('stepSection').style.display='';
 
   if(d.algorithm==='closure'){
     showClosureResult(d);
@@ -710,10 +716,37 @@ async function decodeCode(){
     var r=await fetch('/api/decode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code})});
     var d=await r.json();
     if(!d.ok){out.innerHTML='<span style="color:var(--r)">'+d.error+'</span>';return}
+
+    // 基本信息
     var dist={};
     for(var i=0;i<d.tiles.length;i++){var ev=d.tiles[i].elemValue;dist[ev]=(dist[ev]||0)+1}
+    var distHTML=Object.entries(dist).sort(function(a,b){return +a[0]-+b[0]}).map(function(e){return '<span style="color:'+ec(+e[0])+'">花'+e[0]+':<b>'+e[1]+'</b></span> &nbsp; '}).join('');
     out.innerHTML='<b>v'+d.version+'</b> · '+d.tileCount+'张牌 · '+d.elementCount+'种花色 · Hash: '+d.levelHash+
-      ' · Dock: '+d.dockEntries.length+'<br>分布: '+Object.entries(dist).sort(function(a,b){return +a[0]-+b[0]}).map(function(e){return '<span style="color:'+ec(+e[0])+'">花'+e[0]+':'+e[1]+'</span>'}).join(' · ');
+      ' · Dock: '+d.dockEntries.length;
+
+    // 填充到结果面板
+    document.getElementById('resultCard').style.display='block';
+    document.getElementById('stats').innerHTML=
+      '<div class="stat"><div class="v">'+d.tileCount+'</div><div class="l">总牌数</div></div>'+
+      '<div class="stat"><div class="v g">'+d.elementCount+'</div><div class="l">花色数</div></div>'+
+      '<div class="stat"><div class="v">v'+d.version+'</div><div class="l">版本</div></div>'+
+      '<div class="stat"><div class="v o">'+d.dockEntries.length+'</div><div class="l">初始Dock</div></div>';
+    document.getElementById('chartTitle').style.display='none';
+    document.getElementById('costChart').style.display='none';
+    if(document.getElementById('chartLegend'))document.getElementById('chartLegend').style.display='none';
+    document.getElementById('stepSection').style.display='none';
+    document.getElementById('elemDist').innerHTML=distHTML;
+    document.getElementById('codeBox').textContent=code;
+
+    // 供所有求解器使用
+    window._lastGen={replayCode:code};
+    // 清空之前的求解/模拟结果
+    document.getElementById('dfsResult').innerHTML='';
+    document.getElementById('reviveResult').innerHTML='';
+    document.getElementById('playerSimResult').innerHTML='';
+    document.getElementById('playerSimRiskyResult').innerHTML='';
+    document.getElementById('playerSimCostCapResult').innerHTML='';
+    document.getElementById('playerSimMistakeResult').innerHTML='';
   }catch(e){out.innerHTML='<span style="color:var(--r)">'+e.message+'</span>'}
 }
 
