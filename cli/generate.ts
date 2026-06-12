@@ -250,6 +250,8 @@ try {
           averageOcclusion: m.averageOcclusion,
           allSuitsClosed: m.allSuitsClosed,
           isDoomed: m.isDoomed,
+          spreadOverlap: m.spreadOverlap,
+          spreadNormalized: m.spreadNormalized,
         },
       }, null, 2));
     } else {
@@ -264,6 +266,7 @@ try {
       console.log(`  OI: ${m.oi}  连续超载: ${m.consecutiveOI}层`);
       console.log(`  平均遮挡: ${m.averageOcclusion}  花色*3: ${m.allSuitsClosed ? '✓' : '✗'}`);
       console.log(`  必输判定: ${m.isDoomed ? '是' : '否'}`);
+      console.log(`  领土重叠: ${(m.spreadOverlap * 100).toFixed(1)}%  归一离散: ${(m.spreadNormalized * 100).toFixed(1)}%`);
       console.log(`  Level hash: ${result.levelHash}`);
 
       console.log(`\n── ReplayCode ──`);

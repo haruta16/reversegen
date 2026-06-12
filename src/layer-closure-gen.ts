@@ -60,7 +60,7 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
   const triplets = buildTriplets(assignments, depthLayers);
 
   // ── 6. 难度指标 ──
-  const metrics = computeMetrics(assignments, freeTiles, depthLayers, depthMap, tileMap, dock, colorCount, actualCloseRates);
+  const metrics = computeMetrics(assignments, freeTiles, depthLayers, depthMap, tileMap, tileDepSets, dock, colorCount, actualCloseRates);
 
   return { assignments, triplets, metrics };
 }
@@ -624,6 +624,7 @@ function computeMetrics(
   depthLayers: TerrainTile[][],
   depthMap: Map<number, number>,
   tileMap: Map<number, TerrainTile>,
+  tileDepSets: Map<number, Set<number>>,
   dock: number,
   colorCount: number,
   actualCloseRates: number[],
@@ -678,6 +679,45 @@ function computeMetrics(
 
   const averageOcclusion = totalTiles > 0 ? totalEdges / totalTiles : 0;
 
+  // ── 同色分布度量 ──
+  let spreadOverlap = 0;
+  let spreadNormalized = 0;
+  const suitColors = [...suitCounts.keys()];
+  if (suitColors.length > 0) {
+    let totalOverlap = 0;
+    let totalNorm = 0;
+    for (const suit of suitColors) {
+      // 收集该花色所有 tile 的 depSet
+      const depSets: Set<number>[] = [];
+      for (const [tid, s] of assignments) {
+        if (s === suit) {
+          const ds = tileDepSets.get(tid);
+          if (ds) depSets.push(new Set(ds));
+        }
+      }
+      if (depSets.length === 0) continue;
+
+      // 领土并集 ∪
+      const union = new Set<number>();
+      let sumSizes = 0;
+      let maxSize = 0;
+      for (const ds of depSets) {
+        sumSizes += ds.size;
+        if (ds.size > maxSize) maxSize = ds.size;
+        for (const node of ds) union.add(node);
+      }
+
+      // overlapRate = |union| / sum(|depSet|)
+      totalOverlap += sumSizes > 0 ? union.size / sumSizes : 1;
+
+      // normalizedSpread = (|union| - max|depSet|) / (sum|depSet| - max|depSet|)
+      const denom = sumSizes - maxSize;
+      totalNorm += denom > 0 ? (union.size - maxSize) / denom : 0;
+    }
+    spreadOverlap = Math.round(totalOverlap / suitColors.length * 10000) / 10000;
+    spreadNormalized = Math.round(totalNorm / suitColors.length * 10000) / 10000;
+  }
+
   return {
     depthCount: D,
     totalTiles,
@@ -696,6 +736,8 @@ function computeMetrics(
     crossColorEdges,
     allSuitsClosed,
     isDoomed: peakDebt > dock,
+    spreadOverlap,
+    spreadNormalized,
   };
 }
 
@@ -785,5 +827,6 @@ function emptyMetrics(): DebtMetrics {
     oi: 0, consecutiveOI: 0, colorCount: 0, actualCloseRates: [],
     averageOcclusion: 0, totalEdges: 0, sameColorEdges: 0, crossColorEdges: 0,
     allSuitsClosed: true, isDoomed: false,
+    spreadOverlap: 0, spreadNormalized: 0,
   };
 }
