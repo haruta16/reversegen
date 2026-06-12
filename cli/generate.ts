@@ -45,6 +45,7 @@ const { values } = parseArgs({
     // LayerClosure 算法专用参数
     'close-rates':  { type: 'string' },
         'dock':         { type: 'string', default: '7' },
+    'spread':       { type: 'string', default: '0.5' },
     json:          { type: 'boolean', short: 'j', default: false },
     quiet:         { type: 'boolean', short: 'q', default: false },
     verbose:       { type: 'boolean', short: 'v', default: false },
@@ -81,6 +82,7 @@ OPTIONS:
   LayerClosure 算法参数 (-a closure):
     --close-rates <csv>   每层闭合率 (e.g. "0.3,0.6,0.8")
     --dock <n>            Dock容量 (默认: 7)
+    --spread <n>          同色分布 [0-1] 0=紧密 0.5=随机 1=分散 (默认: 0.5)
 
 EXAMPLES:
   # CostLadder (默认)
@@ -206,6 +208,8 @@ try {
     });
 
         const dock = parseInt(values['dock']!, 10) || 7;
+    const spread = parseFloat(values['spread']!);
+    const spreadParam = isNaN(spread) ? 0.5 : Math.max(0, Math.min(1, spread));
 
     const result = generateBoardLayerClosure({
       terrain,
@@ -213,6 +217,7 @@ try {
       colorCount,
       dock,
       levelHash: values.hash,
+      spreadParam,
     });
 
     const m = result.metrics;

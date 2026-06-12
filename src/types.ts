@@ -200,7 +200,17 @@ export interface LayerClosureInput {
    *   深度4: 100%（自动）
    */
   closeRates: number[];
-
+  /**
+   * 同色方块分布参数 [0-1]，控制同一花色 tiles 在依赖图中的离散程度。
+   *
+   * - 0.0 = cluster（紧密）：同花色 tiles 的 depSet 高度重叠 → 容易收集
+   * - 0.5 = neutral（随机）：等价于当前随机分配行为
+   * - 1.0 = spread（分散）：同花色 tiles 的 depSet 尽量不重叠 → 难以收集
+   *
+   * 默认 0.5（随机，不改变原有行为）。
+   * 不影响 Step 1-3（深度计算、花色总数、逐层闭合率矩阵）。
+   */
+  spreadParam?: number;
 }
 
 /** 层闭合算法的难度指标 */

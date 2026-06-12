@@ -54,6 +54,11 @@ export interface GenerateBoardLayerClosureInput {
   dock?: number;
   /** Level hash 覆盖 */
   levelHash?: string;
+  /**
+   * 同色方块分布参数 [0-1]。
+   * 0=cluster（紧密） / 0.5=neutral（随机，默认） / 1=spread（分散）。
+   */
+  spreadParam?: number;
 }
 
 /** generateBoardLayerClosure 的输出 */
@@ -114,6 +119,7 @@ export function generateBoardLayerClosure(
     colorCount,
     dock = 7,
     levelHash: hashOverride,
+    spreadParam,
   } = input;
 
   const allTiles = getAllTiles(terrain);
@@ -128,6 +134,7 @@ export function generateBoardLayerClosure(
     colorCount,
     dock,
     closeRates,
+    spreadParam,
   });
 
   const m = algoResult.metrics;

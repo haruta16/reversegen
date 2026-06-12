@@ -111,9 +111,18 @@
       <input type="hidden" id="closeRates" value="">
 
       <div class="inrow" style="margin-top:8px">
-        
+
         <div style="flex:1"><label>Dock容量</label><input type="number" id="dock" value="7" min="1" max="20"></div>
       </div>
+
+      <label style="margin-top:8px">🍥 同色分布 <span style="font-weight:normal;font-size:10px;color:var(--m)" id="spreadLabel">— 0.5 随机（默认）</span></label>
+      <div class="cr-slider-row">
+        <span class="label" style="font-size:10px;color:var(--m)">紧密</span>
+        <input class="cr-slider" type="range" id="spreadParam" min="0" max="100" value="50" step="5"
+          oninput="updateSpreadLabel()" style="flex:1">
+        <span class="label" style="font-size:10px;color:var(--m);text-align:left">分散</span>
+      </div>
+      <div style="font-size:10px;color:var(--m);margin-top:2px">同花色 tiles 在依赖图中的离散程度。0=紧密(容易收集) 0.5=随机 1=分散(难以收集)</div>
     </div>
 
     <div class="inrow" style="margin-top:10px">
@@ -431,6 +440,13 @@ function switchAlgoPanel(){
   document.getElementById('panelClosure').style.display=algo==='closure'?'':'none';
 }
 
+function updateSpreadLabel(){
+  var v=parseInt(document.getElementById('spreadParam').value)/100;
+  var lbl=document.getElementById('spreadLabel');
+  var desc=v<0.3?'紧密 (cluster)':v>0.7?'分散 (spread)':v>0.45&&v<0.55?'随机 (默认)':'';
+  lbl.textContent='— '+v.toFixed(2)+(desc?' '+desc:'');
+}
+
 async function generate(){
   var btn=document.querySelector('.btn-blue');
   var err=document.getElementById('genErr');
@@ -454,8 +470,9 @@ async function generate(){
 
   if(algo==='closure'){
     body.closeRates=document.getElementById('closeRates').value.trim();
-    
+
     body.dock=document.getElementById('dock').value;
+    body.spreadParam=(parseInt(document.getElementById('spreadParam').value)/100).toFixed(2);
   }else{
     body.costArray=document.getElementById('costArray').value.trim();
   }
