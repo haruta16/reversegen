@@ -680,8 +680,8 @@ function computeMetrics(
   const averageOcclusion = totalTiles > 0 ? totalEdges / totalTiles : 0;
 
   // ── 同色分布度量 ──
-  let spreadOverlap = 0;
-  let spreadNormalized = 0;
+  let suitSpread = 0;
+  let suitSpreadNorm = 0;
   const suitColors = [...suitCounts.keys()];
   if (suitColors.length > 0) {
     let totalOverlap = 0;
@@ -714,8 +714,8 @@ function computeMetrics(
       const denom = sumSizes - maxSize;
       totalNorm += denom > 0 ? (union.size - maxSize) / denom : 0;
     }
-    spreadOverlap = Math.round(totalOverlap / suitColors.length * 10000) / 10000;
-    spreadNormalized = Math.round(totalNorm / suitColors.length * 10000) / 10000;
+    suitSpread = Math.round(totalOverlap / suitColors.length * 10000) / 10000;
+    suitSpreadNorm = Math.round(totalNorm / suitColors.length * 10000) / 10000;
   }
 
   return {
@@ -736,8 +736,8 @@ function computeMetrics(
     crossColorEdges,
     allSuitsClosed,
     isDoomed: peakDebt > dock,
-    spreadOverlap,
-    spreadNormalized,
+    suitSpread,
+    suitSpreadNorm,
   };
 }
 
@@ -827,6 +827,6 @@ function emptyMetrics(): DebtMetrics {
     oi: 0, consecutiveOI: 0, colorCount: 0, actualCloseRates: [],
     averageOcclusion: 0, totalEdges: 0, sameColorEdges: 0, crossColorEdges: 0,
     allSuitsClosed: true, isDoomed: false,
-    spreadOverlap: 0, spreadNormalized: 0,
+    suitSpread: 0, suitSpreadNorm: 0,
   };
 }

@@ -524,8 +524,8 @@ function showClosureResult(d){
   var m=d.metrics;
   var doomCls=m.isDoomed?'r':'g';
   var doomTxt=m.isDoomed?'⚠ 是':'✓ 否';
-  var soPct=(m.spreadOverlap*100).toFixed(1)+'%';
-  var snPct=(m.spreadNormalized*100).toFixed(1)+'%';
+  var soPct=(m.suitSpread*100).toFixed(1)+'%';
+  var snPct=(m.suitSpreadNorm*100).toFixed(1)+'%';
 
   document.getElementById('stats').innerHTML=
     '<div class="stat"><div class="v '+doomCls+'">'+doomTxt+'</div><div class="l">必输判定</div></div>'+
@@ -534,8 +534,8 @@ function showClosureResult(d){
     '<div class="stat"><div class="v">'+m.colorCount+'</div><div class="l">花色数</div></div>'+
     '<div class="stat"><div class="v">'+m.depthCount+'</div><div class="l">深度层数</div></div>'+
     '<div class="stat"><div class="v">'+d.terrainSummary.totalTiles+'</div><div class="l">总牌数</div></div>'+
-    '<div class="stat"><div class="v">'+soPct+'</div><div class="l">领土重叠</div></div>'+
-    '<div class="stat"><div class="v">'+snPct+'</div><div class="l">归一离散</div></div>'+
+    '<div class="stat"><div class="v">'+soPct+'</div><div class="l">花色离散率</div></div>'+
+    '<div class="stat"><div class="v">'+snPct+'</div><div class="l">归一离散率</div></div>'+
     '<div class="stat"><div class="v">'+m.averageOcclusion+'</div><div class="l">平均遮挡</div></div>'+
     '<div class="stat"><div class="v '+(m.allSuitsClosed?'g':'r')+'">'+(m.allSuitsClosed?'✓':'✗')+'</div><div class="l">花色*3</div></div>';
 
@@ -602,7 +602,7 @@ function showClosureResult(d){
     ctx.fillStyle='#e6b422';
     for(var k=0;k<expPts.length;k++){ctx.beginPath();ctx.arc(expPts[k].x,expPts[k].y,2.2,0,Math.PI*2);ctx.fill();}
   }
-  document.getElementById('chartLabel').textContent='闭合率 设定 vs 实际 ▸ 峰值债务:'+m.peakDebt+' 暴露峰值:'+m.peakExpDebt+' OI:'+m.oi+' 领土重叠:'+(m.spreadOverlap*100).toFixed(0)+'% 归一离散:'+(m.spreadNormalized*100).toFixed(0)+'%';
+  document.getElementById('chartLabel').textContent='闭合率 设定 vs 实际 ▸ 峰值债务:'+m.peakDebt+' 暴露峰值:'+m.peakExpDebt+' OI:'+m.oi+' 离散率:'+(m.suitSpread*100).toFixed(0)+'% 归一:'+(m.suitSpreadNorm*100).toFixed(0)+'%';
 
   // LayerClosure 不需要步骤详情表
   document.getElementById('stepSection').style.display='none';

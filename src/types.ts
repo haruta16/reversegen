@@ -261,17 +261,18 @@ export interface DebtMetrics {
   /** 如果峰值债务 > Dock容量，理论上玩家必输 */
   isDoomed: boolean;
   /**
-   * 同色领土重叠率 [0-1]。
+   * 花色离散率 [0-1]。
    * avg over colors: |U_c| / Σ|depSet_i|
-   * 越低越紧密（同色牌挤在同一子树），越高越分散。
+   * 值越小 = 同色牌越紧密（挤在同一子树），值越大 = 同色牌越分散。
+   * 同关卡内与 spreadParam 单调对应。
    */
-  spreadOverlap: number;
+  suitSpread: number;
   /**
-   * 归一化离散度 [0-1]，跨关卡可比。
+   * 归一化花色离散率 [0-1]，跨关卡可比。
    * avg over colors: (|U| - max|depSet|) / (Σ|depSet| - max|depSet|)
    * 0 = 最紧密（全部包在同一个 depSet 里），1 = 最松散（所有 depSet 互不重叠）。
    */
-  spreadNormalized: number;
+  suitSpreadNorm: number;
 }
 
 /** LayerClosure 算法输出 */
