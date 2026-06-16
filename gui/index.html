@@ -597,9 +597,9 @@ function syncCloseRates(trigger){
     var total=parseInt(s.dataset.total),minC=parseInt(s.dataset.minDc)||0,maxC=parseInt(s.dataset.maxDc)||0;
     var minRt=total>0?minC/total*100:0,maxRt=total>0?maxC/total*100:100;
     s.style.background='linear-gradient(to right,'+
-      '#1f1e1a 0%,#1f1e1a '+minRt.toFixed(1)+'%,'+
-      '#2a2518 '+minRt.toFixed(1)+'%,#2a2518 '+maxRt.toFixed(1)+'%,'+
-      '#1f1e1a '+maxRt.toFixed(1)+'%,#1f1e1a 100%)';
+      '#181814 0%,#181814 '+minRt.toFixed(1)+'%,'+
+      'rgba(212,168,83,.22) '+minRt.toFixed(1)+'%,rgba(212,168,83,.22) '+maxRt.toFixed(1)+'%,'+
+      '#181814 '+maxRt.toFixed(1)+'%,#181814 100%)';
     var raw=parseFloat(s.value);
     if(raw<minRt)s.value=minRt;else if(raw>maxRt)s.value=maxRt;
     var pct=parseFloat(s.value);
