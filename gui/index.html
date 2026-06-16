@@ -1058,7 +1058,8 @@ async function runSim(){
     var cls=pct>=80?'msg-ok':pct>=40?'msg-warn':'msg-err';
     var html='<b style="font-size:14px;font-family:var(--mono)">'+pct+'%</b> 胜率';
     html+=' · '+v.wins+'胜/'+(v.runs-v.wins)+'败';
-    if(v.avgStepsOnWin>0)html+=' · 均'+v.avgStepsOnWin.toFixed(0)+'步';
+    if(v.avgStepsOnWin>0)html+=' · 胜均'+v.avgStepsOnWin.toFixed(0)+'步';
+    if(v.avgStepsOnLoss>0)html+=' · 败均'+v.avgStepsOnLoss.toFixed(0)+'步';
     html+=' · '+(v.elapsedMs/1000).toFixed(1)+'s';
     html+='<div class="pbar"><div class="pbar-fill" style="width:'+pct+'%;background:var(--'+(pct>=80?'ok':pct>=40?'warn':'bad')+')"></div></div>';
     out.innerHTML=html;out.className='msg '+cls;

@@ -152,6 +152,7 @@ export function solvePlayerMistakeBatch(
   let losses = 0;
   const results: PlayerSimResult[] = [];
   let totalWinSteps = 0;
+  let totalLossSteps = 0;
 
   for (let i = 0; i < runs; i++) {
     const result = solvePlayerMistake(game, baseSeed + i, config);
@@ -161,6 +162,7 @@ export function solvePlayerMistakeBatch(
       totalWinSteps += result.stepCount;
     } else {
       losses++;
+      totalLossSteps += result.stepCount;
     }
   }
 
@@ -170,6 +172,7 @@ export function solvePlayerMistakeBatch(
     winRate: runs > 0 ? wins / runs : 0,
     results,
     avgStepsOnWin: wins > 0 ? totalWinSteps / wins : 0,
+    avgStepsOnLoss: losses > 0 ? totalLossSteps / losses : 0,
     elapsedMs: performance.now() - startTime,
   };
 }

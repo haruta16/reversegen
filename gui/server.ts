@@ -958,6 +958,7 @@ const server = createServer(async (req, res) => {
         losses: result.losses,
         winRate: result.winRate,
         avgStepsOnWin: result.avgStepsOnWin,
+        avgStepsOnLoss: result.avgStepsOnLoss,
         elapsedMs: Math.round(result.elapsedMs),
         // 只返回前 10 个详细结果（避免数据太大）
         sampleResults: result.results.slice(0, 10).map(r => ({
@@ -996,6 +997,7 @@ const server = createServer(async (req, res) => {
         losses: result.losses,
         winRate: result.winRate,
         avgStepsOnWin: result.avgStepsOnWin,
+        avgStepsOnLoss: result.avgStepsOnLoss,
         elapsedMs: Math.round(result.elapsedMs),
         sampleResults: result.results.slice(0, 10).map(r => ({
           win: r.win,
@@ -1034,6 +1036,7 @@ const server = createServer(async (req, res) => {
         losses: result.losses,
         winRate: result.winRate,
         avgStepsOnWin: result.avgStepsOnWin,
+        avgStepsOnLoss: result.avgStepsOnLoss,
         elapsedMs: Math.round(result.elapsedMs),
         sampleResults: result.results.slice(0, 10).map(r => ({
           win: r.win,
@@ -1074,6 +1077,7 @@ const server = createServer(async (req, res) => {
         losses: result.losses,
         winRate: result.winRate,
         avgStepsOnWin: result.avgStepsOnWin,
+        avgStepsOnLoss: result.avgStepsOnLoss,
         elapsedMs: Math.round(result.elapsedMs),
         sampleResults: result.results.slice(0, 10).map(r => ({
           win: r.win,
