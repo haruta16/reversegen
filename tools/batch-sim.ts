@@ -25,8 +25,7 @@ import {
   setLogLevel,
   LogLevel,
 } from '../src/index.js';
-import { createGame } from '../src/solver/offline-game.js';
-import { solvePlayerBatch } from '../src/solver/solver-player.js';
+import { createGame, solvePlayerBatch } from '../src/solver/index.js';
 import type { ReplayData, TerrainTile } from '../src/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

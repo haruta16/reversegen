@@ -13,7 +13,7 @@ import type { TerrainData, TerrainTile } from '../../src/types.js';
 import { TileState } from '../../src/types.js';
 import { loadTerrainFromFile } from '../../src/terrain-loader.js';
 import { decodeFromString, getCanonicalTileOrder } from '../../src/replay-serializer.js';
-import { createGame, OfflineGame } from '../../src/solver/offline-game.js';
+import { createGame, OfflineGame } from '../../src/solver/index.js';
 import { buildColorGroupDAG, buildBoardDAG, type ColorGroupDAG, type BoardDAG } from '../dag/board-dag.js';
 import { logger, setLogLevel, LogLevel } from '../../src/logger.js';
 setLogLevel(LogLevel.Error);

@@ -31,14 +31,17 @@ import {
   getTripleDetail,
 } from '../tools/dag/triple-analyzer.js';
 import { buildEliminationPlan } from '../tools/planning/elimination-plan.js';
-import { OfflineGame } from '../src/solver/offline-game.js';
-import { solveDFS } from '../src/solver/solver-dfs.js';
-import { solveDeathCheckpoint } from '../src/solver/solver-death-checkpoint.js';
-import { solvePlayerBatch } from '../src/solver/solver-player.js';
-import { solvePlayerRiskyBatch } from '../src/solver/solver-player-risky.js';
-import { solvePlayerCostCapBatch } from '../src/solver/solver-player-costcap.js';
-import { solvePlayerMistakeBatch } from '../src/solver/solver-player-mistake.js';
-import { OfflineTile, PileType } from '../src/solver/types.js';
+import {
+  OfflineGame,
+  solveDFS,
+  solveDeathCheckpoint,
+  solvePlayerBatch,
+  solvePlayerRiskyBatch,
+  solvePlayerCostCapBatch,
+  solvePlayerMistakeBatch,
+  OfflineTile,
+  PileType,
+} from '../src/solver/index.js';
 
 /** 内存中的分析结果缓存 (keyed by terrainHash)，最多保留 50 条，LRU 淘汰 */
 const ANALYSIS_CACHE_MAX = 50;

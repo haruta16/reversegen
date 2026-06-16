@@ -12,7 +12,7 @@ import type { TerrainTile } from '../../src/types.js';
 import { computeAllDependencies } from '../../src/dependency-graph.js';
 import { buildTriplesBySuit } from '../../src/triple-builder.js';
 import { intersectSize } from './triple-analyzer.js';
-import type { DAGFeatures } from '../../src/solver/types.js';
+import type { DAGFeatures } from '../../src/solver/index.js';
 
 // ═══════════════════════════════════════════════════
 //  Board DAG Builder

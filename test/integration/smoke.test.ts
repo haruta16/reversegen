@@ -6,10 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { loadTerrainFromFile } from '../../src/terrain-loader.js';
 import { decodeFromString, getCanonicalTileOrder } from '../../src/replay-serializer.js';
-import { createGame } from '../../src/solver/offline-game.js';
-import { solveDFS } from '../../src/solver/solver-dfs.js';
-import { solveGreedy } from '../../src/solver/solver-greedy.js';
-import { solveRandomBatch } from '../../src/solver/solver-random.js';
+import { createGame, solveDFS, solveGreedy, solveRandomBatch } from '../../src/solver/index.js';
 import { TileState } from '../../src/types.js';
 import type { TerrainData, TerrainTile } from '../../src/types.js';
 

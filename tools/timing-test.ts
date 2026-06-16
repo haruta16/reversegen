@@ -5,8 +5,7 @@
 import {
   loadTerrainFromFile, getAllTiles, decodeFromString, getCanonicalTileOrder,
 } from '../src/index.js';
-import { createGame } from '../src/solver/offline-game.js';
-import { solvePlayerBatch } from '../src/solver/solver-player.js';
+import { createGame, solvePlayerBatch } from '../src/solver/index.js';
 import { readFileSync } from 'node:fs';
 
 const LEVELS = '/Users/haruta16/workspace/tilematch/TileMatchShell/Tools/Config/Json/Levels';

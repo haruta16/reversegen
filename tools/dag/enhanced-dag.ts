@@ -26,7 +26,7 @@ import { loadTerrainFromFile } from '../../src/terrain-loader.js';
 import { decodeFromString, getCanonicalTileOrder } from '../../src/replay-serializer.js';
 import { computeAllDependencies } from '../../src/dependency-graph.js';
 import { buildColorGroupDAG } from './board-dag.js';
-import { createGame, OfflineGame } from '../../src/solver/offline-game.js';
+import { createGame, OfflineGame } from '../../src/solver/index.js';
 import { setLogLevel, LogLevel } from '../../src/logger.js';
 
 // 静默日志

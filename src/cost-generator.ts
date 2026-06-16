@@ -9,16 +9,7 @@
  * 入参仅需长度 N 和目标标准差 σ。
  */
 
-// mulberry32 PRNG — 确定性随机
-function makeRNG(seed: number): () => number {
-  let s = seed | 0;
-  return () => {
-    s = (s + 0x6d2b79f5) | 0;
-    let t = Math.imul(s ^ (s >>> 15), 1 | s);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+import { mulberry32 } from './random-utils.js';
 
 function shuffle<T>(arr: T[], rng: () => number): void {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -71,7 +62,7 @@ export function generateCostArray(
   seed: number = Date.now() & 0x7fffffff,
   maxIter: number = 2000
 ): number[] {
-  const rng = makeRNG(seed);
+  const rng = mulberry32(seed);
 
   // Step 1: 初始化为全 3（σ = 0, r 恒为 0）
   const arr = new Array(N).fill(3);
