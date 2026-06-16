@@ -5,397 +5,479 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ReverseGen · 牌局生成器</title>
 <style>
-:root {
-  --bg:#0d1117; --s:#161b22; --b:#30363d; --t:#c9d1d9; --m:#8b949e;
-  --a:#58a6ff; --g:#3fb950; --r:#f85149; --o:#d2991d; --p:#a371f7;
+/* ═══════════════════════════════════════════════
+   PRECISION CONSOLE — warm, refined, deliberate
+   ═══════════════════════════════════════════════ */
+:root{
+  --ink:#0d0d0c; --paper:#181814; --line:#2a2820; --line2:#1f1e1a;
+  --gold:#d4a853; --gold-dim:#8a7040; --sage:#7a9a7e; --copper:#c2784b;
+  --text:#e8e4dd; --dim:#8a867c; --faint:#5c5950;
+  --ok:#7ec99c; --warn:#d4a853; --bad:#d9706a; --info:#7a9aae;
+  --sans:"PingFang SC","Noto Sans SC","Microsoft YaHei",-apple-system,sans-serif;
+  --mono:"SF Mono","Cascadia Code","JetBrains Mono",monospace;
+  --shadow:0 1px 0 var(--line2),0 4px 16px rgba(0,0,0,.4);
 }
 *{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
 body{
-  font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
-  background:var(--bg);color:var(--t);padding:16px;min-height:100vh;
+  font-family:var(--sans);background:var(--ink);color:var(--text);
+  font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  background-image:radial-gradient(ellipse at 50% 0%,#1a1914 0%,var(--ink) 70%);
+  min-height:100vh;
 }
-h1{font-size:17px;margin-bottom:2px;display:flex;align-items:center;gap:8px}
-h1 .ver{font-size:10px;color:var(--m);font-weight:400}
-.sub{color:var(--m);font-size:11px;margin-bottom:14px}
-.sub a{color:var(--a);text-decoration:none}.sub a:hover{text-decoration:underline}
 
-/* ── 三列网格 ── */
-.grid{display:grid;grid-template-columns:310px 1fr 330px;gap:12px;align-items:start;max-width:1420px;margin:0 auto}
-@media(max-width:1300px){.grid{grid-template-columns:1fr}}
-
-/* ── 卡片 ── */
-.card{
-  background:var(--s);border:1px solid var(--b);border-radius:8px;padding:14px;margin-bottom:12px;
+/* ── Top bar ── */
+.topbar{
+  position:sticky;top:0;z-index:100;background:var(--ink);border-bottom:1px solid var(--line);
+  padding:10px 20px;display:flex;align-items:center;gap:16px;backdrop-filter:blur(8px);
 }
-.card-hd{
-  display:flex;align-items:center;gap:6px;font-size:11px;color:var(--m);
-  text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;
-  padding-bottom:8px;border-bottom:1px solid var(--b);
+.topbar .brand{font-weight:700;font-size:14px;letter-spacing:-.3px;white-space:nowrap}
+.topbar .brand span{color:var(--gold);margin-right:6px}
+.topbar .sep{width:1px;height:20px;background:var(--line)}
+.topbar input{
+  background:var(--paper);border:1px solid var(--line);border-radius:6px;color:var(--text);
+  padding:7px 12px;font-size:13px;font-family:var(--mono);outline:none;transition:border-color .2s;
 }
-.card-hd .icon{font-size:14px}
-.card-hd .badge{font-size:9px;padding:2px 7px;border-radius:8px;background:var(--bg);border:1px solid var(--b);margin-left:auto}
+.topbar input:focus{border-color:var(--gold)}
+.topbar input[type="number"]{width:130px}
+.topbar .level-quick{font-size:11px;color:var(--dim);white-space:nowrap}
+.topbar .spacer{flex:1}
+.topbar a{color:var(--dim);text-decoration:none;font-size:11px;transition:color .2s}
+.topbar a:hover{color:var(--gold)}
+.topbar .btn{font-size:11px;padding:6px 14px;border-radius:6px;cursor:pointer;border:none;font-weight:600;transition:all .2s}
+.topbar .btn-gold{background:var(--gold);color:#1a1810}
+.topbar .btn-gold:hover{background:#e0b860}
+.topbar .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--dim)}
+.topbar .btn-ghost:hover{border-color:var(--gold);color:var(--gold)}
 
-/* ── 表单 ── */
-label{display:block;font-size:11px;color:var(--m);margin-bottom:3px;margin-top:8px}
-label:first-child{margin-top:0}
-input,textarea,button,select{font-family:inherit;font-size:12px}
+/* ── Main layout ── */
+.main{padding:20px;max-width:1480px;margin:0 auto}
+.cols{display:grid;grid-template-columns:280px 1fr 300px;gap:20px;align-items:start}
+@media(max-width:1320px){.cols{grid-template-columns:1fr}}
+
+/* ── Panels ── */
+.panel{
+  background:var(--paper);border:1px solid var(--line);border-radius:10px;
+  overflow:hidden;box-shadow:var(--shadow);
+}
+.panel-hd{
+  display:flex;align-items:center;gap:8px;padding:10px 14px;
+  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;
+  color:var(--dim);border-bottom:1px solid var(--line2);
+  background:linear-gradient(180deg,rgba(255,255,255,.015),transparent);
+}
+.panel-hd .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.panel-hd .dot.gold{background:var(--gold);box-shadow:0 0 6px var(--gold-dim)}
+.panel-hd .dot.sage{background:var(--sage)}
+.panel-hd .dot.copper{background:var(--copper)}
+.panel-bd{padding:12px 14px}
+.panel+.panel{margin-top:14px}
+
+/* ── Forms ── */
+label{display:block;font-size:10px;color:var(--dim);margin-bottom:3px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+label .extra{font-weight:400;text-transform:none;letter-spacing:0}
 input,textarea,select{
-  width:100%;background:var(--bg);border:1px solid var(--b);border-radius:5px;
-  color:var(--t);padding:7px 9px;outline:none;transition:border-color .15s;
+  width:100%;background:var(--ink);border:1px solid var(--line);border-radius:6px;
+  color:var(--text);padding:7px 10px;font-size:12px;font-family:var(--sans);
+  outline:none;transition:all .2s;
 }
-input:focus,textarea:focus,select:focus{border-color:var(--a)}
-textarea{resize:vertical;min-height:44px;font-family:'SF Mono','Cascadia Code',monospace;font-size:11px}
-select{cursor:pointer}
-.inrow{display:flex;gap:6px;align-items:center}
-.inrow input{flex:1}
-.inrow .unit{font-size:10px;color:var(--m);white-space:nowrap}
+input:focus,textarea:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,168,83,.08)}
+textarea{resize:vertical;min-height:38px;font-family:var(--mono);font-size:11px}
+select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a867c' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;padding-right:28px}
+.row{display:flex;gap:8px;align-items:center}
+.row>*{flex:1}
 
-/* ── 按钮 ── */
-button{cursor:pointer;border:none;border-radius:5px;padding:7px 13px;font-weight:600;transition:all .15s;font-size:12px}
-.btn-primary{background:var(--a);color:#fff;width:100%;padding:11px;font-size:13px}
-.btn-primary:hover{background:#4090e0}
-.btn-primary:disabled{opacity:.5;cursor:not-allowed}
-.btn-sm{background:var(--b);color:var(--t);padding:5px 10px;font-size:11px}
-.btn-sm:hover{background:#48505a}
-.btn-sm:disabled{opacity:.4;cursor:not-allowed}
-.btn-ghost{background:transparent;border:1px dashed var(--b);color:var(--m);font-size:10px;padding:3px 8px}
-.btn-ghost:hover{border-color:var(--a);color:var(--a)}
-
-/* ── 标签 / 徽章 ── */
-.tag{
-  font-size:10px;padding:2px 7px;border-radius:9px;background:var(--bg);
-  border:1px solid var(--b);color:var(--m);cursor:pointer;font-family:monospace;white-space:nowrap;
+/* ── Buttons ── */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:5px;
+  cursor:pointer;border:none;border-radius:6px;padding:8px 16px;
+  font-size:12px;font-weight:600;font-family:var(--sans);
+  transition:all .2s;white-space:nowrap;
 }
-.tag:hover{border-color:var(--a);color:var(--a)}
-.tag.on{border-color:var(--a);color:var(--a);background:rgba(88,166,255,.1)}
-.presets{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.btn:disabled{opacity:.4;cursor:not-allowed;filter:grayscale(.5)}
+.btn-primary{background:var(--gold);color:#1a1810;width:100%;padding:11px;font-size:13px;letter-spacing:.3px}
+.btn-primary:hover:not(:disabled){background:#e0b860;transform:translateY(-1px);box-shadow:0 4px 12px rgba(212,168,83,.25)}
+.btn-primary:active:not(:disabled){transform:translateY(0)}
+.btn-secondary{background:var(--line);color:var(--text)}
+.btn-secondary:hover:not(:disabled){background:#3a3830}
+.btn-outline{background:transparent;border:1px solid var(--line);color:var(--dim)}
+.btn-outline:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}
+.btn-xs{padding:3px 8px;font-size:10px;border-radius:4px}
+.btn-icon{padding:6px 10px}
 
-/* ── 信息/错误 ── */
-.info{font-size:10px;color:var(--m);line-height:1.5;margin-top:4px;word-break:break-all}
-.info b{color:var(--t)}
-.err{color:var(--r);font-size:10px;margin-top:4px;min-height:16px}
-.hint{font-size:9px;color:var(--m);margin-top:2px}
-
-/* ── 统计 ── */
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
-.stat{background:var(--bg);border-radius:5px;padding:8px 6px;text-align:center}
-.stat .v{font-size:16px;font-weight:700;line-height:1.2}
-.stat .l{font-size:9px;color:var(--m);margin-top:2px}
-.g{color:var(--g)}.r{color:var(--r)}.o{color:var(--o)}.p{color:var(--p)}
-
-/* ── Code 显示 ── */
-.code{
-  background:var(--bg);border:1px solid var(--b);border-radius:5px;padding:8px 10px;
-  font-family:'SF Mono','Cascadia Code',monospace;font-size:10px;word-break:break-all;
-  color:var(--g);max-height:60px;overflow-y:auto;position:relative;
-}
-.code .copy-btn{position:absolute;top:4px;right:4px;font-size:9px;padding:2px 6px}
-.code .dl-btn{position:absolute;top:4px;right:52px;font-size:9px;padding:2px 6px}
-
-/* ── 表格 ── */
-.tbl-wrap{max-height:240px;overflow-y:auto;border:1px solid var(--b);border-radius:5px}
-table{width:100%;border-collapse:collapse;font-size:10px}
-th,td{padding:3px 6px;text-align:left;border-bottom:1px solid var(--b);white-space:nowrap}
-th{color:var(--m);font-size:9px;position:sticky;top:0;background:var(--s);z-index:1}
-tr:hover{background:rgba(255,255,255,.02)}
-
-/* ── 进度条 ── */
-.progress{background:var(--bg);border-radius:3px;height:8px;margin-top:3px;overflow:hidden}
-.progress-bar{border-radius:3px;height:100%;transition:width .3s}
-
-/* ── 图表 ── */
-canvas{width:100%;border-radius:5px;margin-top:6px}
-
-/* ── Tabs ── */
-.tabs{display:flex;gap:0;margin-bottom:6px}
+/* ── Tabs (algorithm switch) ── */
+.tabs{display:flex;gap:2px;padding:3px;background:var(--ink);border-radius:7px;margin-bottom:10px}
 .tab{
-  flex:1;padding:7px 0;text-align:center;font-size:10px;font-weight:600;
-  background:var(--bg);border:1px solid var(--b);color:var(--m);cursor:pointer;
-  transition:all .15s;
+  flex:1;padding:6px 0;text-align:center;font-size:10px;font-weight:700;
+  border-radius:5px;cursor:pointer;color:var(--dim);transition:all .2s;border:none;background:transparent;
+  letter-spacing:.3px;font-family:var(--sans);
 }
-.tab:first-child{border-radius:5px 0 0 5px}
-.tab:last-child{border-radius:0 5px 5px 0}
-.tab.active{background:var(--a);color:#fff;border-color:var(--a);z-index:1}
-.tab:hover:not(.active){color:var(--t)}
+.tab.active{background:var(--gold);color:#1a1810;box-shadow:0 2px 6px rgba(212,168,83,.2)}
 
-/* ── 滑块 ── */
-.cr-row{display:flex;align-items:center;gap:6px;margin-top:3px}
-.cr-row .cr-lbl{width:48px;font-size:9px;color:var(--m);text-align:right;line-height:1.2}
-.cr-row .cr-val{width:44px;font-size:9px;color:var(--t);text-align:right;font-family:monospace}
-.cr-slider{flex:1;-webkit-appearance:none;appearance:none;height:6px;border-radius:3px;outline:none;background:#262626}
-.cr-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid var(--a);cursor:pointer}
-.cr-slider::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid var(--a);cursor:pointer}
-
-/* ── 空状态 ── */
-.empty{
-  text-align:center;padding:40px 20px;color:var(--m);
+/* ── Preset chips ── */
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.chip{
+  font-size:9px;padding:3px 8px;border-radius:10px;cursor:pointer;
+  background:var(--ink);border:1px solid var(--line);color:var(--dim);
+  font-family:var(--mono);transition:all .2s;font-weight:500;
 }
-.empty .icon{font-size:40px;margin-bottom:10px;opacity:.4}
-.empty p{font-size:12px;line-height:1.5}
+.chip:hover{border-color:var(--gold);color:var(--gold)}
+.chip.on{background:rgba(212,168,83,.1);border-color:var(--gold);color:var(--gold)}
 
-/* ── 工具提示 / 折叠 ── */
-.collapsible{cursor:pointer;user-select:none}
-.collapsible::after{content:' ▾';font-size:9px}
-.collapsible.collapsed::after{content:' ▸'}
-.collapse-body{overflow:hidden;transition:max-height .2s}
-.collapse-body.hidden{max-height:0!important;margin:0!important;padding:0!important;border:0!important}
+/* ── Info blocks ── */
+.info-block{font-size:10px;color:var(--dim);line-height:1.6;margin-top:6px;min-height:0}
+.info-block b{color:var(--text);font-weight:600}
+.info-block .k{color:var(--gold);font-weight:600}
+.msg{font-size:10px;min-height:16px;margin-top:4px;transition:all .3s}
+.msg-ok{color:var(--ok)}.msg-warn{color:var(--warn)}.msg-err{color:var(--bad)}
+
+/* ── Stats grid ── */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px}
+.stat{
+  background:var(--ink);border-radius:7px;padding:10px 8px;text-align:center;
+  border:1px solid transparent;transition:border-color .3s;
+}
+.stat .n{font-size:22px;font-weight:800;font-family:var(--mono);letter-spacing:-1px;line-height:1.1}
+.stat .lbl{font-size:8px;color:var(--dim);margin-top:3px;text-transform:uppercase;letter-spacing:.5px}
+.stat.hi{border-color:rgba(212,168,83,.2)}
+.n-gold{color:var(--gold)}.n-ok{color:var(--ok)}.n-bad{color:var(--bad)}.n-warn{color:var(--warn)}.n-info{color:var(--info)}
+
+/* ── Chart ── */
+canvas{width:100%;border-radius:6px;margin-top:4px;display:block}
+
+/* ── Section ── */
+.section{margin-top:14px}
+.section-title{
+  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;
+  color:var(--dim);margin-bottom:6px;display:flex;align-items:center;gap:6px;
+}
+.section-title::after{content:'';flex:1;height:1px;background:var(--line2)}
+
+/* ── Step table ── */
+.tbl-outer{max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:6px}
+.tbl-outer table{width:100%;border-collapse:collapse;font-size:10px;font-family:var(--mono)}
+.tbl-outer th,.tbl-outer td{padding:4px 7px;text-align:left;border-bottom:1px solid var(--line2);white-space:nowrap}
+.tbl-outer th{font-size:8px;color:var(--dim);font-weight:700;background:var(--ink);position:sticky;top:0;z-index:1;text-transform:uppercase;letter-spacing:.5px}
+.tbl-outer tr:hover td{background:rgba(255,255,255,.015)}
+
+/* ── Code area ── */
+.code-block{
+  background:var(--ink);border:1px solid var(--line);border-radius:6px;
+  padding:10px 12px;font-family:var(--mono);font-size:10px;color:var(--ok);
+  word-break:break-all;max-height:56px;overflow-y:auto;position:relative;
+}
+.code-actions{display:flex;gap:6px;margin-top:6px}
+
+/* ── Color distribution ── */
+.color-grid{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;min-height:20px}
+.color-cell{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-family:var(--mono)}
+.color-cell .swatch{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+.color-cell .bar{height:4px;border-radius:2px;opacity:.3;min-width:4px}
+
+/* ── Sim panel ── */
+.sim-strategy{margin-bottom:6px}
+.sim-params{margin-top:6px}
+.sim-params .row{margin-top:4px}
+.sim-result{margin-top:6px;min-height:20px;font-size:11px}
+.sim-history{margin-top:8px;max-height:180px;overflow-y:auto}
+.sim-entry{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--line2);font-size:10px}
+.sim-entry:last-child{border-bottom:0}
+.sim-entry .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+
+/* ── Progress bar ── */
+.pbar{background:var(--ink);border-radius:3px;height:6px;margin-top:3px;overflow:hidden}
+.pbar-fill{border-radius:3px;height:100%;transition:width .5s cubic-bezier(.4,0,.2,1)}
+
+/* ── Sliders ── */
+.slider-row{display:flex;align-items:center;gap:6px;margin-top:3px}
+.slider-row .sl-l{font-size:9px;color:var(--dim);width:44px;text-align:right;line-height:1.2}
+.slider-row .sl-v{font-size:9px;color:var(--text);width:42px;font-family:var(--mono)}
+.slider{flex:1;-webkit-appearance:none;appearance:none;height:5px;border-radius:3px;outline:none;background:var(--line)}
+.slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;background:var(--gold);cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.4);transition:transform .15s}
+.slider::-webkit-slider-thumb:hover{transform:scale(1.15)}
+.slider::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--gold);cursor:pointer;border:none;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+
+/* ── Empty state ── */
+.empty-state{text-align:center;padding:48px 24px;color:var(--faint)}
+.empty-state .icon{font-size:36px;margin-bottom:10px;opacity:.25}
 
 /* ── Toast ── */
 #toast{
-  position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
-  background:var(--g);color:#000;padding:8px 20px;border-radius:6px;
-  font-size:12px;font-weight:600;z-index:999;opacity:0;transition:opacity .2s;pointer-events:none;
+  position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);
+  padding:10px 22px;border-radius:8px;font-size:12px;font-weight:600;
+  z-index:999;opacity:0;transition:all .3s cubic-bezier(.4,0,.2,1);pointer-events:none;
+  background:var(--paper);border:1px solid var(--line);color:var(--text);
+  box-shadow:0 8px 24px rgba(0,0,0,.5);
 }
-#toast.show{opacity:1}
-#toast.err{background:var(--r);color:#fff}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.ok{border-color:var(--ok)}#toast.err{border-color:var(--bad)}
 
-/* ── 分隔线 ── */
-hr{border:none;border-top:1px solid var(--b);margin:10px 0}
-
-/* ── Loading spinner ── */
+/* ── Animations ── */
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
 @keyframes spin{to{transform:rotate(360deg)}}
-.spinner{display:inline-block;width:12px;height:12px;border:2px solid var(--b);border-top-color:var(--a);border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:4px}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+.fade-in{animation:fadeUp .4s ease-out}
+.loading{animation:pulse 1.2s ease-in-out infinite}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
+.skeleton{
+  background:linear-gradient(90deg,var(--ink) 25%,var(--line2) 50%,var(--ink) 75%);
+  background-size:200% 100%;animation:shimmer 1.5s ease-in-out infinite;border-radius:4px;
+}
 
-/* ── Sim history 行 ── */
-.sim-row{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--b);font-size:10px}
-.sim-row:last-child{border-bottom:0}
-.sim-row .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+/* ── Tooltip ── */
+[data-tip]{position:relative}
+[data-tip]:hover::after{
+  content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);
+  background:var(--text);color:var(--ink);font-size:10px;padding:4px 8px;border-radius:4px;
+  white-space:nowrap;pointer-events:none;z-index:200;font-weight:500;
+}
+
+/* ── Keyboard hint ── */
+kbd{
+  display:inline-block;padding:1px 5px;font-size:9px;font-family:var(--mono);
+  background:var(--ink);border:1px solid var(--line);border-radius:3px;color:var(--dim);
+}
 </style>
 </head>
 <body>
 
-<h1>🎴 ReverseGen <span class="ver">v1.0</span></h1>
-<div class="sub">牌局生成器 · CostLadder / LayerClosure · <a href="/analysis.html">🧬 Triple 分析</a></div>
+<!-- ═══════════ TOP BAR ═══════════ -->
+<nav class="topbar">
+  <div class="brand"><span>◈</span>ReverseGen</div>
+  <div class="sep"></div>
+  <input type="number" id="levelId" placeholder="关卡 ID" list="levelList" onkeydown="if(event.key==='Enter')loadLevel()">
+  <datalist id="levelList"></datalist>
+  <button class="btn btn-ghost" onclick="loadLevel()">加载</button>
+  <span class="level-quick" id="levelBadge"></span>
+  <div class="spacer"></div>
+  <a href="/analysis.html">Triple 分析 →</a>
+</nav>
 
 <div id="toast"></div>
 
-<!-- ═══════════════════════════════════════════════ -->
-<!--  三列主体                                        -->
-<!-- ═══════════════════════════════════════════════ -->
-<div class="grid">
+<!-- ═══════════ MAIN ═══════════ -->
+<div class="main">
+<div class="cols">
 
-<!-- ═══ 列 1: 生产 ═══ -->
+<!-- ─── COL 1: CONFIGURE ─── -->
 <div>
-
-  <!-- 地形 -->
-  <div class="card">
-    <div class="card-hd"><span class="icon">🗺️</span> 地形</div>
-    <div class="inrow">
-      <input type="number" id="levelId" placeholder="关卡 ID（如 100002）" list="levelList" style="font-size:14px;font-weight:600">
-      <button class="btn-sm" onclick="loadLevel()">加载</button>
-    </div>
-    <datalist id="levelList"></datalist>
-    <div class="info" id="levelInfo"></div>
-    <div class="inrow" style="margin-top:4px">
-      <input type="text" id="levelsDir" placeholder="关卡目录（自动检测）" style="font-size:9px">
-      <button class="btn-ghost" onclick="scanLevels()">扫描</button>
-    </div>
-  </div>
-
-  <!-- 算法 & 参数 -->
-  <div class="card">
-    <div class="card-hd"><span class="icon">⚙️</span> 算法 & 参数</div>
-
-    <!-- 算法 Tab -->
-    <div class="tabs" id="algoTabs">
-      <div class="tab active" data-algo="cost-ladder" onclick="switchAlgo('cost-ladder')">CostLadder</div>
-      <div class="tab" data-algo="closure" onclick="switchAlgo('closure')">LayerClosure</div>
-    </div>
-
-    <!-- CostLadder 参数 -->
-    <div id="panelCost">
-      <label>Cost 目标数组 <span style="font-weight:400;font-size:9px;color:var(--m)" id="costHint"></span></label>
-      <div class="presets" id="costPresets"></div>
-      <div class="inrow" style="margin-top:4px">
-        <input type="number" id="targetStd" value="1.0" min="0" max="3" step="0.1" style="width:64px;font-size:11px" placeholder="σ">
-        <button class="btn-sm" onclick="generateCost()">🎲 生成</button>
-        <span style="font-size:9px;color:var(--m);flex:1">标准差 σ</span>
-      </div>
-      <textarea id="costArray" placeholder="如: 3,3,2,2,2,1" style="margin-top:4px"></textarea>
-      <div class="hint" id="costValid"></div>
-    </div>
-
-    <!-- LayerClosure 参数 -->
-    <div id="panelClosure" style="display:none">
-      <label>每层闭合率 % <span style="font-weight:400;font-size:9px;color:var(--m)">（到该层为止，闭合花色的占比）</span></label>
-      <div class="presets" id="closurePresets"></div>
-      <div id="closeRateSliders"><span style="font-size:10px;color:var(--m)">请先加载地形...</span></div>
-      <input type="hidden" id="closeRates" value="">
-
-      <div class="inrow" style="margin-top:8px">
-        <div style="flex:1"><label>Dock</label><input type="number" id="dock" value="7" min="1" max="20"></div>
-        <div style="flex:1"><label>花色数</label><input type="number" id="colorCount" value="8" min="1" max="99" oninput="syncCloseRates()"></div>
-      </div>
-
-      <label style="margin-top:6px">🍥 同色分布 <span style="font-weight:400;font-size:9px;color:var(--m)" id="spreadLabel">— 0.50 随机</span></label>
-      <div class="cr-row">
-        <span class="cr-lbl" style="font-size:9px;color:var(--m);text-align:right">紧密</span>
-        <input class="cr-slider" type="range" id="spreadParam" min="0" max="100" value="50" step="5" oninput="updateSpreadLabel()">
-        <span class="cr-lbl" style="font-size:9px;color:var(--m);text-align:left">分散</span>
+  <!-- Level info -->
+  <div class="panel" id="levelPanel" style="display:none">
+    <div class="panel-hd"><span class="dot gold"></span> 已加载关卡</div>
+    <div class="panel-bd">
+      <div class="info-block" id="levelInfo"></div>
+      <div style="margin-top:6px">
+        <input type="text" id="levelsDir" placeholder="关卡目录路径（自动检测）" style="font-size:9px" onchange="scanLevels()">
       </div>
     </div>
-
-    <div class="inrow" style="margin-top:8px">
-      <div style="width:100%"><label>Level Hash <span style="font-weight:400;font-size:9px">（留空=自动）</span></label>
-      <input type="text" id="levelHash" placeholder="自动"></div>
-    </div>
-
-    <button class="btn-primary" onclick="generate()" id="btnGen" style="margin-top:10px">
-      🔄 生成牌局
-    </button>
-    <div class="err" id="genErr"></div>
   </div>
 
-  <!-- 导入 ReplayCode -->
-  <div class="card">
-    <div class="card-hd"><span class="icon">📥</span> 导入已有牌局 <span class="badge">ReplayCode</span></div>
-    <textarea id="decodeInput" placeholder="粘贴 ReplayCode 查看/校验已有牌局..." style="min-height:36px;font-size:10px"></textarea>
-    <button class="btn-sm" onclick="decodeCode()" style="width:100%;margin-top:5px">🔍 解码并加载</button>
-    <div class="info" id="decodeOut"></div>
-  </div>
+  <!-- Algorithm & Generate -->
+  <div class="panel">
+    <div class="panel-hd"><span class="dot sage"></span> 算法 & 生成</div>
+    <div class="panel-bd">
+      <div class="tabs" id="algoTabs">
+        <button class="tab" data-algo="cost-ladder" onclick="switchAlgo('cost-ladder')">CostLadder</button>
+        <button class="tab active" data-algo="closure" onclick="switchAlgo('closure')">LayerClosure</button>
+      </div>
 
-</div>
+      <!-- CostLadder -->
+      <div id="panelCost" style="display:none">
+        <label>Cost 目标数组</label>
+        <div class="chips" id="costPresets"></div>
+        <div class="row" style="margin-top:4px">
+          <input type="number" id="targetStd" value="1.0" min="0" max="3" step="0.1" style="width:56px" placeholder="σ">
+          <button class="btn btn-outline btn-icon" onclick="generateCost()" data-tip="随机生成Cost数组">🎲</button>
+        </div>
+        <textarea id="costArray" placeholder="如 3,3,2,2,2,1" style="margin-top:4px;font-size:11px" oninput="validateParams()"></textarea>
+        <div class="msg" id="costValid"></div>
+      </div>
 
-<!-- ═══ 列 2: 结果 ═══ -->
-<div>
-  <div class="card" id="resultCard" style="display:none">
-    <div class="card-hd"><span class="icon">📊</span> 结果 <span class="badge" id="resultAlgo"></span></div>
+      <!-- LayerClosure -->
+      <div id="panelClosure">
+        <label>层闭合率</label>
+        <div class="chips" id="closurePresets"></div>
+        <div id="closeRateSliders" style="margin-top:4px"><span style="font-size:10px;color:var(--dim)">请先加载地形...</span></div>
+        <input type="hidden" id="closeRates" value="">
+        <div class="row" style="margin-top:8px">
+          <div><label>Dock容量</label><input type="number" id="dock" value="7" min="1" max="20"></div>
+          <div><label>花色数</label><input type="number" id="colorCount" value="8" min="1" max="99" oninput="syncCloseRates()"></div>
+        </div>
+        <label style="margin-top:6px">同色分布 <span style="font-weight:400;font-size:9px" id="spreadLabel">— 0.50</span></label>
+        <div class="slider-row">
+          <span class="sl-l">紧密</span>
+          <input class="slider" type="range" id="spreadParam" min="0" max="100" value="50" step="5" oninput="updateSpreadLabel()">
+          <span class="sl-l" style="text-align:left">分散</span>
+        </div>
+      </div>
 
-    <!-- 统计 -->
-    <div class="stats" id="stats"></div>
-
-    <!-- 图表 -->
-    <div class="card-hd" style="margin-top:10px" id="chartTitle">图表</div>
-    <canvas id="mainChart" height="180"></canvas>
-    <div style="font-size:9px;color:var(--m);margin-top:2px" id="chartLegend"></div>
-
-    <!-- 步骤详情 (CostLadder) -->
-    <div id="stepSection" style="display:none">
-      <div class="card-hd" style="margin-top:10px">步骤详情 <span style="font-weight:400;font-size:9px;color:var(--m)" id="stepCnt"></span></div>
-      <div class="tbl-wrap"><table>
-        <thead><tr><th>步</th><th>选中 ID</th><th>cost</th><th>sim</th><th>目标</th><th>候选</th><th>封杀</th><th>色</th><th>备注</th></tr></thead>
-        <tbody id="stepBody"></tbody>
-      </table></div>
-    </div>
-
-    <!-- 花色分布 -->
-    <div class="card-hd" style="margin-top:10px">花色分布</div>
-    <div id="elemDist" style="font-size:11px;line-height:1.6;display:flex;flex-wrap:wrap;gap:2px 8px;align-items:center;min-height:22px"></div>
-
-    <!-- ReplayCode -->
-    <div class="card-hd" style="margin-top:10px">ReplayCode</div>
-    <div class="code" id="codeBox"></div>
-    <div class="inrow" style="margin-top:4px">
-      <button class="btn-sm" onclick="copyCode()">📋 复制</button>
-      <button class="btn-sm" onclick="downloadCode()">💾 下载 .txt</button>
-      <span class="hint" style="flex:1">可直接用于 Unity TileMatchBattle.LoadLevel_V2()</span>
+      <button class="btn btn-primary" onclick="generate()" id="btnGen" style="margin-top:12px">
+        ⚡ 生成牌局 <kbd>⌘↵</kbd>
+      </button>
+      <div class="msg" id="genErr"></div>
     </div>
   </div>
 
-  <!-- 空状态 -->
-  <div class="card empty" id="emptyState">
-    <div class="icon">🎯</div>
-    <p>加载地形并点击<strong>生成牌局</strong><br>或<strong>粘贴 ReplayCode</strong> 导入已有牌局<br><br><span style="font-size:10px;color:var(--m)">结果、图表、校验工具将显示在这里</span></p>
+  <!-- Import -->
+  <div class="panel">
+    <div class="panel-hd"><span class="dot copper"></span> 导入已有牌局</div>
+    <div class="panel-bd">
+      <textarea id="decodeInput" placeholder="粘贴 ReplayCode..." style="min-height:34px;font-size:10px"></textarea>
+      <button class="btn btn-outline" onclick="decodeCode()" style="width:100%;margin-top:5px">解码并加载</button>
+      <div class="msg" id="decodeOut"></div>
+    </div>
   </div>
 </div>
 
-<!-- ═══ 列 3: 校验 / 测试 ═══ -->
+<!-- ─── COL 2: RESULTS ─── -->
 <div>
-  <div class="card" id="verifyCard" style="display:none">
-    <div class="card-hd"><span class="icon">🧪</span> 校验与测试 <span class="badge" id="verifyBoardId"></span></div>
-
-    <!-- DFS 求解 -->
-    <label>🔍 DFS 精确求解</label>
-    <div class="inrow" style="margin-bottom:4px">
-      <button class="btn-sm" onclick="verifyDFS()" id="btnDFS" style="flex:1">DFS 求解</button>
-      <span class="unit">超时 <input type="number" id="dfsTimeout" value="90" min="1" max="300" style="width:42px;font-size:11px;text-align:center">s</span>
-    </div>
-    <div class="info" id="dfsResult" style="min-height:18px"></div>
-
-    <!-- 死亡卡点 -->
-    <label style="margin-top:8px">💀 死亡卡点分析</label>
-    <div class="inrow" style="margin-bottom:4px">
-      <button class="btn-sm" onclick="verifyRevive()" id="btnRevive" style="flex:1">卡点求解 (含复活)</button>
-      <span class="unit">超时 <input type="number" id="dfsTimeout2" value="90" min="1" max="300" style="width:42px;font-size:11px;text-align:center">s</span>
-    </div>
-    <div class="info" id="reviveResult" style="min-height:18px"></div>
-
-    <hr>
-
-    <!-- 玩家模拟 Hub（统一组件） -->
-    <label style="font-weight:600;color:var(--t)">🎮 玩家模拟</label>
-
-    <label style="margin-top:6px">策略</label>
-    <select id="simStrategy" onchange="switchSimStrategy()" style="margin-bottom:4px">
-      <option value="normal">普通玩家 — 安全三连组中随机选择</option>
-      <option value="risky">激进玩家 — 水位线放宽 cost 限制</option>
-      <option value="costcap">成本上限 — 只考虑 cost ≤ 上限的候选</option>
-      <option value="mistake">失误率 — 模拟操作失误概率</option>
-    </select>
-
-    <!-- 策略参数 -->
-    <div id="simParamNormal"></div>
-    <div id="simParamRisky" style="display:none">
-      <label>水位线 <span style="font-weight:400;font-size:9px;color:var(--m)">dock 剩余 ≥ 此值时放宽 cost 限制</span></label>
-      <input type="number" id="simRiskThreshold" value="3" min="0" max="7">
-    </div>
-    <div id="simParamCostCap" style="display:none">
-      <label>最大 Cost <span style="font-weight:400;font-size:9px;color:var(--m)">忽略 totalCost > 上限的候选组</span></label>
-      <input type="number" id="simMaxCost" value="5" min="1" max="20">
-    </div>
-    <div id="simParamMistake" style="display:none">
-      <label>失误率 <span style="font-weight:400;font-size:9px;color:var(--m)">每步随机选牌的概率</span></label>
-      <input type="number" id="simMistakeRate" value="0.1" min="0" max="1" step="0.05">
-    </div>
-
-    <div class="inrow" style="margin-top:6px">
-      <label style="margin:0;flex:1">模拟次数</label>
-      <input type="number" id="simRuns" value="100" min="10" max="10000" step="10" style="width:68px;font-size:11px;text-align:center">
-    </div>
-
-    <button class="btn-sm" onclick="runSim()" id="btnSim" style="width:100%;margin-top:6px">
-      ▶ 运行模拟
-    </button>
-    <div class="info" id="simResult" style="min-height:18px"></div>
-
-    <!-- 模拟历史 -->
-    <div id="simHistory" style="margin-top:8px;max-height:200px;overflow-y:auto"></div>
+  <!-- Empty state -->
+  <div class="panel empty-state" id="emptyState">
+    <div class="icon">◈</div>
+    <p style="font-size:13px;margin-bottom:4px">准备就绪</p>
+    <p style="font-size:11px;color:var(--faint)">在左侧加载地形并点击<strong style="color:var(--gold)">生成牌局</strong><br>或粘贴 ReplayCode 导入已有数据</p>
   </div>
 
-  <!-- 校验空状态 -->
-  <div class="card empty" id="verifyEmpty" style="padding:24px 16px">
-    <div class="icon" style="font-size:28px">🔬</div>
-    <p style="font-size:11px">生成或导入牌局后<br>可进行 DFS 求解、死亡卡点分析<br>和多种策略的玩家模拟</p>
+  <!-- Results -->
+  <div id="resultCard" style="display:none">
+    <div class="panel fade-in">
+      <div class="panel-hd"><span class="dot sage"></span> 结果概览 <span style="margin-left:auto;font-weight:400;font-size:9px;letter-spacing:0" id="resultAlgo"></span></div>
+      <div class="panel-bd">
+        <div class="stats" id="stats"></div>
+      </div>
+    </div>
+
+    <div class="panel fade-in" style="margin-top:14px">
+      <div class="panel-hd"><span class="dot gold"></span> <span id="chartTitle">图表</span></div>
+      <div class="panel-bd">
+        <canvas id="mainChart" height="190"></canvas>
+        <div style="font-size:9px;color:var(--dim);margin-top:4px" id="chartLegend"></div>
+      </div>
+    </div>
+
+    <div class="panel fade-in" style="margin-top:14px" id="stepSection" style="display:none">
+      <div class="panel-hd">步骤详情 <span style="font-weight:400;font-size:9px;color:var(--dim);margin-left:4px" id="stepCnt"></span></div>
+      <div class="panel-bd" style="padding:0">
+        <div class="tbl-outer" style="border:none;border-radius:0;max-height:260px"><table>
+          <thead><tr><th>步</th><th>选中 ID</th><th>cost</th><th>sim</th><th>目标</th><th>候选</th><th>封杀</th><th>花色</th><th>备注</th></tr></thead>
+          <tbody id="stepBody"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div class="panel fade-in" style="margin-top:14px">
+      <div class="panel-hd">花色分布</div>
+      <div class="panel-bd">
+        <div class="color-grid" id="elemDist"></div>
+      </div>
+    </div>
+
+    <div class="panel fade-in" style="margin-top:14px">
+      <div class="panel-hd">ReplayCode</div>
+      <div class="panel-bd">
+        <div class="code-block" id="codeBox"></div>
+        <div class="code-actions">
+          <button class="btn btn-secondary btn-xs" onclick="copyCode()">复制</button>
+          <button class="btn btn-outline btn-xs" onclick="downloadCode()">下载 .txt</button>
+          <span style="font-size:9px;color:var(--faint);margin-left:auto">Unity LoadLevel_V2() 兼容</span>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
-</div><!-- /grid -->
+<!-- ─── COL 3: VERIFY ─── -->
+<div>
+  <div id="verifyEmpty">
+    <div class="panel empty-state" style="padding:32px 16px">
+      <div class="icon" style="font-size:24px">🔬</div>
+      <p style="font-size:11px;color:var(--faint)">生成牌局后<br>可进行校验和模拟测试</p>
+    </div>
+  </div>
+
+  <div id="verifyCard" style="display:none">
+    <div class="panel fade-in">
+      <div class="panel-hd"><span class="dot copper"></span> 求解器校验</div>
+      <div class="panel-bd">
+        <div class="row" style="margin-bottom:6px">
+          <button class="btn btn-outline" onclick="verifyDFS()" id="btnDFS" style="flex:1">DFS 精确求解</button>
+          <input type="number" id="dfsTimeout" value="90" min="1" max="300" style="width:44px;font-size:10px;text-align:center" title="超时秒数">
+        </div>
+        <div class="msg" id="dfsResult"></div>
+
+        <div class="row" style="margin-top:8px;margin-bottom:6px">
+          <button class="btn btn-outline" onclick="verifyRevive()" id="btnRevive" style="flex:1">死亡卡点分析</button>
+          <input type="number" id="dfsTimeout2" value="90" min="1" max="300" style="width:44px;font-size:10px;text-align:center" title="超时秒数">
+        </div>
+        <div class="msg" id="reviveResult"></div>
+      </div>
+    </div>
+
+    <div class="panel fade-in" style="margin-top:14px">
+      <div class="panel-hd"><span class="dot gold"></span> 玩家模拟测试</div>
+      <div class="panel-bd">
+        <label>模拟策略</label>
+        <select id="simStrategy" onchange="switchSimStrategy()">
+          <option value="normal">普通 — 安全三连组随机选择</option>
+          <option value="risky">激进 — 水位线放宽 cost</option>
+          <option value="costcap">成本上限 — 忽略高 cost 候选</option>
+          <option value="mistake">失误率 — 模拟操作失误</option>
+        </select>
+
+        <div class="sim-params" id="simParamRisky" style="display:none">
+          <label>水位线阈值</label><input type="number" id="simRiskThreshold" value="3" min="0" max="7">
+        </div>
+        <div class="sim-params" id="simParamCostCap" style="display:none">
+          <label>最大允许 Cost</label><input type="number" id="simMaxCost" value="5" min="1" max="20">
+        </div>
+        <div class="sim-params" id="simParamMistake" style="display:none">
+          <label>失误概率</label><input type="number" id="simMistakeRate" value="0.1" min="0" max="1" step="0.05">
+        </div>
+
+        <div class="row" style="margin-top:6px">
+          <label style="margin:0">模拟次数</label>
+          <input type="number" id="simRuns" value="100" min="10" max="5000" step="10" style="width:66px;text-align:center;font-family:var(--mono)">
+          <button class="btn btn-primary" onclick="runSim()" id="btnSim" style="flex:0;padding:8px 14px">▶ 运行</button>
+        </div>
+        <div class="sim-result" id="simResult"></div>
+        <div class="sim-history" id="simHistory"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /cols -->
+</div><!-- /main -->
 
 <script>
 // ═══════════════════════════════════
 //  State
 // ═══════════════════════════════════
-var STATE={
-  level:null,          // terrain info from /api/terrain-info
-  result:null,         // latest generate or decode result
-  sims:[],             // [{strategy,params,runs,winRate,wins,losses,...}]
-  currentAlgo:'cost-ladder',
+var S={
+  level:null,
+  result:null,
+  sims:[],
+  algo:'closure',
 };
 
 // ═══════════════════════════════════
 //  Palette
 // ═══════════════════════════════════
-var PAL=['#58a6ff','#3fb950','#d2991d','#f85149','#a371f7','#39d2c0','#ff7b72','#79c0ff','#e3b341','#f0883e','#56d364','#db6dab','#a5d6ff','#7ee787','#d2a82e','#ffa657','#f778ba','#96d0ff','#8bdd98','#c69026'];
-function ec(e){return PAL[((e-1)%PAL.length+PAL.length)%PAL.length]}
+var PAL=['#d4a853','#7ec99c','#c2784b','#d9706a','#9b8ec4','#6ba4d1','#e8a87c','#7a9aae','#d4a853','#e0886a','#7ec99c','#c98db9','#c9b872','#82b896','#d4a853','#e09070','#c080a0','#8aacb8','#90b890','#c89840'];
+var SUIT=['#e6b450','#5eada8','#d97850','#c06070','#8a80b8','#5898c8','#d89060','#6a9098','#c89838','#c87058','#60a878','#b878a0','#b8a060','#70a080','#c09040','#d08058','#b07090','#7898a0','#78a878','#b88840'];
+function cx(e){return SUIT[((e-1)%SUIT.length+SUIT.length)%SUIT.length]}
 
 // ═══════════════════════════════════
 //  Toast
 // ═══════════════════════════════════
-function toast(msg,isErr){
-  var t=document.getElementById('toast');
-  t.textContent=msg;t.className=isErr?'err':'';
-  requestAnimationFrame(function(){t.classList.add('show')});
-  clearTimeout(t._tid);t._tid=setTimeout(function(){t.classList.remove('show')},2500);
+var _toastId;
+function toast(m,t){
+  var el=document.getElementById('toast');
+  el.textContent=m;el.className=t||'';
+  clearTimeout(_toastId);
+  requestAnimationFrame(function(){el.classList.add('show')});
+  _toastId=setTimeout(function(){el.classList.remove('show')},2200);
 }
 
 // ═══════════════════════════════════
@@ -409,8 +491,7 @@ async function scanLevels(){
     var r=await fetch(url);var d=await r.json();
     if(!d.ok)return;
     d.levels.forEach(function(lv){
-      var opt=document.createElement('option');
-      opt.value=lv.id;opt.label=lv.id+' ('+lv.tiles+'张)';list.appendChild(opt);
+      var o=document.createElement('option');o.value=lv.id;o.label=lv.id+' ('+lv.tiles+'张)';list.appendChild(o);
     });
     document.getElementById('levelsDir').placeholder=d.dir||'';
   }catch(e){}
@@ -421,64 +502,61 @@ async function scanLevels(){
 // ═══════════════════════════════════
 async function loadLevel(){
   var id=document.getElementById('levelId').value.trim();
-  var info=document.getElementById('levelInfo');
-  if(!id){info.innerHTML='<span style="color:var(--o)">请输入关卡ID</span>';return}
-  info.textContent='加载中...';
+  if(!id){toast('请输入关卡ID','err');return}
   try{
     var body={levelId:id};
     var dir=document.getElementById('levelsDir').value.trim();
     if(dir)body.levelsDir=dir;
     var r=await fetch('/api/terrain-info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var d=await r.json();
-    if(!d.ok){info.innerHTML='<span style="color:var(--r)">❌ '+d.error+'</span>';STATE.level=null;return}
-    STATE.level=d;
-    var html='<span class="tag on">关卡 '+ (d.levelResId||id) +'</span> ';
-    html+=d.layers+'层 · '+d.totalTiles+'张 · <b>'+d.freeTiles+'</b>自由';
+    if(!d.ok){toast(d.error,'err');return}
+    S.level=d;
+
+    var info=document.getElementById('levelInfo');
+    var html='<span style="font-size:13px;font-weight:700;color:var(--gold)">#'+(d.levelResId||id)+'</span>';
+    html+=' &nbsp;'+d.layers+'层 · <b>'+d.totalTiles+'</b>张 · <b>'+d.freeTiles+'</b>自由';
     if(d.constTiles>0)html+=' · '+d.constTiles+'固定';
-    html+='<br>步数: <b>'+d.steps+'</b> · Hash: '+(d.levelHash||'(无)');
-    if(d.depthCount)html+='<br>深度: <b>'+d.depthCount+'</b>层 ['+d.tilesPerDepth.join(', ')+']';
-    html+='<br><span style="font-size:8px">'+ (d.resolvedPath||'') +'</span>';
+    html+='<br><span style="font-size:10px">步数 <b class="k">'+d.steps+'</b> · Hash '+ (d.levelHash||'(无)');
+    if(d.depthCount)html+=' · 深度 <b>'+d.depthCount+'</b> ['+d.tilesPerDepth.join(',')+']';
+    html+='</span>';
     info.innerHTML=html;
 
-    // Update UI
-    updateCostHint(d.steps);
+    document.getElementById('levelPanel').style.display='';
+    document.getElementById('levelBadge').textContent='#'+(d.levelResId||id)+' · '+d.freeTiles+'牌 · '+d.steps+'步';
+
     updateCostPresets(d.steps);
+    updateCostHint(d.steps);
     if(d.depthCount)updateCloseRateSliders(d);
     updateClosurePresets(d);
     validateParams();
-  }catch(e){info.innerHTML='<span style="color:var(--r)">❌ '+e.message+'</span>';STATE.level=null}
+    toast('关卡加载完成 · '+d.freeTiles+'自由牌 · '+d.steps+'步');
+  }catch(e){toast(e.message,'err')}
 }
 
 function updateCostHint(steps){
   if(!steps)return;
   var ta=document.getElementById('costArray');
-  if(!ta.value.trim())ta.placeholder='需 '+steps+' 步，如: '+Array(steps).fill(3).join(',');
+  if(!ta.value.trim())ta.placeholder='需 '+steps+' 步，例: '+Array(steps).fill(3).join(',');
 }
 function updateCostPresets(steps){
-  if(!steps||steps<=0)return;
-  var cc=document.getElementById('colorCount').value||8;
-  var html='';
-  [{l:'低难度 σ=0.5',s:0.5},{l:'中等 σ=1.0',s:1.0},{l:'高难度 σ=1.5',s:1.5},{l:'极限 σ=2.0',s:2.0}].forEach(function(p){
-    html+='<span class="tag" onclick="quickCost('+steps+','+p.s+')" title="生成 σ='+p.s+' 的Cost数组">'+p.l+'</span>';
+  if(!steps)return;
+  var h='';
+  [{l:'低 σ=0.5',s:.5},{l:'中 σ=1.0',s:1},{l:'高 σ=1.5',s:1.5},{l:'极限 σ=2.0',s:2}].forEach(function(p){
+    h+='<span class="chip" onclick="quickCost('+steps+','+p.s+')">'+p.l+'</span>';
   });
-  document.getElementById('costPresets').innerHTML=html;
+  document.getElementById('costPresets').innerHTML=h;
 }
 function updateClosurePresets(d){
   if(!d||!d.depthCount)return;
-  var cc=document.getElementById('colorCount').value||8;
-  var html='';
-  [{l:'简单 (低闭合)',v:0.25},{l:'中等',v:0.5},{l:'困难 (高闭合)',v:0.75}].forEach(function(p){
-    html+='<span class="tag" onclick="quickClosure('+p.v+')" title="所有层统一 '+Math.round(p.v*100)+'% 闭合率">'+p.l+'</span>';
+  var h='';
+  [{l:'简单 25%',v:.25},{l:'中等 50%',v:.5},{l:'困难 75%',v:.75}].forEach(function(p){
+    h+='<span class="chip" onclick="quickClosure('+p.v+')">'+p.l+'</span>';
   });
-  document.getElementById('closurePresets').innerHTML=html;
+  document.getElementById('closurePresets').innerHTML=h;
 }
-function quickCost(steps,std){
-  document.getElementById('targetStd').value=std;
-  generateCost();
-}
+function quickCost(steps,std){document.getElementById('targetStd').value=std;generateCost()}
 function quickClosure(rate){
-  var sliders=document.querySelectorAll('.cr-slider');
-  sliders.forEach(function(s){s.value=Math.round(rate*100);s.dataset.prevDc='0'});
+  document.querySelectorAll('.slider').forEach(function(s){s.value=Math.round(rate*100);s.dataset.prevDc='0'});
   syncCloseRates();
 }
 
@@ -488,7 +566,7 @@ function quickClosure(rate){
 function updateCloseRateSliders(d){
   var cc=parseInt(document.getElementById('colorCount').value)||8;
   var container=document.getElementById('closeRateSliders');
-  var cum=0,html='';
+  var cum=0,h='';
   for(var i=0;i<d.depthCount-1;i++){
     cum+=d.tilesPerDepth[i];
     var maxClosed=Math.floor(cum/3)*3;
@@ -499,63 +577,59 @@ function updateCloseRateSliders(d){
     initClosed=Math.max(initClosed,minClosed);
     var pct=Math.round(initClosed/cum*100);
     var step=(3/cum*100);
-    html+='<div class="cr-row">'+
-      '<span class="cr-lbl">1~'+(i+1)+'<br>'+cum+'t</span>'+
-      '<input class="cr-slider" type="range" min="0" max="100" value="'+pct+'" step="'+step.toFixed(3)+'"'+
+    h+='<div class="slider-row">'+
+      '<span class="sl-l">1~'+(i+1)+'<br>'+cum+'t</span>'+
+      '<input class="slider" type="range" min="0" max="100" value="'+pct+'" step="'+step.toFixed(3)+'"'+
       ' data-layer="'+(i+1)+'" data-total="'+cum+'" data-min-dc="'+minClosed+'" data-max-dc="'+maxClosed+'"'+
       ' oninput="syncCloseRates(this)">'+
-      '<span class="cr-val" id="crv'+i+'">'+pct+'%<br>'+initClosed+'/'+cum+'</span></div>';
+      '<span class="sl-v" id="crv'+i+'">'+pct+'%<br>'+initClosed+'/'+cum+'</span></div>';
   }
-  html+='<div style="font-size:9px;color:var(--m);margin-top:2px">1~'+d.depthCount+'层='+d.freeTiles+'tile = 100%（自动）</div>';
-  container.innerHTML=html;
+  h+='<div style="font-size:9px;color:var(--faint);margin-top:3px">1~'+d.depthCount+'层='+d.freeTiles+'tile · 100% 自动</div>';
+  container.innerHTML=h;
   syncCloseRates();
 }
 
 function syncCloseRates(trigger){
-  var sliders=document.querySelectorAll('.cr-slider');
+  var sliders=document.querySelectorAll('.slider');
   var vals=[];
   sliders.forEach(function(s){
-    var total=parseInt(s.dataset.total);
-    var minClosed=parseInt(s.dataset.minDc)||0;
-    var maxClosed=parseInt(s.dataset.maxDc)||0;
-    var minRt=total>0?minClosed/total*100:0;
-    var maxRt=total>0?maxClosed/total*100:100;
+    var total=parseInt(s.dataset.total),minC=parseInt(s.dataset.minDc)||0,maxC=parseInt(s.dataset.maxDc)||0;
+    var minRt=total>0?minC/total*100:0,maxRt=total>0?maxC/total*100:100;
     s.style.background='linear-gradient(to right,'+
-      ' #262626 0%, #262626 '+minRt.toFixed(1)+'%,'+
-      ' #1e3a5f '+minRt.toFixed(1)+'%, #1e3a5f '+maxRt.toFixed(1)+'%,'+
-      ' #262626 '+maxRt.toFixed(1)+'%, #262626 100%)';
+      '#1f1e1a 0%,#1f1e1a '+minRt.toFixed(1)+'%,'+
+      '#2a2518 '+minRt.toFixed(1)+'%,#2a2518 '+maxRt.toFixed(1)+'%,'+
+      '#1f1e1a '+maxRt.toFixed(1)+'%,#1f1e1a 100%)';
     var raw=parseFloat(s.value);
     if(raw<minRt)s.value=minRt;else if(raw>maxRt)s.value=maxRt;
     var pct=parseFloat(s.value);
     var dc=Math.round(pct/100*total/3)*3;
-    dc=Math.max(minClosed,Math.min(maxClosed,dc));
-    vals.push({slider:s,total:total,minDc:minClosed,maxDc:maxClosed,dc:dc});
+    dc=Math.max(minC,Math.min(maxC,dc));
+    vals.push({s:s,total:total,minC:minC,maxC:maxC,dc:dc});
   });
 
   var goUp=false,goDown=false;
   if(trigger){
     var oldDc=parseInt(trigger.dataset.prevDc);
     if(!isNaN(oldDc)){
-      var idx=vals.findIndex(function(v){return v.slider===trigger});
+      var idx=vals.findIndex(function(v){return v.s===trigger});
       if(idx>=0){if(vals[idx].dc>oldDc)goUp=true;else if(vals[idx].dc<oldDc)goDown=true}
     }
   }
-
   if(goUp){for(var i=1;i<vals.length;i++){if(vals[i].dc<vals[i-1].dc)vals[i].dc=vals[i-1].dc}for(var i=vals.length-2;i>=0;i--){if(vals[i].dc>vals[i+1].dc)vals[i].dc=vals[i+1].dc}}
   else if(goDown){for(var i=vals.length-2;i>=0;i--){if(vals[i].dc>vals[i+1].dc)vals[i].dc=vals[i+1].dc}for(var i=1;i<vals.length;i++){if(vals[i].dc<vals[i-1].dc)vals[i].dc=vals[i-1].dc}}
   else{for(var i=vals.length-2;i>=0;i--){if(vals[i].dc>vals[i+1].dc)vals[i].dc=vals[i+1].dc}for(var i=1;i<vals.length;i++){if(vals[i].dc<vals[i-1].dc)vals[i].dc=vals[i-1].dc}}
 
   var rates=[];
   vals.forEach(function(v){
-    var s=v.slider,total=v.total,dc=v.dc;
+    var s=v.s,total=v.total,dc=v.dc;
     var pct=total>0?Math.round(dc/total*100):0;
     if(Math.abs(parseFloat(s.value)-pct)>0.1)s.value=pct;
     s.dataset.prevDc=String(dc);
     var vid=document.getElementById('crv'+(parseInt(s.dataset.layer)-1));
     if(vid){
       var note='';
-      if(dc===v.maxDc)note=' <span style="color:var(--r);font-size:8px">MAX</span>';
-      else if(dc===v.minDc)note=' <span style="color:var(--o);font-size:8px">MIN</span>';
+      if(dc===v.maxC)note=' <span style="color:var(--bad);font-size:7px">MAX</span>';
+      else if(dc===v.minC)note=' <span style="color:var(--warn);font-size:7px">MIN</span>';
       vid.innerHTML=pct+'%<br>'+dc+'/'+total+note;
     }
     rates.push(pct/100);
@@ -565,16 +639,14 @@ function syncCloseRates(trigger){
 
 function updateSpreadLabel(){
   var v=parseInt(document.getElementById('spreadParam').value)/100;
-  var lbl=document.getElementById('spreadLabel');
-  var desc=v<0.3?'紧密':v>0.7?'分散':v>0.45&&v<0.55?'随机':'';
-  lbl.textContent='— '+v.toFixed(2)+(desc?' '+desc:'');
+  document.getElementById('spreadLabel').textContent='— '+v.toFixed(2);
 }
 
 // ═══════════════════════════════════
 //  Algorithm switch
 // ═══════════════════════════════════
 function switchAlgo(algo){
-  STATE.currentAlgo=algo;
+  S.algo=algo;
   document.querySelectorAll('#algoTabs .tab').forEach(function(t){t.classList.toggle('active',t.dataset.algo===algo)});
   document.getElementById('panelCost').style.display=algo==='cost-ladder'?'':'none';
   document.getElementById('panelClosure').style.display=algo==='closure'?'':'none';
@@ -582,135 +654,106 @@ function switchAlgo(algo){
 }
 
 // ═══════════════════════════════════
-//  Inline validation
+//  Validation
 // ═══════════════════════════════════
 function validateParams(){
-  var err=document.getElementById('genErr');err.textContent='';
-  var cv=document.getElementById('costValid');cv.textContent='';
-  if(!STATE.level)return;
-
-  var algo=STATE.currentAlgo;
-  if(algo==='cost-ladder'){
-    var costStr=document.getElementById('costArray').value.trim();
-    if(!costStr)return;
-    var arr=costStr.split(',').map(Number);
-    if(arr.some(function(v){return isNaN(v)||v<1})){cv.innerHTML='<span style="color:var(--r)">包含非法值</span>';return}
-    if(arr.length!==STATE.level.steps){cv.innerHTML='<span style="color:var(--o)">需要 '+STATE.level.steps+' 步，当前 '+arr.length+' 个</span>';return}
-    cv.innerHTML='<span style="color:var(--g)">✓ '+arr.length+' 步合法</span>';
-  }
+  var el=document.getElementById('costValid');el.textContent='';el.className='msg';
+  if(!S.level||S.algo!=='cost-ladder')return;
+  var str=document.getElementById('costArray').value.trim();
+  if(!str)return;
+  var arr=str.split(',').map(Number);
+  if(arr.some(function(v){return isNaN(v)||v<1})){el.textContent='包含非法值';el.className='msg msg-err';return}
+  if(arr.length!==S.level.steps){el.textContent='需 '+S.level.steps+' 步，当前 '+arr.length;el.className='msg msg-warn';return}
+  el.textContent='✓ '+arr.length+' 步合法';el.className='msg msg-ok';
 }
-
-// Attach validation listener
 document.getElementById('costArray').addEventListener('input',validateParams);
 
 // ═══════════════════════════════════
 //  Generate
 // ═══════════════════════════════════
 async function generate(){
-  var err=document.getElementById('genErr');err.textContent='';
   var btn=document.getElementById('btnGen');
-  if(!STATE.level){err.textContent='请先加载关卡';return}
-
-  var algo=STATE.currentAlgo;
+  if(!S.level){toast('请先加载关卡','err');return}
+  var algo=S.algo;
   var body={levelId:document.getElementById('levelId').value.trim(),algorithm:algo};
-  var dir=document.getElementById('levelsDir').value.trim();
-  if(dir)body.levelsDir=dir;
+  var dir=document.getElementById('levelsDir').value.trim();if(dir)body.levelsDir=dir;
   body.colorCount=document.getElementById('colorCount').value;
-  body.levelHash=document.getElementById('levelHash').value.trim()||undefined;
 
   if(algo==='closure'){
     body.closeRates=document.getElementById('closeRates').value.trim();
     body.dock=document.getElementById('dock').value;
     body.spreadParam=(parseInt(document.getElementById('spreadParam').value)/100).toFixed(2);
-  }else{
-    body.costArray=document.getElementById('costArray').value.trim();
-  }
+  }else{body.costArray=document.getElementById('costArray').value.trim()}
 
-  btn.innerHTML='<span class="spinner"></span>生成中...';btn.disabled=true;
+  btn.innerHTML='<span class="spinner"></span> 生成中...';btn.disabled=true;
   try{
     var r=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var d=await r.json();
-    if(!d.ok){err.textContent=d.error;return}
-    STATE.result=d;STATE.sims=[];
+    if(!d.ok){document.getElementById('genErr').textContent=d.error;return}
+    S.result=d;S.sims=[];
     document.getElementById('simHistory').innerHTML='';
-    showResult(d);
-    showVerifyPanel(d);
     document.getElementById('emptyState').style.display='none';
     document.getElementById('verifyEmpty').style.display='none';
-    toast('✅ 牌局生成成功');
+    showResult(d);showVerify(d);
+    toast('牌局生成成功','ok');
     document.getElementById('resultCard').scrollIntoView({behavior:'smooth',block:'start'});
-  }catch(e){err.textContent=e.message}
-  finally{btn.innerHTML='🔄 生成牌局';btn.disabled=false}
+  }catch(e){document.getElementById('genErr').textContent=e.message}
+  finally{btn.innerHTML='⚡ 生成牌局 <kbd>⌘↵</kbd>';btn.disabled=false}
 }
 
 // ═══════════════════════════════════
 //  Show result
 // ═══════════════════════════════════
 function showResult(d){
-  var card=document.getElementById('resultCard');card.style.display='block';
+  document.getElementById('resultCard').style.display='';
   document.getElementById('codeBox').textContent=d.replayCode;
   document.getElementById('resultAlgo').textContent=d.algorithm==='closure'?'LayerClosure':'CostLadder';
 
-  if(d.algorithm==='closure')showClosureResult(d);
-  else showCostLadderResult(d);
+  if(d.algorithm==='closure')showClosure(d);else showCostLadder(d);
 
-  // Color distribution
   var ed=document.getElementById('elemDist');
   var dist={};
   (d.tiles||[]).forEach(function(t){if(t.element)dist[t.element]=(dist[t.element]||0)+1});
   var ents=Object.entries(dist).sort(function(a,b){return +a[0]-+b[0]});
-  var maxCount=Math.max.apply(null,ents.map(function(e){return e[1]}))||1;
-  ed.innerHTML=ents.length
-    ?ents.map(function(e){
-      var count=e[1],color=ec(+e[0]);
-      var barW=Math.round((count/maxCount)*40);
-      return '<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-family:monospace">'+
-        '<span style="width:8px;height:8px;border-radius:2px;background:'+color+';flex-shrink:0"></span>'+
-        '花'+e[0]+':'+count+
-        '<span style="display:inline-block;width:'+barW+'px;height:4px;background:'+color+';border-radius:2px;opacity:.35;flex-shrink:0"></span>'+
-        '</span>';
-    }).join('')
-    :'<span style="color:var(--m)">无花色数据</span>';
+  var maxN=Math.max.apply(null,ents.map(function(e){return e[1]}))||1;
+  ed.innerHTML=ents.length?ents.map(function(e){
+    var c=e[1];return'<span class="color-cell"><span class="swatch" style="background:'+cx(+e[0])+'"></span>'+e[0]+':'+c+'<span class="bar" style="width:'+Math.round(c/maxN*36)+'px;background:'+cx(+e[0])+'"></span></span>';
+  }).join(''):'<span style="color:var(--faint)">—</span>';
 }
 
-function showClosureResult(d){
+function showClosure(d){
   var m=d.metrics||{};
-  var doomTxt=m.isDoomed?'⚠ 是':'✓ 否';
-  var doomCls=m.isDoomed?'r':'g';
-
   document.getElementById('stats').innerHTML=
-    '<div class="stat"><div class="v '+doomCls+'">'+doomTxt+'</div><div class="l">必输</div></div>'+
-    '<div class="stat"><div class="v">'+m.peakDebt+'/'+(m.peakExpDebt||0)+'</div><div class="l">债务峰/暴露</div></div>'+
-    '<div class="stat"><div class="v o">'+(m.oi||0)+'</div><div class="l">OI指数</div></div>'+
-    '<div class="stat"><div class="v">'+(m.colorCount||0)+'</div><div class="l">花色数</div></div>'+
-    '<div class="stat"><div class="v">'+(m.depthCount||0)+'</div><div class="l">深度层</div></div>'+
-    '<div class="stat"><div class="v">'+((m.suitSpread||0)*100).toFixed(1)+'%</div><div class="l">离散率</div></div>'+
-    '<div class="stat"><div class="v">'+((m.suitSpreadNorm||0)*100).toFixed(1)+'%</div><div class="l">归一离散</div></div>'+
-    '<div class="stat"><div class="v '+(m.allSuitsClosed?'g':'r')+'">'+(m.allSuitsClosed?'✓':'✗')+'</div><div class="l">花色*3</div></div>';
-
+    '<div class="stat'+(m.isDoomed?' hi':'')+'"><div class="n '+(m.isDoomed?'n-bad':'n-ok')+'">'+(m.isDoomed?'⚠是':'✓否')+'</div><div class="lbl">必输</div></div>'+
+    '<div class="stat"><div class="n n-warn">'+m.peakDebt+'/'+(m.peakExpDebt||0)+'</div><div class="lbl">债务峰/暴露</div></div>'+
+    '<div class="stat"><div class="n n-warn">'+(m.oi||0)+'</div><div class="lbl">OI指数</div></div>'+
+    '<div class="stat"><div class="n">'+(m.colorCount||0)+'</div><div class="lbl">花色数</div></div>'+
+    '<div class="stat"><div class="n">'+(m.depthCount||0)+'</div><div class="lbl">深度层</div></div>'+
+    '<div class="stat"><div class="n">'+((m.suitSpread||0)*100).toFixed(0)+'%</div><div class="lbl">离散率</div></div>'+
+    '<div class="stat"><div class="n">'+((m.suitSpreadNorm||0)*100).toFixed(0)+'%</div><div class="lbl">归一离散</div></div>'+
+    '<div class="stat"><div class="n '+(m.allSuitsClosed?'n-ok':'n-bad')+'">'+(m.allSuitsClosed?'✓':'✗')+'</div><div class="lbl">花色×3</div></div>';
   document.getElementById('stepSection').style.display='none';
   document.getElementById('chartTitle').textContent='闭合率 设定 vs 实际';
   drawClosureChart(d,m);
 }
 
-function showCostLadderResult(d){
-  var mr=d.matchRate!=null?d.matchRate.toFixed(0)+'%':'N/A';
-  var mc=d.matchRate!=null?(d.matchRate>=80?'g':d.matchRate>=50?'o':'r'):'';
+function showCostLadder(d){
+  var mr=d.matchRate!=null?d.matchRate.toFixed(0)+'%':'—';
+  var mc=d.matchRate!=null?(d.matchRate>=80?'n-ok':d.matchRate>=50?'n-warn':'n-bad'):'';
   document.getElementById('stats').innerHTML=
-    '<div class="stat"><div class="v '+mc+'">'+mr+'</div><div class="l">匹配率</div></div>'+
-    '<div class="stat"><div class="v">'+d.totalSteps+'</div><div class="l">总步数</div></div>'+
-    '<div class="stat"><div class="v">'+d.colorCount+'</div><div class="l">花色数</div></div>'+
-    '<div class="stat"><div class="v">'+(d.stats?d.stats.min+'-'+d.stats.max:'-')+'</div><div class="l">Cost范围</div></div>'+
-    '<div class="stat"><div class="v">'+(d.stats?d.stats.avg.toFixed(1):'-')+'</div><div class="l">Cost均值</div></div>'+
-    '<div class="stat"><div class="v o">'+(d.banSetSize||0)+'</div><div class="l">黑名单</div></div>'+
-    '<div class="stat"><div class="v">'+(d.terrainSummary?d.terrainSummary.totalTiles:'-')+'</div><div class="l">总牌数</div></div>'+
-    '<div class="stat"><div class="v">'+(d.terrainSummary?d.terrainSummary.freeTiles+'/'+d.terrainSummary.constTiles:'-')+'</div><div class="l">自由/固定</div></div>';
-
+    '<div class="stat hi"><div class="n '+mc+'">'+mr+'</div><div class="lbl">匹配率</div></div>'+
+    '<div class="stat"><div class="n n-gold">'+d.totalSteps+'</div><div class="lbl">总步数</div></div>'+
+    '<div class="stat"><div class="n">'+d.colorCount+'</div><div class="lbl">花色数</div></div>'+
+    '<div class="stat"><div class="n">'+(d.stats?d.stats.min+'-'+d.stats.max:'—')+'</div><div class="lbl">Cost范围</div></div>'+
+    '<div class="stat"><div class="n">'+(d.stats?d.stats.avg.toFixed(1):'—')+'</div><div class="lbl">Cost均值</div></div>'+
+    '<div class="stat"><div class="n n-warn">'+(d.banSetSize||0)+'</div><div class="lbl">黑名单</div></div>'+
+    '<div class="stat"><div class="n">'+(d.terrainSummary?d.terrainSummary.totalTiles:'—')+'</div><div class="lbl">总牌数</div></div>'+
+    '<div class="stat"><div class="n">'+(d.terrainSummary?d.terrainSummary.freeTiles+'/'+d.terrainSummary.constTiles:'—')+'</div><div class="lbl">自由/固定</div></div>';
   document.getElementById('stepSection').style.display='';
   document.getElementById('chartTitle').textContent='Cost Ladder 对比';
   document.getElementById('chartLegend').innerHTML=
-    '<span style="color:#58a6ff">🟦 目标</span> <span style="color:#3fb950">🟩 实际</span> <span style="color:#f85149">🟥 偏差</span>'+
-    ' · 匹配'+mr+' · '+d.deviationCount+'处偏差 · Cost '+((d.stats||{}).min||0)+'-'+((d.stats||{}).max||0)+' avg '+((d.stats||{}).avg||0).toFixed(1);
+    '<span style="color:#d4a853">▮ 目标</span> <span style="color:#7ec99c">▮ 实际</span> <span style="color:#d9706a">▮ 偏差</span>'+
+    ' · 匹配'+mr+' · '+(d.deviationCount||0)+'处偏差 · avg '+((d.stats||{}).avg||0).toFixed(1);
   drawCostChart(d);
   renderStepTable(d);
 }
@@ -721,79 +764,108 @@ function showCostLadderResult(d){
 function drawCostChart(d){
   var c=document.getElementById('mainChart');c.style.display='';
   var ctx=c.getContext('2d'),dpr=window.devicePixelRatio||1;
-  var rect=c.getBoundingClientRect(),W=rect.width,H=180;
+  var rect=c.getBoundingClientRect(),W=rect.width,H=190;
   c.width=W*dpr;c.height=H*dpr;ctx.scale(dpr,dpr);ctx.clearRect(0,0,W,H);
-
   var steps=d.costLog.length;if(!steps)return;
   var tgt=d.costTargets||[];
   var mx=Math.max.apply(null,d.costLog.concat(tgt));if(mx<1)mx=1;
-  var pad={t:14,r:14,b:28,l:28},cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
-  var gw=cw/steps,bw=Math.max(3,gw*0.55);
+  var pad={t:16,r:16,b:30,l:30},cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
+  var gw=cw/steps,bw=Math.max(3,gw*.55);
 
   for(var v=0;v<=mx;v++){
     var y=pad.t+ch-(v/mx)*ch;
-    ctx.strokeStyle=v?'#21262d':'#30363d';ctx.lineWidth=v?0.5:1;
+    ctx.strokeStyle=v?'#1f1e1a':'#2a2820';ctx.lineWidth=v?.5:1;
     ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();
-    ctx.fillStyle='#8b949e';ctx.font='9px system-ui';ctx.textAlign='right';ctx.fillText(v,pad.l-4,y+3);
+    ctx.fillStyle='#5c5950';ctx.font='9px '+(getComputedStyle(document.body).fontFamily);ctx.textAlign='right';ctx.fillText(v,pad.l-4,y+3);
   }
-  ctx.textAlign='center';
-  var iv=Math.max(1,Math.floor(steps/14));
-  for(var i=0;i<steps;i+=iv){ctx.fillStyle='#8b949e';ctx.fillText(i+1,pad.l+gw*i+gw/2,H-pad.b+14)}
+  ctx.textAlign='center';var iv=Math.max(1,Math.floor(steps/14));
+  for(var i=0;i<steps;i+=iv){ctx.fillStyle='#5c5950';ctx.fillText(i+1,pad.l+gw*i+gw/2,H-pad.b+14)}
   ctx.fillText('步数',W/2,H-2);
 
   for(var i=0;i<steps;i++){
     var x=pad.l+gw*i,ah=(d.costLog[i]/mx)*ch,ay=pad.t+ch-ah;
     if(tgt.length&&i<tgt.length){
-      var th=(tgt[i]/mx)*ch,ty=pad.t+ch-th;
-      var ok=d.costLog[i]===tgt[i];
-      ctx.fillStyle=ok?'rgba(88,166,255,.15)':'rgba(88,166,255,.08)';
-      ctx.fillRect(x+gw*0.05,ty,gw*0.9,th);
-      ctx.strokeStyle='rgba(88,166,255,.3)';ctx.lineWidth=1;ctx.setLineDash([2,2]);
-      ctx.strokeRect(x+gw*0.05,ty,gw*0.9,th);ctx.setLineDash([]);
-      ctx.fillStyle=ok?'#3fb950':'#f85149';
-      ctx.fillRect(x+gw*0.2,ay,gw*0.6,Math.max(1,ah));
-    }else{
-      ctx.fillStyle=ec((i%8)+1);ctx.fillRect(x+gw*0.1,ay,gw*0.8,Math.max(1,ah));
-    }
+      var th=(tgt[i]/mx)*ch,ty=pad.t+ch-th,ok=d.costLog[i]===tgt[i];
+      ctx.fillStyle='rgba(212,168,83,'+(ok?.12:.06)+')';ctx.fillRect(x+gw*.05,ty,gw*.9,th);
+      ctx.strokeStyle='rgba(212,168,83,.25)';ctx.lineWidth=1;ctx.setLineDash([2,2]);
+      ctx.strokeRect(x+gw*.05,ty,gw*.9,th);ctx.setLineDash([]);
+      ctx.fillStyle=ok?'#7ec99c':'#d9706a';ctx.fillRect(x+gw*.2,ay,gw*.6,Math.max(1,ah));
+    }else{ctx.fillStyle=cx((i%8)+1);ctx.fillRect(x+gw*.1,ay,gw*.8,Math.max(1,ah))}
   }
 }
 
 function drawClosureChart(d,m){
   var c=document.getElementById('mainChart');c.style.display='';
   var ctx=c.getContext('2d'),dpr=window.devicePixelRatio||1;
-  var rect=c.getBoundingClientRect(),W=rect.width,H=180;
+  var rect=c.getBoundingClientRect(),W=rect.width,H=190;
   c.width=W*dpr;c.height=H*dpr;ctx.scale(dpr,dpr);ctx.clearRect(0,0,W,H);
-
-  var pad={t:14,r:14,b:28,l:48},cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
+  var pad={t:16,r:40,b:30,l:50},cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
   var n=m.depthCount||0;if(!n)return;
-  var gw=cw/n,bw=Math.max(4,gw*0.5);
+  var gw=cw/n,bw=Math.max(4,gw*.5);
 
+  // Grid (left axis: %)
   for(var v=0;v<=100;v+=20){
     var y=pad.t+ch-(v/100)*ch;
-    ctx.strokeStyle=v?'#21262d':'#30363d';ctx.lineWidth=v?0.5:1;
+    ctx.strokeStyle=v?'#1f1e1a':'#2a2820';ctx.lineWidth=v?.5:1;
     ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();
-    ctx.fillStyle='#8b949e';ctx.font='9px system-ui';ctx.textAlign='right';ctx.fillText(v+'%',pad.l-4,y+3);
+    ctx.fillStyle='#5c5950';ctx.font='9px sans-serif';ctx.textAlign='right';ctx.fillText(v+'%',pad.l-4,y+3);
   }
 
+  // Debt right axis labels — normalize to colorCount
+  var maxD=m.colorCount||1;
+  var debtSteps=[0,Math.round(maxD/3),Math.round(maxD*2/3),maxD];
+  debtSteps.forEach(function(dv){
+    var y=pad.t+ch-(dv/maxD)*ch;
+    ctx.fillStyle='#c2784b';ctx.font='8px sans-serif';ctx.textAlign='left';ctx.fillText(dv,W-pad.r+4,y+3);
+  });
+
+  // Bars: target vs actual closure rates
   var origStr=document.getElementById('closeRates').value;
   var origRates=origStr?origStr.split(',').map(Number):[];
+  var debtPts=[],expPts=[];
   for(var i=0;i<n;i++){
     var x=pad.l+gw*i;
-    ctx.fillStyle='rgba(88,166,255,0.3)';
+    // Target bar
+    ctx.fillStyle='rgba(212,168,83,.25)';
     var setH=(origRates&&i<origRates.length?origRates[i]:(i===n-1?1:0))*ch;
-    ctx.fillRect(x+bw*0.1,pad.t+ch-setH,bw*0.35,setH);
-    ctx.fillStyle='#3fb950';
+    ctx.fillRect(x+bw*.1,pad.t+ch-setH,bw*.35,setH);
+    // Actual bar
+    ctx.fillStyle='#7ec99c';
     var actH=(m.actualCloseRates||[])[i]*ch;
-    ctx.fillRect(x+bw*0.5,pad.t+ch-actH,bw*0.35,actH);
-    ctx.fillStyle='#8b949e';ctx.font='9px system-ui';ctx.textAlign='center';
+    ctx.fillRect(x+bw*.5,pad.t+ch-actH,bw*.35,actH);
+    // Layer label
+    ctx.fillStyle='#5c5950';ctx.font='9px sans-serif';ctx.textAlign='center';
     ctx.fillText('L'+(i+1),x+bw/2,H-pad.b+14);
+    // Debt number above bars
     var dv=(m.debtByLayer||[])[i]||0,ev=(m.expDebtByLayer||[])[i]||0;
-    ctx.fillStyle='#f0883e';ctx.font='bold 7px system-ui';
+    ctx.fillStyle='#c2784b';ctx.font='bold 7px sans-serif';
     ctx.fillText(dv+'/'+ev,x+bw/2,pad.t+ch-Math.max(setH,actH)-3);
+    // Track points for debt curves
+    debtPts.push({x:x+bw/2,y:pad.t+ch-(dv/maxD)*ch});
+    expPts.push({x:x+bw/2,y:pad.t+ch-(ev/maxD)*ch});
   }
+
+  // Debt curve (dashed)
+  if(debtPts.length>1){
+    ctx.strokeStyle='#c2784b';ctx.lineWidth=1.2;ctx.setLineDash([3,2]);
+    ctx.beginPath();ctx.moveTo(debtPts[0].x,debtPts[0].y);
+    for(var k=1;k<debtPts.length;k++)ctx.lineTo(debtPts[k].x,debtPts[k].y);
+    ctx.stroke();ctx.setLineDash([]);
+    debtPts.forEach(function(p){ctx.fillStyle='#c2784b';ctx.beginPath();ctx.arc(p.x,p.y,2.2,0,Math.PI*2);ctx.fill()});
+  }
+  // Exp debt curve (solid)
+  if(expPts.length>1){
+    ctx.strokeStyle='#e6b450';ctx.lineWidth=1.3;
+    ctx.beginPath();ctx.moveTo(expPts[0].x,expPts[0].y);
+    for(var k=1;k<expPts.length;k++)ctx.lineTo(expPts[k].x,expPts[k].y);
+    ctx.stroke();
+    expPts.forEach(function(p){ctx.fillStyle='#e6b450';ctx.beginPath();ctx.arc(p.x,p.y,2.2,0,Math.PI*2);ctx.fill()});
+  }
+
   document.getElementById('chartLegend').innerHTML=
-    '<span style="color:#58a6ff">🟦 设定</span> <span style="color:#3fb950">🟩 实际</span> <span style="color:#f0883e">🟠 债务</span>'+
-    ' · 峰值债务:'+(m.peakDebt||0)+' 暴露峰:'+(m.peakExpDebt||0)+' OI:'+(m.oi||0)+' 离散:'+((m.suitSpread||0)*100).toFixed(0)+'%';
+    '<span style="color:#d4a853">▮ 设定</span> <span style="color:#7ec99c">▮ 实际</span>'+
+    ' <span style="color:#c2784b">┅ 静态债务</span> <span style="color:#e6b450">── 暴露债务</span>'+
+    ' · 峰:'+(m.peakDebt||0)+'/'+(m.peakExpDebt||0)+' OI:'+(m.oi||0)+' 离散:'+((m.suitSpread||0)*100).toFixed(0)+'%';
 }
 
 // ═══════════════════════════════════
@@ -801,27 +873,22 @@ function drawClosureChart(d,m){
 // ═══════════════════════════════════
 function renderStepTable(d){
   var log=d.stepLog||[];
-  document.getElementById('stepCnt').textContent=log.length+'步';
+  document.getElementById('stepCnt').textContent=log.length+' 步';
   var rows='';
   log.forEach(function(s){
-    var note='';
-    if(s.rescued)note='<span style="color:#f85149;font-weight:600">⚠抢救(第'+s.bannedAtStep+'步拉黑)</span>';
-    var costCol=s.target>0&&s.cost!==s.target?'<span style="color:#f85149">'+s.cost+'</span>':'<span style="color:#3fb950">'+s.cost+'</span>';
-    var simVal=s.simCost!==undefined?s.simCost:'-';
-    var simCol=s.target>0&&s.simCost!==s.target?'<span style="color:#f85149">'+simVal+'</span>':'<span style="color:#3fb950">'+simVal+'</span>';
-    rows+='<tr><td>'+s.step+'</td><td><b>['+s.tileIds.join(',')+']</b></td><td>'+costCol+'</td><td>'+simCol+'</td><td>'+(s.target>0?s.target:'-')+'</td><td>'+s.candidateCount+'</td><td>'+s.bannedCount+'</td><td>'+s.colorIndex+'</td><td>'+note+'</td></tr>';
+    var note=s.rescued?'<span style="color:#d9706a;font-weight:600">⚠ 抢救(S'+(s.bannedAtStep||'?')+')</span>':'';
+    var costCol=s.target>0&&s.cost!==s.target?'<span style="color:#d9706a">'+s.cost+'</span>':'<span style="color:#7ec99c">'+s.cost+'</span>';
+    rows+='<tr><td><b>'+s.step+'</b></td><td>['+s.tileIds.join(',')+']</td><td>'+costCol+'</td><td>'+(s.simCost!==undefined?s.simCost:'-')+'</td><td>'+(s.target>0?s.target:'-')+'</td><td>'+s.candidateCount+'</td><td>'+s.bannedCount+'</td><td>'+s.colorIndex+'</td><td>'+note+'</td></tr>';
   });
   document.getElementById('stepBody').innerHTML=rows;
 }
 
 // ═══════════════════════════════════
-//  Show verify panel
+//  Verify panel
 // ═══════════════════════════════════
-function showVerifyPanel(d){
-  document.getElementById('verifyCard').style.display='block';
+function showVerify(d){
+  document.getElementById('verifyCard').style.display='';
   document.getElementById('verifyEmpty').style.display='none';
-  document.getElementById('verifyBoardId').textContent=d.algorithm==='closure'?'LayerClosure':'CostLadder';
-  // Clear previous results
   ['dfsResult','reviveResult','simResult'].forEach(function(id){document.getElementById(id).innerHTML=''});
 }
 
@@ -832,45 +899,39 @@ async function decodeCode(){
   var code=document.getElementById('decodeInput').value.trim();
   var out=document.getElementById('decodeOut');
   if(!code){out.textContent='';return}
-  out.textContent='解码中...';
+  out.textContent='解码中...';out.className='msg';
   try{
     var r=await fetch('/api/decode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code})});
     var d=await r.json();
-    if(!d.ok){out.innerHTML='<span style="color:var(--r)">'+d.error+'</span>';return}
+    if(!d.ok){out.textContent=d.error;out.className='msg msg-err';return}
 
     var dist={};
-    (d.tiles||[]).forEach(function(t){var ev=t.elemValue;dist[ev]=(dist[ev]||0)+1});
-    var distHTML=Object.entries(dist).sort(function(a,b){return +a[0]-+b[0]}).map(function(e){return '<span style="color:'+ec(+e[0])+'">花'+e[0]+':<b>'+e[1]+'</b></span> &nbsp; '}).join('');
+    (d.tiles||[]).forEach(function(t){dist[t.elemValue]=(dist[t.elemValue]||0)+1});
+    var distS=Object.entries(dist).sort(function(a,b){return +a[0]-+b[0]}).map(function(e){return'<span style="color:'+cx(+e[0])+'">花'+e[0]+':'+e[1]+'</span>'}).join(' · ');
 
-    out.innerHTML='<b>v'+d.version+'</b> · '+d.tileCount+'张 · '+d.elementCount+'花色 · Hash: '+d.levelHash+' · Dock:'+d.dockEntries.length;
+    out.textContent='v'+d.version+' · '+d.tileCount+'张 · '+d.elementCount+'花色 · Dock×'+d.dockEntries.length;out.className='msg msg-ok';
 
-    // Populate result panel
-    document.getElementById('resultCard').style.display='block';
+    document.getElementById('resultCard').style.display='';
     document.getElementById('resultAlgo').textContent='导入';
     document.getElementById('stats').innerHTML=
-      '<div class="stat"><div class="v">'+d.tileCount+'</div><div class="l">总牌数</div></div>'+
-      '<div class="stat"><div class="v g">'+d.elementCount+'</div><div class="l">花色数</div></div>'+
-      '<div class="stat"><div class="v">v'+d.version+'</div><div class="l">版本</div></div>'+
-      '<div class="stat"><div class="v o">'+d.dockEntries.length+'</div><div class="l">初始Dock</div></div>';
+      '<div class="stat"><div class="n">'+d.tileCount+'</div><div class="lbl">总牌数</div></div>'+
+      '<div class="stat"><div class="n n-ok">'+d.elementCount+'</div><div class="lbl">花色数</div></div>'+
+      '<div class="stat"><div class="n">v'+d.version+'</div><div class="lbl">版本</div></div>'+
+      '<div class="stat"><div class="n n-warn">'+d.dockEntries.length+'</div><div class="lbl">初始Dock</div></div>';
     document.getElementById('stepSection').style.display='none';
-    document.getElementById('chartTitle').style.display='';document.getElementById('chartTitle').textContent='逐层闭合率';
+    document.getElementById('chartTitle').textContent='逐层闭合率';
     document.getElementById('mainChart').style.display='';
-    document.getElementById('elemDist').innerHTML=distHTML;
+    document.getElementById('elemDist').innerHTML=distS||'<span style="color:var(--faint)">—</span>';
     document.getElementById('codeBox').textContent=code;
     document.getElementById('emptyState').style.display='none';
 
-    STATE.result={replayCode:code};
-    STATE.sims=[];
+    S.result={replayCode:code};S.sims=[];
     document.getElementById('simHistory').innerHTML='';
-    showVerifyPanel({algorithm:'import'});
-    clearVerifyResults();
+    showVerify({algorithm:'import'});
+    ['dfsResult','reviveResult','simResult'].forEach(function(id){document.getElementById(id).innerHTML=''});
     fetchClosureRates(code);
-    toast('✅ ReplayCode 解码成功');
-  }catch(e){out.innerHTML='<span style="color:var(--r)">'+e.message+'</span>'}
-}
-
-function clearVerifyResults(){
-  ['dfsResult','reviveResult','simResult'].forEach(function(id){document.getElementById(id).innerHTML=''});
+    toast('ReplayCode 解码成功','ok');
+  }catch(e){out.textContent=e.message;out.className='msg msg-err'}
 }
 
 async function fetchClosureRates(code){
@@ -878,7 +939,7 @@ async function fetchClosureRates(code){
     var r=await fetch('/api/replay-closure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code})});
     var m=await r.json();
     if(!m.ok)return;
-    document.getElementById('chartLegend').innerHTML='花色:<b>'+m.colorCount+'</b> · 深度:<b>'+m.depthCount+'</b>层 · 自由牌:<b>'+m.totalFreeTiles+'</b>';
+    document.getElementById('chartLegend').innerHTML='花色 <b>'+m.colorCount+'</b> · 深度 <b>'+m.depthCount+'</b>层 · 自由牌 <b>'+m.totalFreeTiles+'</b>';
     drawDecodeClosureChart(m);
   }catch(e){}
 }
@@ -886,171 +947,142 @@ async function fetchClosureRates(code){
 function drawDecodeClosureChart(m){
   var c=document.getElementById('mainChart');c.style.display='';
   var ctx=c.getContext('2d'),dpr=window.devicePixelRatio||1;
-  var rect=c.getBoundingClientRect(),W=rect.width,H=180;
+  var rect=c.getBoundingClientRect(),W=rect.width,H=190;
   c.width=W*dpr;c.height=H*dpr;ctx.scale(dpr,dpr);ctx.clearRect(0,0,W,H);
-  var pad={t:14,r:14,b:28,l:48},cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
+  var pad={t:16,r:16,b:30,l:50},cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
   var n=m.depthCount||0;if(!n)return;
-  var gw=cw/n,bw=Math.max(6,gw*0.55);
+  var gw=cw/n,bw=Math.max(6,gw*.55);
 
   for(var v=0;v<=100;v+=20){
     var y=pad.t+ch-(v/100)*ch;
-    ctx.strokeStyle=v?'#21262d':'#30363d';ctx.lineWidth=v?0.5:1;
+    ctx.strokeStyle=v?'#1f1e1a':'#2a2820';ctx.lineWidth=v?.5:1;
     ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();
-    ctx.fillStyle='#8b949e';ctx.font='9px system-ui';ctx.textAlign='right';ctx.fillText(v+'%',pad.l-4,y+3);
+    ctx.fillStyle='#5c5950';ctx.font='9px sans-serif';ctx.textAlign='right';ctx.fillText(v+'%',pad.l-4,y+3);
   }
   if(m.debts&&m.debts.length>0){
     var maxDebt=Math.max.apply(null,m.debts);if(maxDebt===0)maxDebt=1;
     var y7=pad.t+ch-(7/maxDebt)*ch;
-    ctx.strokeStyle='rgba(248,81,73,0.35)';ctx.lineWidth=1;ctx.setLineDash([3,3]);
+    ctx.strokeStyle='rgba(217,112,106,.3)';ctx.lineWidth=1;ctx.setLineDash([3,3]);
     ctx.beginPath();ctx.moveTo(pad.l,y7);ctx.lineTo(W-pad.r,y7);ctx.stroke();ctx.setLineDash([]);
-    ctx.fillStyle='rgba(248,81,73,0.6)';ctx.font='8px monospace';ctx.textAlign='left';ctx.fillText('债务=7',W-pad.r+4,y7+3);
+    ctx.fillStyle='rgba(217,112,106,.5)';ctx.font='8px monospace';ctx.textAlign='left';ctx.fillText('债务=7',W-pad.r+4,y7+3);
   }
   for(var i=0;i<n;i++){
-    var x=pad.l+gw*i;
-    var rate=(m.closeRates||[])[i]||0;
-    var h=rate*ch;
+    var x=pad.l+gw*i,rate=(m.closeRates||[])[i]||0,h=rate*ch;
     var gnd=ctx.createLinearGradient(x,pad.t+ch-h,x,pad.t+ch);
-    gnd.addColorStop(0,'#3fb950');gnd.addColorStop(1,'rgba(63,185,80,0.2)');
-    ctx.fillStyle=gnd;ctx.fillRect(x+bw*0.1,pad.t+ch-h,bw*0.8,h);
-    ctx.fillStyle='#8b949e';ctx.font='8px monospace';ctx.textAlign='center';
+    gnd.addColorStop(0,'#7ec99c');gnd.addColorStop(1,'rgba(126,201,156,.15)');
+    ctx.fillStyle=gnd;ctx.fillRect(x+bw*.1,pad.t+ch-h,bw*.8,h);
+    ctx.fillStyle='#8a867c';ctx.font='8px monospace';ctx.textAlign='center';
     ctx.fillText(Math.round(rate*100)+'%',x+gw/2,pad.t+ch-h-3);
     if(m.closedCounts)ctx.fillText(m.closedCounts[i]+'/'+m.colorCount,x+gw/2,pad.t+ch+14);
   }
 }
 
 // ═══════════════════════════════════
-//  DFS verify
+//  DFS
 // ═══════════════════════════════════
 async function verifyDFS(){
-  var d=STATE.result;if(!d){toast('请先生成或导入牌局',true);return}
+  var d=S.result;if(!d){toast('请先生成或导入牌局','err');return}
   var btn=document.getElementById('btnDFS'),out=document.getElementById('dfsResult');
-  btn.innerHTML='<span class="spinner"></span>求解中...';btn.disabled=true;out.textContent='';
+  btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;out.textContent='';out.className='msg';
   try{
     var timeout=parseInt(document.getElementById('dfsTimeout').value)||90;
     var r=await fetch('/api/dfs-verify',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({replayCode:d.replayCode,levelId:document.getElementById('levelId').value,timeout:timeout})});
     var v=await r.json();
-    if(!v.ok){out.innerHTML='<span style="color:var(--r)">'+v.error+'</span>';return}
-    var cls=v.solvable?'g':'r',txt=v.solvable?'✓ 有解':'✗ 无解';
+    if(!v.ok){out.textContent=v.error;out.className='msg msg-err';return}
+    var cls=v.solvable?'msg-ok':'msg-err',txt=v.solvable?'✓ 有解':'✗ 无解';
     if(!v.solvable&&v.failReason)txt+=' ('+v.failReason+')';
-    out.innerHTML='<span style="color:var(--'+cls+')"><b>'+txt+'</b></span> · 搜索 '+v.statesVisited+' 状态 · '+(v.elapsedMs/1000).toFixed(1)+'s';
-    if(!v.solvable)toast('⚠ 该牌局无解！',true);
-    else toast('✅ DFS 验证通过');
-  }catch(e){out.innerHTML='<span style="color:var(--r)">'+e.message+'</span>'}
-  finally{btn.innerHTML='DFS 求解';btn.disabled=false}
+    out.innerHTML='<span><b>'+txt+'</b></span> · '+v.statesVisited+'状态 · '+(v.elapsedMs/1000).toFixed(1)+'s';
+    out.className='msg '+cls;
+    toast(v.solvable?'DFS 验证通过':'该牌局无解！',v.solvable?'ok':'err');
+  }catch(e){out.textContent=e.message;out.className='msg msg-err'}
+  finally{btn.innerHTML='DFS 精确求解';btn.disabled=false}
 }
 
-// ═══════════════════════════════════
-//  Death checkpoint
-// ═══════════════════════════════════
 async function verifyRevive(){
-  var d=STATE.result;if(!d){toast('请先生成或导入牌局',true);return}
+  var d=S.result;if(!d){toast('请先生成或导入牌局','err');return}
   var btn=document.getElementById('btnRevive'),out=document.getElementById('reviveResult');
-  btn.innerHTML='<span class="spinner"></span>卡点分析中...';btn.disabled=true;out.textContent='';
+  btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;out.textContent='';out.className='msg';
   try{
     var timeout=parseInt(document.getElementById('dfsTimeout2').value)||90;
     var r=await fetch('/api/dfs-verify',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({replayCode:d.replayCode,levelId:document.getElementById('levelId').value,timeout:timeout,mode:'revive',maxReviveSearch:20})});
     var v=await r.json();
-    if(!v.ok){out.innerHTML='<span style="color:var(--r)">'+v.error+'</span>';return}
+    if(!v.ok){out.textContent=v.error;out.className='msg msg-err';return}
     if(v.solvable){
-      var cls=v.minRevives===0?'g':'o',txt=v.minRevives===0?'✓ 无需复活即可通关':'最少需 <b>'+v.minRevives+'</b> 次复活';
-      var html='<span style="color:var(--'+cls+')"><b>'+txt+'</b></span>';
+      var cls=v.minRevives===0?'msg-ok':'msg-warn',txt=v.minRevives===0?'✓ 无需复活':'最少需 <b>'+v.minRevives+'</b> 次复活';
+      var html='<span><b>'+txt+'</b></span>';
       if(v.reviveSteps&&v.reviveSteps.length>0){
         html+='<br><span style="font-size:9px">';
-        v.reviveSteps.forEach(function(rs,i){html+='#'+(i+1)+' 步'+(rs.stepIndex+1)+': 花色<b style="color:'+ec(rs.color)+'">'+rs.color+'</b>→Desk['+rs.deskTileIds.join(',')+']<br>'});
+        v.reviveSteps.forEach(function(rs,i){html+='#'+(i+1)+' 步'+(rs.stepIndex+1)+': 花色<b style="color:'+cx(rs.color)+'">'+rs.color+'</b>→Desk['+rs.deskTileIds.join(',')+']<br>'});
         html+='</span>';
       }
       html+=' · '+v.stepCount+'步 · '+v.statesVisited+'状态 · '+(v.elapsedMs/1000).toFixed(1)+'s';
-      out.innerHTML=html;
-    }else{
-      out.innerHTML='<span style="color:var(--r)"><b>✗ 无解</b> ('+v.failReason+')</span> · 搜索 '+v.statesVisited+' 状态 · '+(v.elapsedMs/1000).toFixed(1)+'s';
-    }
-  }catch(e){out.innerHTML='<span style="color:var(--r)">'+e.message+'</span>'}
-  finally{btn.innerHTML='卡点求解 (含复活)';btn.disabled=false}
+      out.innerHTML=html;out.className='msg '+cls;
+    }else{out.innerHTML='<b>✗ 无解</b> ('+v.failReason+') · '+v.statesVisited+'状态 · '+(v.elapsedMs/1000).toFixed(1)+'s';out.className='msg msg-err'}
+  }catch(e){out.textContent=e.message;out.className='msg msg-err'}
+  finally{btn.innerHTML='死亡卡点分析';btn.disabled=false}
 }
 
 // ═══════════════════════════════════
-//  Player sim — unified
+//  Player sim
 // ═══════════════════════════════════
 function switchSimStrategy(){
   var v=document.getElementById('simStrategy').value;
-  document.getElementById('simParamNormal').style.display=v==='normal'?'':'none';
-  document.getElementById('simParamRisky').style.display=v==='risky'?'':'none';
-  document.getElementById('simParamCostCap').style.display=v==='costcap'?'':'none';
-  document.getElementById('simParamMistake').style.display=v==='mistake'?'':'none';
+  ['simParamRisky','simParamCostCap','simParamMistake'].forEach(function(id){document.getElementById(id).style.display='none'});
+  if(v==='risky')document.getElementById('simParamRisky').style.display='';
+  else if(v==='costcap')document.getElementById('simParamCostCap').style.display='';
+  else if(v==='mistake')document.getElementById('simParamMistake').style.display='';
 }
 
 async function runSim(){
-  var d=STATE.result;if(!d){toast('请先生成或导入牌局',true);return}
+  var d=S.result;if(!d){toast('请先生成或导入牌局','err');return}
   var strategy=document.getElementById('simStrategy').value;
   var runs=parseInt(document.getElementById('simRuns').value)||100;
   var btn=document.getElementById('btnSim'),out=document.getElementById('simResult');
-
   var endpoint,body={replayCode:d.replayCode,levelId:document.getElementById('levelId').value,runs:runs};
   var params={strategy:strategy,runs:runs};
 
-  if(strategy==='risky'){
-    endpoint='/api/player-sim-risky';
-    body.riskThreshold=parseInt(document.getElementById('simRiskThreshold').value)||3;
-    params.threshold=body.riskThreshold;
-  }else if(strategy==='costcap'){
-    endpoint='/api/player-sim-costcap';
-    body.maxCost=parseInt(document.getElementById('simMaxCost').value)||5;
-    params.maxCost=body.maxCost;
-  }else if(strategy==='mistake'){
-    endpoint='/api/player-sim-mistake';
-    body.mistakeRate=parseFloat(document.getElementById('simMistakeRate').value);
-    if(isNaN(body.mistakeRate)||body.mistakeRate<0||body.mistakeRate>1){out.innerHTML='<span style="color:var(--r)">失误率需在 0~1</span>';return}
-    params.mistakeRate=body.mistakeRate;
-  }else{endpoint='/api/player-sim'}
+  if(strategy==='risky'){endpoint='/api/player-sim-risky';body.riskThreshold=parseInt(document.getElementById('simRiskThreshold').value)||3;params.threshold=body.riskThreshold}
+  else if(strategy==='costcap'){endpoint='/api/player-sim-costcap';body.maxCost=parseInt(document.getElementById('simMaxCost').value)||5;params.maxCost=body.maxCost}
+  else if(strategy==='mistake'){endpoint='/api/player-sim-mistake';body.mistakeRate=parseFloat(document.getElementById('simMistakeRate').value);if(isNaN(body.mistakeRate)||body.mistakeRate<0||body.mistakeRate>1){out.innerHTML='<span style="color:var(--bad)">失误率 0~1</span>';return}params.mistakeRate=body.mistakeRate}
+  else{endpoint='/api/player-sim'}
 
-  btn.innerHTML='<span class="spinner"></span>模拟中...';btn.disabled=true;out.textContent='';
+  btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;out.textContent='';out.className='msg';
   try{
     var r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var v=await r.json();
-    if(!v.ok){out.innerHTML='<span style="color:var(--r)">'+v.error+'</span>';return}
-
-    var rateCls=v.winRate>=0.8?'g':v.winRate>=0.4?'o':'r',pct=(v.winRate*100).toFixed(1);
-    var html='<span style="color:var(--'+rateCls+')"><b>胜率 '+pct+'%</b></span>';
-    html+=' · <b>'+v.wins+'</b>胜 <b>'+(v.runs-v.wins)+'</b>败';
-    if(v.avgStepsOnWin>0)html+=' · 均<b>'+v.avgStepsOnWin.toFixed(0)+'</b>步/胜';
+    if(!v.ok){out.textContent=v.error;out.className='msg msg-err';return}
+    var pct=(v.winRate*100).toFixed(1);
+    var cls=pct>=80?'msg-ok':pct>=40?'msg-warn':'msg-err';
+    var html='<b style="font-size:14px;font-family:var(--mono)">'+pct+'%</b> 胜率';
+    html+=' · '+v.wins+'胜/'+(v.runs-v.wins)+'败';
+    if(v.avgStepsOnWin>0)html+=' · 均'+v.avgStepsOnWin.toFixed(0)+'步';
     html+=' · '+(v.elapsedMs/1000).toFixed(1)+'s';
-    html+='<div class="progress"><div class="progress-bar" style="background:var(--'+(rateCls==='g'?'g':rateCls==='o'?'o':'r')+');width:'+pct+'%"></div></div>';
-    out.innerHTML=html;
+    html+='<div class="pbar"><div class="pbar-fill" style="width:'+pct+'%;background:var(--'+(pct>=80?'ok':pct>=40?'warn':'bad')+')"></div></div>';
+    out.innerHTML=html;out.className='msg '+cls;
 
-    // Add to history
     params.winRate=v.winRate;params.wins=v.wins;params.losses=v.runs-v.wins;params.avgSteps=v.avgStepsOnWin;params.elapsedMs=v.elapsedMs;
-    STATE.sims.unshift(params);
-    renderSimHistory();
-
-    var labelMap={normal:'普通',risky:'激进',costcap:'成本上限',mistake:'失误'};
-    toast('✅ '+labelMap[strategy]+'模拟完成: '+pct+'%');
-  }catch(e){out.innerHTML='<span style="color:var(--r)">'+e.message+'</span>'}
-  finally{btn.innerHTML='▶ 运行模拟';btn.disabled=false}
+    S.sims.unshift(params);renderSimHistory();
+    var lm={normal:'普通',risky:'激进',costcap:'成本上限',mistake:'失误'};
+    toast(lm[strategy]+'模拟完成: '+pct+'%','ok');
+  }catch(e){out.textContent=e.message;out.className='msg msg-err'}
+  finally{btn.innerHTML='▶ 运行';btn.disabled=false}
 }
 
 function renderSimHistory(){
-  var container=document.getElementById('simHistory');
-  if(!STATE.sims.length){container.innerHTML='';return}
-  var labelMap={normal:'普通',risky:'激进',costcap:'成本上限',mistake:'失误'};
-  var rows=STATE.sims.map(function(s,i){
-    var cls=s.winRate>=0.8?'var(--g)':s.winRate>=0.4?'var(--o)':'var(--r)';
-    var pct=(s.winRate*100).toFixed(0);
-    var label=labelMap[s.strategy]||s.strategy;
+  var el=document.getElementById('simHistory');if(!S.sims.length){el.innerHTML='';return}
+  var lm={normal:'普通',risky:'激进',costcap:'成本上限',mistake:'失误'};
+  var rows=S.sims.map(function(s){
+    var cls=s.winRate>=.8?'var(--ok)':s.winRate>=.4?'var(--warn)':'var(--bad)';
+    var pct=(s.winRate*100).toFixed(0),label=lm[s.strategy]||s.strategy;
     var param='';
     if(s.strategy==='risky')param='水位='+s.threshold;
     else if(s.strategy==='costcap')param='≤'+s.maxCost;
     else if(s.strategy==='mistake')param='误'+(s.mistakeRate*100).toFixed(0)+'%';
-    return '<div class="sim-row">'+
-      '<span class="dot" style="background:'+cls+'"></span>'+
-      '<span style="flex:1">'+label+(param?' <span style="color:var(--m);font-size:9px">'+param+'</span>':'')+'</span>'+
-      '<span style="font-weight:600;color:'+cls+'">'+pct+'%</span>'+
-      '<span style="color:var(--m)">'+s.wins+'/'+(s.wins+s.losses)+'</span>'+
-      '<span style="color:var(--m);font-size:9px">'+s.runs+'局</span>'+
-      '</div>';
+    return'<div class="sim-entry"><span class="dot" style="background:'+cls+'"></span><span style="flex:1">'+label+(param?' <span style="color:var(--faint);font-size:9px">'+param+'</span>':'')+'</span><span style="font-weight:700;font-family:var(--mono);color:'+cls+'">'+pct+'%</span><span style="color:var(--faint)">'+s.wins+'/'+(s.wins+s.losses)+'</span><span style="color:var(--faint);font-size:9px">×'+s.runs+'</span></div>';
   }).join('');
-  container.innerHTML='<div style="font-size:9px;color:var(--m);margin-bottom:4px">模拟记录 ('+STATE.sims.length+')</div>'+rows;
+  el.innerHTML='<div style="font-size:9px;color:var(--faint);margin-bottom:3px">记录 ('+S.sims.length+')</div>'+rows;
 }
 
 // ═══════════════════════════════════
@@ -1058,60 +1090,60 @@ function renderSimHistory(){
 // ═══════════════════════════════════
 function copyCode(){
   var t=document.getElementById('codeBox').textContent;
-  navigator.clipboard.writeText(t).then(function(){toast('📋 已复制')}).catch(function(){toast('复制失败',true)});
+  navigator.clipboard.writeText(t).then(function(){toast('已复制','ok')}).catch(function(){toast('复制失败','err')});
 }
 function downloadCode(){
   var t=document.getElementById('codeBox').textContent;
-  var blob=new Blob([t],{type:'text/plain'});
-  var a=document.createElement('a');a.href=URL.createObjectURL(blob);
-  a.download='replaycode_'+(STATE.level?STATE.level.levelResId||'board':'board')+'.txt';
-  a.click();URL.revokeObjectURL(a.href);
-  toast('💾 已下载');
+  var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type:'text/plain'}));
+  a.download='replaycode_'+(S.level?S.level.levelResId||'board':'board')+'.txt';a.click();URL.revokeObjectURL(a.href);
+  toast('已下载','ok');
 }
 
 // ═══════════════════════════════════
-//  Client-side cost generator
+//  Client cost generator
 // ═══════════════════════════════════
 function generateCost(){
-  var steps=STATE.level?STATE.level.steps:0;
-  if(!steps||steps<=0){toast('请先加载关卡',true);return}
-  var targetStd=parseFloat(document.getElementById('targetStd').value)||1.0;
+  var steps=S.level?S.level.steps:0;
+  if(!steps){toast('请先加载关卡','err');return}
+  var targetStd=parseFloat(document.getElementById('targetStd').value)||1;
   var seed=Date.now()&0x7fffffff;
-
-  // mulberry32 (client-side, identical to src/random-utils.ts)
   var s=seed|0;
   function rng(){s=(s+0x6d2b79f5)|0;var t=Math.imul(s^(s>>>15),1|s);t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296;}
 
   var arr=[];for(var i=0;i<steps;i++)arr.push(3);
-  if(targetStd>0.05){
+  if(targetStd>.05){
+    function calcStd(a){var v=0;for(var j=0;j<a.length;j++)v+=(a[j]-3)*(a[j]-3);return Math.sqrt(v/a.length)}
+    function isValid(a){var r=0;for(var j=0;j<a.length;j++){var c=a[j];if(c<1||c>8)return false;r=r+c-3;if(r<0||r>2*(a.length-1-j))return false}return r===0}
+    function shuffle(a){for(var j=a.length-1;j>0;j--){var k=Math.floor(rng()*(j+1)),t=a[j];a[j]=a[k];a[k]=t}}
     for(var sc=0;sc<steps*2;sc++){
       var hi=Math.floor(rng()*steps),lo=Math.floor(rng()*steps);
       if(hi===lo||arr[hi]<=1||arr[lo]>=8)continue;
       var cand=arr.slice();cand[hi]-=1;cand[lo]+=1;
-      var rr=0,ok=true;
-      for(var j=0;j<cand.length&&ok;j++){var c=cand[j];if(c<1||c>8)ok=false;rr=rr+c-3;if(rr<0)ok=false;if(rr>2*(cand.length-1-j))ok=false}
-      if(ok&&rr===0){arr[hi]=cand[hi];arr[lo]=cand[lo]}
+      if(isValid(cand)){arr[hi]=cand[hi];arr[lo]=cand[lo]}
     }
-    var best=arr.slice();var bestStd=(function(a){var v=0;for(var j=0;j<a.length;j++)v+=(a[j]-3)*(a[j]-3);return Math.sqrt(v/a.length)})(best);
-    function isValid(a){var r=0;for(var j=0;j<a.length;j++){var c=a[j];if(c<1||c>8)return false;r=r+c-3;if(r<0)return false;if(r>2*(a.length-1-j))return false}return r===0}
-    function shuffle(a){for(var j=a.length-1;j>0;j--){var k=Math.floor(rng()*(j+1));var t=a[j];a[j]=a[k];a[k]=t}}
+    var best=arr.slice(),bestStd=calcStd(best);
     for(var iter=0;iter<2000;iter++){
-      var curStd=(function(a){var v=0;for(var j=0;j<a.length;j++)v+=(a[j]-3)*(a[j]-3);return Math.sqrt(v/a.length)})(best);
-      if(Math.abs(curStd-targetStd)<=0.1)break;
-      var needMore=curStd<targetStd;
-      var dec=[],inc=[];
+      var curStd=calcStd(best);if(Math.abs(curStd-targetStd)<=.1)break;
+      var needMore=curStd<targetStd,dec=[],inc=[];
       for(var j=0;j<best.length;j++){if(best[j]>1)dec.push(j);if(best[j]<8)inc.push(j)}
       if(!dec.length||!inc.length)break;
       shuffle(dec);shuffle(inc);var found=false;
-      for(var di=0;di<dec.length&&!found;di++){for(var ii=0;ii<inc.length&&!found;ii++){var hi2=dec[di],lo2=inc[ii];if(hi2===lo2)continue;var cand2=best.slice();if(cand2[hi2]<=cand2[lo2])continue;cand2[hi2]-=1;cand2[lo2]+=1;if(isValid(cand2)){var ns=(function(a){var v=0;for(var j=0;j<a.length;j++)v+=(a[j]-3)*(a[j]-3);return Math.sqrt(v/a.length)})(cand2);if(Math.abs(ns-targetStd)<Math.abs(bestStd-targetStd)){best=cand2;bestStd=ns;found=true}}}}
+      for(var di=0;di<dec.length&&!found;di++){for(var ii=0;ii<inc.length&&!found;ii++){var hi2=dec[di],lo2=inc[ii];if(hi2===lo2)continue;var cand2=best.slice();if(cand2[hi2]<=cand2[lo2])continue;cand2[hi2]-=1;cand2[lo2]+=1;if(isValid(cand2)){var ns=calcStd(cand2);if(Math.abs(ns-targetStd)<Math.abs(bestStd-targetStd)){best=cand2;bestStd=ns;found=true}}}}
       if(!found)break;
     }
     arr=best;
   }
   document.getElementById('costArray').value=arr.join(',');
   validateParams();
-  toast('🎲 Cost数组已生成 (σ='+(function(a){var v=0;for(var j=0;j<a.length;j++)v+=(a[j]-3)*(a[j]-3);return Math.sqrt(v/a.length)})(arr).toFixed(2)+')');
+  toast('Cost已生成 σ='+calcStd(arr).toFixed(2),'ok');
 }
+
+// ═══════════════════════════════════
+//  Keyboard shortcuts
+// ═══════════════════════════════════
+document.addEventListener('keydown',function(e){
+  if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();generate()}
+});
 
 // ═══════════════════════════════════
 //  Init
