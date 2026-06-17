@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "description": "关卡难度分档阈值配置。数值调整只需修改此文件，无需改动代码。",
+  "standard": [
+    { "grade": 0, "sim5Min": 0.90, "sim5Max": 1.00, "label": "极简", "targetRate": "90-100%" },
+    { "grade": 1, "sim5Min": 0.80, "sim5Max": 0.89, "label": "简单", "targetRate": "60-90%" },
+    { "grade": 2, "sim5Min": 0.70, "sim5Max": 0.79, "label": "中等偏易", "targetRate": "40-60%" },
+    { "grade": 3, "sim5Min": 0.50, "sim5Max": 0.69, "label": "中等", "targetRate": "25-40%" },
+    { "grade": 4, "sim5Min": 0.35, "sim5Max": 0.49, "label": "中等偏难", "targetRate": "20-25%" },
+    { "grade": 5, "sim5Min": 0.20, "sim5Max": 0.34, "label": "困难", "targetRate": "10-20%" },
+    { "grade": 6, "sim5Min": 0.10, "sim5Max": 0.19, "label": "很难", "targetRate": "5-10%" },
+    { "grade": 7, "sim5Min": 0.00, "sim5Max": 0.09, "label": "极难", "targetRate": "0-5%" }
+  ],
+  "refined": [
+    { "grade": 0, "sim5Min": 0.90, "condition": { "type": "sim15Min", "value": 0.73 }, "conditionLabel": "sim15% ≥ 73%" },
+    { "grade": 1, "sim5Min": 0.80, "sim5Max": 0.89, "condition": { "type": "sim1Min", "value": 0.96 }, "conditionLabel": "sim1% ≥ 96%" },
+    { "grade": 2, "sim5Min": 0.70, "sim5Max": 0.79, "condition": { "type": "stabilityMax", "value": 0.55 }, "conditionLabel": "稳定性 ≤ 55%" },
+    { "grade": 3, "sim5Min": 0.50, "sim5Max": 0.69, "condition": { "type": "stabilityMax", "value": 0.52 }, "conditionLabel": "稳定性 ≤ 52%" },
+    { "grade": 4, "sim5Min": 0.35, "sim5Max": 0.49, "condition": { "type": "stabilityMax", "value": 0.35 }, "conditionLabel": "稳定性 ≤ 35%" },
+    { "grade": 5, "sim5Min": 0.20, "sim5Max": 0.34, "condition": { "type": "sim1Max", "value": 0.35 }, "conditionLabel": "sim1% ≤ 35%" },
+    { "grade": 6, "sim5Min": 0.10, "sim5Max": 0.19, "condition": { "type": "sim1Max", "value": 0.15 }, "conditionLabel": "sim1% ≤ 15%" },
+    { "grade": 7, "sim5Min": 0.00, "sim5Max": 0.09, "condition": { "type": "sim1Eq", "value": 0 }, "conditionLabel": "sim1% = 0%" }
+  ],
+  "simRates": { "ceiling": 0.01, "baseline": 0.05, "floor": 0.15 },
+  "defaultRuns": 100
+}

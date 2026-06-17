@@ -445,6 +445,32 @@ kbd{
         <div class="sim-history" id="simHistory"></div>
       </div>
     </div>
+
+    <div class="panel fade-in" style="margin-top:14px">
+      <div class="panel-hd"><span class="dot" style="background:var(--info)"></span> 难度分档</div>
+      <div class="panel-bd">
+        <div class="row" style="margin-bottom:6px;align-items:center">
+          <label style="margin:0">目标档位</label>
+          <select id="gradeTarget" style="font-size:11px">
+            <option value="-1">仅分档（不校验）</option>
+            <option value="0">档0 · 极简 (90-100%)</option>
+            <option value="1">档1 · 简单 (60-90%)</option>
+            <option value="2">档2 · 中等偏易 (40-60%)</option>
+            <option value="3">档3 · 中等 (25-40%)</option>
+            <option value="4">档4 · 中等偏难 (20-25%)</option>
+            <option value="5">档5 · 困难 (10-20%)</option>
+            <option value="6">档6 · 很难 (5-10%)</option>
+            <option value="7">档7 · 极难 (0-5%)</option>
+          </select>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <label style="margin:0">模拟次数</label>
+          <input type="number" id="gradeRuns" value="100" min="10" max="2000" step="10" style="width:66px;text-align:center;font-family:var(--mono)">
+          <button class="btn btn-primary" onclick="runGrade()" id="btnGrade" style="flex:0;padding:8px 14px">▶ 一键分档</button>
+        </div>
+        <div class="msg" id="gradeResult"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -890,7 +916,7 @@ function renderStepTable(d){
 function showVerify(d){
   document.getElementById('verifyCard').style.display='';
   document.getElementById('verifyEmpty').style.display='none';
-  ['dfsResult','reviveResult','simResult'].forEach(function(id){document.getElementById(id).innerHTML=''});
+  ['dfsResult','reviveResult','simResult','gradeResult'].forEach(function(id){document.getElementById(id).innerHTML=''});
 }
 
 // ═══════════════════════════════════
@@ -929,7 +955,7 @@ async function decodeCode(){
     S.result={replayCode:code};S.sims=[];
     document.getElementById('simHistory').innerHTML='';
     showVerify({algorithm:'import'});
-    ['dfsResult','reviveResult','simResult'].forEach(function(id){document.getElementById(id).innerHTML=''});
+    ['dfsResult','reviveResult','simResult','gradeResult'].forEach(function(id){document.getElementById(id).innerHTML=''});
     fetchClosureRates(code);
     toast('ReplayCode 解码成功','ok');
   }catch(e){out.textContent=e.message;out.className='msg msg-err'}
@@ -1070,6 +1096,80 @@ async function runSim(){
     toast(lm[strategy]+'模拟完成: '+pct+'%','ok');
   }catch(e){out.textContent=e.message;out.className='msg msg-err'}
   finally{btn.innerHTML='▶ 运行';btn.disabled=false}
+}
+
+// ═══════════════════════════════════
+//  Grade
+// ═══════════════════════════════════
+var GRADE_COLORS=['var(--ok)','var(--ok)','var(--warn)','var(--warn)','var(--bad)','var(--bad)','var(--bad)','var(--bad)'];
+var GRADE_LABELS=['档0·极简','档1·简单','档2·中等偏易','档3·中等','档4·中等偏难','档5·困难','档6·很难','档7·极难'];
+
+async function runGrade(){
+  var d=S.result;if(!d){toast('请先生成或导入牌局','err');return}
+  var btn=document.getElementById('btnGrade'),out=document.getElementById('gradeResult');
+  var target=parseInt(document.getElementById('gradeTarget').value);
+  var runs=parseInt(document.getElementById('gradeRuns').value)||100;
+  var endpoint=target>=0?'/api/grade/validate':'/api/grade/calculate';
+  var body={replayCode:d.replayCode,levelId:document.getElementById('levelId').value,runs:runs};
+  if(target>=0)body.targetGrade=target;
+
+  btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;out.textContent='';out.className='msg';
+  try{
+    var r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var v=await r.json();
+    if(!v.ok){out.textContent=v.error;out.className='msg msg-err';return}
+    renderGradeResult(v,out);
+  }catch(e){out.textContent=e.message;out.className='msg msg-err'}
+  finally{btn.innerHTML='▶ 一键分档';btn.disabled=false}
+}
+
+function renderGradeResult(v,out){
+  var s1=v.simResults.sim1,s5=v.simResults.sim5,s15=v.simResults.sim15;
+  var fmt=function(r){return(r.winRate*100).toFixed(1)+'%'};
+
+  // sim 三率行
+  var html='<div style="display:flex;gap:10px;margin-bottom:6px;font-size:11px;font-family:var(--mono)">';
+  html+='<span style="color:var(--dim)">sim1%:</span><b>'+fmt(s1)+'</b>';
+  html+='<span style="color:var(--dim)">sim5%:</span><b>'+fmt(s5)+'</b>';
+  html+='<span style="color:var(--dim)">sim15%:</span><b>'+fmt(s15)+'</b>';
+  html+='<span style="color:var(--dim)">稳:</span><b>'+(v.stability*100).toFixed(0)+'%</b>';
+  html+='<span style="color:var(--faint);margin-left:auto">'+(v.runs)+'次</span>';
+  html+='</div>';
+
+  // 分档结果
+  var std=v.grade.standard,ref=v.grade.refined;
+  var stdCls=std.passed?GRADE_COLORS[std.grade]||'var(--text)':'var(--bad)';
+  var refCls=ref.passed?GRADE_COLORS[ref.grade]||'var(--text)':'var(--bad)';
+  var stdIcon=std.passed?'✓':'✗';
+  var refIcon=ref.passed?'✓':'✗';
+
+  html+='<div style="display:flex;gap:12px;margin-bottom:4px">';
+  html+='<div style="flex:1;padding:6px 8px;background:var(--paper);border-radius:6px;border:1px solid var(--line)">';
+  html+='<span style="color:var(--faint);font-size:9px">标准版</span> ';
+  html+='<span style="font-weight:700;color:'+stdCls+'">['+(std.grade>=0?'档'+std.grade:'?')+']</span> ';
+  html+='<span style="color:'+stdCls+'">'+stdIcon+'</span>';
+  if(!std.passed&&std.reason)html+='<div style="font-size:9px;color:var(--bad);margin-top:2px">'+std.reason+'</div>';
+  html+='</div>';
+  html+='<div style="flex:1;padding:6px 8px;background:var(--paper);border-radius:6px;border:1px solid var(--line)">';
+  html+='<span style="color:var(--faint);font-size:9px">精筛版</span> ';
+  html+='<span style="font-weight:700;color:'+refCls+'">['+(ref.grade>=0?'档'+ref.grade:'?')+']</span> ';
+  html+='<span style="color:'+refCls+'">'+refIcon+'</span>';
+  if(!ref.passed&&ref.reason)html+='<div style="font-size:9px;color:var(--bad);margin-top:2px">'+ref.reason+'</div>';
+  html+='</div></div>';
+
+  // 校验结果
+  if(v.validation){
+    var val=v.validation;
+    html+='<div style="margin-top:6px;padding:6px 8px;background:var(--paper);border-radius:6px;border:1px solid '+(val.standardMatch&&val.refinedMatch?'var(--ok)':'var(--bad)')+'">';
+    html+='<span style="font-size:9px;color:var(--faint)">校验目标档'+val.targetGrade+':</span> ';
+    html+='<span style="font-size:11px;font-weight:600">标准版 '+(val.standardMatch?'<span style="color:var(--ok)">✓ 通过</span>':'<span style="color:var(--bad)">✗</span>')+'</span> ';
+    html+='<span style="font-size:11px;font-weight:600">精筛版 '+(val.refinedMatch?'<span style="color:var(--ok)">✓ 通过</span>':'<span style="color:var(--bad)">✗</span>')+'</span>';
+    if(val.reasons.length)html+='<div style="font-size:9px;color:var(--bad);margin-top:2px">'+val.reasons.join('；')+'</div>';
+    html+='</div>';
+  }
+
+  out.innerHTML=html;out.className='msg';
+  toast('分档完成: '+(std.grade>=0?'档'+std.grade+'·'+GRADE_LABELS[std.grade]||'':std.label),'ok');
 }
 
 function renderSimHistory(){

@@ -205,6 +205,28 @@ export {
 // Cost 生成器
 export { generateCostArray, generateForTerrain } from './cost-generator.js';
 
+// 分档
+export {
+  computeStability,
+  checkCondition,
+  gradeStandard,
+  gradeRefined,
+  gradeFull,
+  validateGrade,
+} from './grader.js';
+export type {
+  SimResult,
+  SimSnapshot,
+  ConditionType,
+  GradeCondition,
+  StandardTier,
+  RefinedTier,
+  GradeConfig,
+  GradeVerdict,
+  GradeResult,
+  GradeValidation,
+} from './grader.js';
+
 // 工具
 export { computeCRC16, computeCRC16Bitwise } from './crc16.js';
 export { logger, setLogLevel, LogLevel } from './logger.js';
