@@ -531,16 +531,19 @@ const server = createServer(async (req, res) => {
       const freeTiles = allTiles.filter(t => !t.isConst);
       const ordered = getCanonicalTileOrder(allTiles);
 
-      // 构建 tileId → element 映射
+      // 构建 tileId → element 映射（仅自由牌，与生成路径的 assignments 一致）
       const elemMap = new Map<number, number>();
       for (let i = 0; i < ordered.length && i < replayData.instanceArray.length; i++) {
-        elemMap.set(ordered[i].id, (replayData.instanceArray[i] & 0x3F) + 1);
+        const tile = ordered[i];
+        if (!tile.isConst) {
+          elemMap.set(tile.id, (replayData.instanceArray[i] & 0x3F) + 1);
+        }
       }
 
-      // 计算依赖深度
+      // 计算依赖深度 — tileMap 必须包含全部牌（含固定牌），否则依赖链被截断
       const freeOnly = freeTiles;
-      const tileMap = new Map(freeOnly.map(t => [t.id, t]));
-      const depthMap = computeDependencyDepth(freeOnly, tileMap);
+      const allTileMap = new Map(allTiles.map(t => [t.id, t]));
+      const depthMap = computeDependencyDepth(freeOnly, allTileMap);
       const maxDepth = freeOnly.length > 0 ? Math.max(...depthMap.values()) : 0;
 
       // 按深度分层
@@ -581,18 +584,16 @@ const server = createServer(async (req, res) => {
         layerDebts.push(debt);
       }
 
-      // 组装 computeMetrics 所需参数
-      const allTilesArr = allTiles;
-      const tileMap2 = new Map(allTilesArr.map(t => [t.id, t]));
-      const tileDepSets = computeTileDepSets(allTilesArr, tileMap2);
+      // 组装 computeMetrics 所需参数（复用上面的 allTileMap）
+      const tileDepSets = computeTileDepSets(allTiles, allTileMap);
       const dock = 7; // 默认 dock 容量
 
       const metrics = computeMetrics(
         elemMap,
-        allTilesArr,
+        allTiles,
         depthLayers,
         depthMap,
-        tileMap2,
+        allTileMap,
         tileDepSets,
         dock,
         colorCount,
