@@ -607,7 +607,7 @@ const server = createServer(async (req, res) => {
 
       const metrics = computeMetrics(
         elemMap,
-        allTiles,
+        freeOnly,        // 与生成路径一致：传自由牌，不含固定牌
         depthLayers,
         depthMap,
         allTileMap,
