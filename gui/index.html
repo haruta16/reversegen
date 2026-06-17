@@ -1101,7 +1101,6 @@ async function runSim(){
 // ═══════════════════════════════════
 //  Grade
 // ═══════════════════════════════════
-var GRADE_COLORS=['var(--ok)','var(--ok)','var(--warn)','var(--warn)','var(--bad)','var(--bad)','var(--bad)','var(--bad)'];
 var GRADE_LABELS=['档0·极简','档1·简单','档2·中等偏易','档3·中等','档4·中等偏难','档5·困难','档6·很难','档7·极难'];
 
 async function runGrade(){
@@ -1136,24 +1135,24 @@ function renderGradeResult(v,out){
   html+='<span style="color:var(--faint);margin-left:auto">'+(v.runs)+'次</span>';
   html+='</div>';
 
-  // 分档结果
+  // 分档结果 — 颜色只看 pass/fail，和难度无关
   var std=v.grade.standard,ref=v.grade.refined;
-  var stdCls=std.passed?GRADE_COLORS[std.grade]||'var(--text)':'var(--bad)';
-  var refCls=ref.passed?GRADE_COLORS[ref.grade]||'var(--text)':'var(--bad)';
+  var stdCls=std.passed?'var(--ok)':'var(--bad)';
+  var refCls=ref.passed?'var(--ok)':'var(--bad)';
   var stdIcon=std.passed?'✓':'✗';
   var refIcon=ref.passed?'✓':'✗';
 
   html+='<div style="display:flex;gap:12px;margin-bottom:4px">';
   html+='<div style="flex:1;padding:6px 8px;background:var(--paper);border-radius:6px;border:1px solid var(--line)">';
   html+='<span style="color:var(--faint);font-size:9px">标准版</span> ';
-  html+='<span style="font-weight:700;color:'+stdCls+'">['+(std.grade>=0?'档'+std.grade:'?')+']</span> ';
-  html+='<span style="color:'+stdCls+'">'+stdIcon+'</span>';
+  html+='<span style="font-weight:700;color:var(--text)">['+(std.grade>=0?'档'+std.grade:'?')+']</span> ';
+  html+='<span style="font-weight:700;color:'+stdCls+'">'+stdIcon+'</span>';
   if(!std.passed&&std.reason)html+='<div style="font-size:9px;color:var(--bad);margin-top:2px">'+std.reason+'</div>';
   html+='</div>';
   html+='<div style="flex:1;padding:6px 8px;background:var(--paper);border-radius:6px;border:1px solid var(--line)">';
   html+='<span style="color:var(--faint);font-size:9px">精筛版</span> ';
-  html+='<span style="font-weight:700;color:'+refCls+'">['+(ref.grade>=0?'档'+ref.grade:'?')+']</span> ';
-  html+='<span style="color:'+refCls+'">'+refIcon+'</span>';
+  html+='<span style="font-weight:700;color:var(--text)">['+(ref.grade>=0?'档'+ref.grade:'?')+']</span> ';
+  html+='<span style="font-weight:700;color:'+refCls+'">'+refIcon+'</span>';
   if(!ref.passed&&ref.reason)html+='<div style="font-size:9px;color:var(--bad);margin-top:2px">'+ref.reason+'</div>';
   html+='</div></div>';
 
