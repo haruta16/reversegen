@@ -30,6 +30,8 @@ import {
   computeStability,
   computeAllDependencies,
   runPureGreedySimulation,
+  computeMetrics,
+  computeTileDepSets,
 } from '../src/index.js';
 import type { TerrainTile, GradeConfig, GradeResult, GradeValidation } from '../src/index.js';
 import {
@@ -579,15 +581,28 @@ const server = createServer(async (req, res) => {
         layerDebts.push(debt);
       }
 
+      // 组装 computeMetrics 所需参数
+      const allTilesArr = allTiles;
+      const tileMap2 = new Map(allTilesArr.map(t => [t.id, t]));
+      const tileDepSets = computeTileDepSets(allTilesArr, tileMap2);
+      const dock = 7; // 默认 dock 容量
+
+      const metrics = computeMetrics(
+        elemMap,
+        allTilesArr,
+        depthLayers,
+        depthMap,
+        tileMap2,
+        tileDepSets,
+        dock,
+        colorCount,
+        layerClosureRates,
+      );
+
       json(res, {
         ok: true,
         levelHash: terrain.levelHash || '',
-        depthCount: maxDepth,
-        colorCount,
-        tilesPerDepth: layerTilesPerDepth,
-        closeRates: layerClosureRates,
-        closedCounts: layerClosedCounts,
-        debts: layerDebts,
+        metrics,
         totalFreeTiles: freeOnly.length,
       });
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }

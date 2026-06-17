@@ -384,7 +384,7 @@ function clamp(v: number, lo: number, hi: number): number {
 /**
  * 为每个 tile 计算其 depSet：自身 + 传递依赖闭包。
  */
-function computeTileDepSets(
+export function computeTileDepSets(
   tiles: TerrainTile[],
   tileMap: Map<number, TerrainTile>,
 ): Map<number, Set<number>> {
@@ -618,7 +618,7 @@ function buildTriplets(
 // 6. 难度指标
 // ═══════════════════════════════════════════════════════════
 
-function computeMetrics(
+export function computeMetrics(
   assignments: Map<number, number>,
   tiles: TerrainTile[],
   depthLayers: TerrainTile[][],
@@ -741,7 +741,7 @@ function computeMetrics(
   };
 }
 
-function computeExpDebt(
+export function computeExpDebt(
   tiles: TerrainTile[],
   depthLayers: TerrainTile[][],
   depthMap: Map<number, number>,

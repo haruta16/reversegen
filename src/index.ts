@@ -205,9 +205,10 @@ export {
 // Cost 生成器
 export { generateCostArray, generateForTerrain } from './cost-generator.js';
 
-// 依赖图 / 贪心模拟
+// 依赖图 / 贪心模拟 / 闭合率指标
 export { transitiveClosure, computeAllDependencies } from './dependency-graph.js';
 export { runPureGreedySimulation } from './greedy-sim.js';
+export { computeMetrics, computeExpDebt, computeTileDepSets } from './layer-closure-gen.js';
 
 // 分档
 export {

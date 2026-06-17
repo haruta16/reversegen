@@ -750,6 +750,8 @@ function showResult(d){
 
 function showClosure(d){
   var m=d.metrics||{};
+  // 判断是否有目标闭合率（生成有、导入没有）
+  var hasTargets=d.algorithm==='closure'&&!!document.getElementById('closeRates').value.trim();
   document.getElementById('stats').innerHTML=
     '<div class="stat'+(m.isDoomed?' hi':'')+'"><div class="n '+(m.isDoomed?'n-bad':'n-ok')+'">'+(m.isDoomed?'⚠是':'✓否')+'</div><div class="lbl">必输</div></div>'+
     '<div class="stat"><div class="n n-warn">'+m.peakDebt+'/'+(m.peakExpDebt||0)+'</div><div class="lbl">债务峰/暴露</div></div>'+
@@ -760,8 +762,12 @@ function showClosure(d){
     '<div class="stat"><div class="n">'+((m.suitSpreadNorm||0)*100).toFixed(0)+'%</div><div class="lbl">归一离散</div></div>'+
     '<div class="stat"><div class="n '+(m.allSuitsClosed?'n-ok':'n-bad')+'">'+(m.allSuitsClosed?'✓':'✗')+'</div><div class="lbl">花色×3</div></div>';
   document.getElementById('stepSection').style.display='none';
-  document.getElementById('chartTitle').textContent='闭合率 设定 vs 实际';
-  drawClosureChart(d,m);
+  document.getElementById('chartTitle').textContent=hasTargets?'闭合率 设定 vs 实际':'闭合率';
+  document.getElementById('chartLegend').innerHTML=
+    '<span style="color:'+(hasTargets?'#d4a853':'#7ec99c')+'">▮ '+(hasTargets?'目标':'实际')+'</span>'+
+    (hasTargets?' <span style="color:#7ec99c">▮ 实际</span>':'')+
+    ' · 花色<b>'+m.colorCount+'</b> · 深度<b>'+m.depthCount+'</b>层';
+  drawClosureChart(d,m,hasTargets);
 }
 
 function showCostLadder(d){
@@ -822,7 +828,7 @@ function drawCostChart(d){
   }
 }
 
-function drawClosureChart(d,m){
+function drawClosureChart(d,m,hasTargets){
   var c=document.getElementById('mainChart');c.style.display='';
   var ctx=c.getContext('2d'),dpr=window.devicePixelRatio||1;
   var rect=c.getBoundingClientRect(),W=rect.width,H=190;
@@ -847,27 +853,39 @@ function drawClosureChart(d,m){
     ctx.fillStyle='#c2784b';ctx.font='8px sans-serif';ctx.textAlign='left';ctx.fillText(dv,W-pad.r+4,y+3);
   });
 
-  // Bars: target vs actual closure rates
-  var origStr=document.getElementById('closeRates').value;
-  var origRates=origStr?origStr.split(',').map(Number):[];
+  // Bars: target vs actual closure rates (only when hasTargets)
+  var origRates=hasTargets?(function(){
+    var s=document.getElementById('closeRates').value;
+    return s?s.split(',').map(Number):[];
+  })():[];
   var debtPts=[],expPts=[];
   for(var i=0;i<n;i++){
     var x=pad.l+gw*i;
-    // Target bar
-    ctx.fillStyle='rgba(212,168,83,.25)';
-    var setH=(origRates&&i<origRates.length?origRates[i]:(i===n-1?1:0))*ch;
-    ctx.fillRect(x+bw*.1,pad.t+ch-setH,bw*.35,setH);
-    // Actual bar
+    var barW=hasTargets?bw*.35:bw*.6; // 无目标时实际柱宽占满
+
+    if(hasTargets){
+      // Target bar (gold, left side)
+      ctx.fillStyle='rgba(212,168,83,.25)';
+      var setH=(origRates&&i<origRates.length?origRates[i]:(i===n-1?1:0))*ch;
+      ctx.fillRect(x+bw*.1,pad.t+ch-setH,bw*.35,setH);
+    }
+
+    // Actual bar (green, right side or centered)
+    var actX=hasTargets?x+bw*.5:x+bw*.15;
     ctx.fillStyle='#7ec99c';
     var actH=(m.actualCloseRates||[])[i]*ch;
-    ctx.fillRect(x+bw*.5,pad.t+ch-actH,bw*.35,actH);
+    ctx.fillRect(actX,pad.t+ch-actH,barW,actH);
+
     // Layer label
     ctx.fillStyle='#5c5950';ctx.font='9px sans-serif';ctx.textAlign='center';
     ctx.fillText('L'+(i+1),x+bw/2,H-pad.b+14);
+
     // Debt number above bars
     var dv=(m.debtByLayer||[])[i]||0,ev=(m.expDebtByLayer||[])[i]||0;
     ctx.fillStyle='#c2784b';ctx.font='bold 7px sans-serif';
-    ctx.fillText(dv+'/'+ev,x+bw/2,pad.t+ch-Math.max(setH,actH)-3);
+    var topH=hasTargets?Math.max(setH,actH):actH;
+    ctx.fillText(dv+'/'+ev,x+bw/2,pad.t+ch-topH-3);
+
     // Track points for debt curves
     debtPts.push({x:x+bw/2,y:pad.t+ch-(dv/maxD)*ch});
     expPts.push({x:x+bw/2,y:pad.t+ch-(ev/maxD)*ch});
@@ -936,41 +954,19 @@ async function decodeCode(){
 
     out.textContent='v'+d.version+' · '+d.tileCount+'张 · '+d.elementCount+'花色 · Dock×'+d.dockEntries.length;out.className='msg msg-ok';
 
-    // 2. 拉取地形信息（free/fixed 拆分、深度层）
-    var ti=null;
+    // 2. 拉取闭合率指标（完整 DebtMetrics，与生成时 showClosure 所需字段一致）
+    var m=null;
     try{
-      var tr=await fetch('/api/terrain-info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code})});
-      ti=await tr.json();
+      var mr=await fetch('/api/replay-closure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code})});
+      m=await mr.json();
     }catch(e){}
 
-    // 3. 拉取 costLog（贪心模拟计算每步 cost）
-    var cl=null;
-    try{
-      var clr=await fetch('/api/replay-costlog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code})});
-      cl=await clr.json();
-    }catch(e){}
-
-    // 4. 组装结果对象 — 字段和生成结果完全一致（无目标值的填默认值）
-    var freeTiles=ti&&ti.ok?ti.freeTiles:0;
-    var constTiles=ti&&ti.ok?(ti.totalTiles-freeTiles):0;
+    // 3. 组装结果对象 — 与 LayerClosure 生成结果字段对齐
+    var metrics=m&&m.ok?m.metrics:{};
     var resultObj={
-      algorithm:'costladder',
+      algorithm:'closure',
       replayCode:code,
-      matchRate:null,
-      totalSteps:cl&&cl.ok?cl.totalSteps:Math.floor(freeTiles/3),
-      colorCount:d.elementCount,
-      stats:cl&&cl.ok?cl.stats:null,
-      banSetSize:0,
-      terrainSummary:{
-        totalTiles:ti&&ti.ok?ti.totalTiles:d.tileCount,
-        freeTiles:freeTiles,
-        constTiles:constTiles,
-        source:ti&&ti.ok&&ti.resolvedPath?ti.resolvedPath.split('/').pop():'—',
-      },
-      costLog:cl&&cl.ok?cl.costLog:[],
-      costTargets:[],
-      deviationCount:null,
-      stepLog:[],
+      metrics:metrics,
       tiles:(d.tiles||[]).map(function(t){return{element:t.elemValue};}),
     };
 
@@ -981,7 +977,7 @@ async function decodeCode(){
     S.result=resultObj;S.sims=[];
     document.getElementById('simHistory').innerHTML='';
 
-    // 5. 复用和生成完全相同的渲染路径
+    // 4. 复用和生成完全相同的渲染路径 → showClosure
     showResult(resultObj);
     showVerify(resultObj);
     document.getElementById('resultAlgo').textContent='导入';
