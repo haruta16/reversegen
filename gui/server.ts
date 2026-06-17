@@ -552,12 +552,19 @@ const server = createServer(async (req, res) => {
         depthLayers.push(freeOnly.filter(t => depthMap.get(t.id) === d));
       }
 
-      // 收集所有花色
+      // 收集所有花色 + 各花色总数（用于计算 active 分母）
       const allColors = new Set<number>();
-      for (const [, color] of elemMap) { if (color > 0) allColors.add(color); }
+      const totalByColor = new Map<number, number>();
+      for (const [, color] of elemMap) {
+        if (color > 0) {
+          allColors.add(color);
+          totalByColor.set(color, (totalByColor.get(color) ?? 0) + 1);
+        }
+      }
       const colorCount = allColors.size;
 
-      // 逐层累积，计算闭合率
+      // 逐层累积，计算闭合率（与 buildMatrixByCloseRates 逻辑一致）
+      // 分母 = active 花色数（还有剩余牌待分配的花色），而非全花色数
       const cumByColor = new Map<number, number>(); // color → cumulative count
       const layerClosureRates: number[] = [];
       const layerClosedCounts: number[] = [];
@@ -566,21 +573,31 @@ const server = createServer(async (req, res) => {
 
       for (const layer of depthLayers) {
         layerTilesPerDepth.push(layer.length);
+
+        // active = 还有剩余牌的花色集合（加本层之前的状态，与 buildMatrixByCloseRates 一致）
+        const active = new Set<number>();
+        for (const [color, total] of totalByColor) {
+          if ((cumByColor.get(color) ?? 0) < total) active.add(color);
+        }
+
+        // 累加本层方块
         for (const tile of layer) {
           const color = elemMap.get(tile.id) ?? 0;
           if (color > 0) {
             cumByColor.set(color, (cumByColor.get(color) ?? 0) + 1);
           }
         }
-        // 计算闭合的花色数（累计数 % 3 === 0）
+
+        // closed = 在 active 集合中，累计数 % 3 === 0 的花色数
         let closed = 0;
         let debt = 0;
-        for (const [, cnt] of cumByColor) {
+        for (const color of active) {
+          const cnt = cumByColor.get(color) ?? 0;
           if (cnt % 3 === 0) closed++;
           debt += cnt % 3;
         }
         layerClosedCounts.push(closed);
-        layerClosureRates.push(colorCount > 0 ? closed / colorCount : 0);
+        layerClosureRates.push(active.size > 0 ? closed / active.size : 0);
         layerDebts.push(debt);
       }
 
