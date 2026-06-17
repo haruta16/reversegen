@@ -765,24 +765,25 @@ function showClosure(d){
 }
 
 function showCostLadder(d){
-  var mr=d.matchRate!=null?d.matchRate.toFixed(0)+'%':'—';
-  var mc=d.matchRate!=null?(d.matchRate>=80?'n-ok':d.matchRate>=50?'n-warn':'n-bad'):'';
+  var hasTargets=(d.costTargets||[]).length>0;
+  var mr=hasTargets&&d.matchRate!=null?d.matchRate.toFixed(0)+'%':'—';
+  var mc=hasTargets&&d.matchRate!=null?(d.matchRate>=80?'n-ok':d.matchRate>=50?'n-warn':'n-bad'):'';
   document.getElementById('stats').innerHTML=
     '<div class="stat hi"><div class="n '+mc+'">'+mr+'</div><div class="lbl">匹配率</div></div>'+
     '<div class="stat"><div class="n n-gold">'+d.totalSteps+'</div><div class="lbl">总步数</div></div>'+
     '<div class="stat"><div class="n">'+d.colorCount+'</div><div class="lbl">花色数</div></div>'+
     '<div class="stat"><div class="n">'+(d.stats?d.stats.min+'-'+d.stats.max:'—')+'</div><div class="lbl">Cost范围</div></div>'+
     '<div class="stat"><div class="n">'+(d.stats?d.stats.avg.toFixed(1):'—')+'</div><div class="lbl">Cost均值</div></div>'+
-    '<div class="stat"><div class="n n-warn">'+(d.banSetSize||0)+'</div><div class="lbl">黑名单</div></div>'+
+    '<div class="stat"><div class="n n-warn">'+(hasTargets?d.banSetSize||0:'—')+'</div><div class="lbl">黑名单</div></div>'+
     '<div class="stat"><div class="n">'+(d.terrainSummary?d.terrainSummary.totalTiles:'—')+'</div><div class="lbl">总牌数</div></div>'+
     '<div class="stat"><div class="n">'+(d.terrainSummary?d.terrainSummary.freeTiles+'/'+d.terrainSummary.constTiles:'—')+'</div><div class="lbl">自由/固定</div></div>';
-  document.getElementById('stepSection').style.display='';
-  document.getElementById('chartTitle').textContent='Cost Ladder 对比';
-  document.getElementById('chartLegend').innerHTML=
-    '<span style="color:#d4a853">▮ 目标</span> <span style="color:#7ec99c">▮ 实际</span> <span style="color:#d9706a">▮ 偏差</span>'+
-    ' · 匹配'+mr+' · '+(d.deviationCount||0)+'处偏差 · avg '+((d.stats||{}).avg||0).toFixed(1);
+  document.getElementById('stepSection').style.display=hasTargets?'':'none';
+  document.getElementById('chartTitle').textContent=hasTargets?'Cost Ladder 对比':'Cost Ladder';
+  document.getElementById('chartLegend').innerHTML=hasTargets
+    ?'<span style="color:#d4a853">▮ 目标</span> <span style="color:#7ec99c">▮ 实际</span> <span style="color:#d9706a">▮ 偏差</span> · 匹配'+mr+' · '+(d.deviationCount||0)+'处偏差 · avg '+((d.stats||{}).avg||0).toFixed(1)
+    :'<span style="color:#7ec99c">▮ 实际Cost</span> · '+d.totalSteps+'步 · avg '+((d.stats||{}).avg||0).toFixed(1);
   drawCostChart(d);
-  renderStepTable(d);
+  if(hasTargets)renderStepTable(d);
 }
 
 // ═══════════════════════════════════
@@ -817,7 +818,7 @@ function drawCostChart(d){
       ctx.strokeStyle='rgba(212,168,83,.25)';ctx.lineWidth=1;ctx.setLineDash([2,2]);
       ctx.strokeRect(x+gw*.05,ty,gw*.9,th);ctx.setLineDash([]);
       ctx.fillStyle=ok?'#7ec99c':'#d9706a';ctx.fillRect(x+gw*.2,ay,gw*.6,Math.max(1,ah));
-    }else{ctx.fillStyle=cx((i%8)+1);ctx.fillRect(x+gw*.1,ay,gw*.8,Math.max(1,ah))}
+    }else{ctx.fillStyle=tgt.length?cx((i%8)+1):'#7ec99c';ctx.fillRect(x+gw*.1,ay,gw*.8,Math.max(1,ah))}
   }
 }
 
@@ -928,35 +929,63 @@ async function decodeCode(){
   if(!code){out.textContent='';return}
   out.textContent='解码中...';out.className='msg';
   try{
+    // 1. 解码 replay code
     var r=await fetch('/api/decode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code})});
     var d=await r.json();
     if(!d.ok){out.textContent=d.error;out.className='msg msg-err';return}
 
-    var dist={};
-    (d.tiles||[]).forEach(function(t){dist[t.elemValue]=(dist[t.elemValue]||0)+1});
-    var distS=Object.entries(dist).sort(function(a,b){return +a[0]-+b[0]}).map(function(e){return'<span style="color:'+cx(+e[0])+'">花'+e[0]+':'+e[1]+'</span>'}).join(' · ');
-
     out.textContent='v'+d.version+' · '+d.tileCount+'张 · '+d.elementCount+'花色 · Dock×'+d.dockEntries.length;out.className='msg msg-ok';
 
+    // 2. 拉取地形信息（free/fixed 拆分、深度层）
+    var ti=null;
+    try{
+      var tr=await fetch('/api/terrain-info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code})});
+      ti=await tr.json();
+    }catch(e){}
+
+    // 3. 拉取 costLog（贪心模拟计算每步 cost）
+    var cl=null;
+    try{
+      var clr=await fetch('/api/replay-costlog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code})});
+      cl=await clr.json();
+    }catch(e){}
+
+    // 4. 组装结果对象 — 字段和生成结果完全一致（无目标值的填默认值）
+    var freeTiles=ti&&ti.ok?ti.freeTiles:0;
+    var constTiles=ti&&ti.ok?(ti.totalTiles-freeTiles):0;
+    var resultObj={
+      algorithm:'costladder',
+      replayCode:code,
+      matchRate:null,
+      totalSteps:cl&&cl.ok?cl.totalSteps:Math.floor(freeTiles/3),
+      colorCount:d.elementCount,
+      stats:cl&&cl.ok?cl.stats:null,
+      banSetSize:0,
+      terrainSummary:{
+        totalTiles:ti&&ti.ok?ti.totalTiles:d.tileCount,
+        freeTiles:freeTiles,
+        constTiles:constTiles,
+        source:ti&&ti.ok&&ti.resolvedPath?ti.resolvedPath.split('/').pop():'—',
+      },
+      costLog:cl&&cl.ok?cl.costLog:[],
+      costTargets:[],
+      deviationCount:null,
+      stepLog:[],
+      tiles:(d.tiles||[]).map(function(t){return{element:t.elemValue};}),
+    };
+
     document.getElementById('resultCard').style.display='';
-    document.getElementById('resultAlgo').textContent='导入';
-    document.getElementById('stats').innerHTML=
-      '<div class="stat"><div class="n">'+d.tileCount+'</div><div class="lbl">总牌数</div></div>'+
-      '<div class="stat"><div class="n n-ok">'+d.elementCount+'</div><div class="lbl">花色数</div></div>'+
-      '<div class="stat"><div class="n">v'+d.version+'</div><div class="lbl">版本</div></div>'+
-      '<div class="stat"><div class="n n-warn">'+d.dockEntries.length+'</div><div class="lbl">初始Dock</div></div>';
-    document.getElementById('stepSection').style.display='none';
-    document.getElementById('chartTitle').textContent='逐层闭合率';
-    document.getElementById('mainChart').style.display='';
-    document.getElementById('elemDist').innerHTML=distS||'<span style="color:var(--faint)">—</span>';
     document.getElementById('codeBox').textContent=code;
     document.getElementById('emptyState').style.display='none';
 
-    S.result={replayCode:code};S.sims=[];
+    S.result=resultObj;S.sims=[];
     document.getElementById('simHistory').innerHTML='';
-    showVerify({algorithm:'import'});
+
+    // 5. 复用和生成完全相同的渲染路径
+    showResult(resultObj);
+    showVerify(resultObj);
+    document.getElementById('resultAlgo').textContent='导入';
     ['dfsResult','reviveResult','simResult','gradeResult'].forEach(function(id){document.getElementById(id).innerHTML=''});
-    fetchClosureRates(code);
     toast('ReplayCode 解码成功','ok');
   }catch(e){out.textContent=e.message;out.className='msg msg-err'}
 }

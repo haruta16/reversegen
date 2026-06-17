@@ -28,6 +28,8 @@ import {
   gradeFull,
   validateGrade,
   computeStability,
+  computeAllDependencies,
+  runPureGreedySimulation,
 } from '../src/index.js';
 import type { TerrainTile, GradeConfig, GradeResult, GradeValidation } from '../src/index.js';
 import {
@@ -587,6 +589,64 @@ const server = createServer(async (req, res) => {
         closedCounts: layerClosedCounts,
         debts: layerDebts,
         totalFreeTiles: freeOnly.length,
+      });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
+  // ── API: replay cost log ──
+  if (url.pathname === '/api/replay-costlog' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const { replayCode, levelId, levelsDir } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string;
+      };
+      if (!replayCode) throw new Error('缺少 replayCode');
+
+      const replayData = decodeFromString(replayCode);
+      if (!replayData) throw new Error('ReplayCode 解码失败');
+
+      // 解析地形
+      let path: string | null = null;
+      if (replayData.levelHash !== 0n) {
+        const hashStr = replayData.levelHash.toString(16).padStart(16, '0');
+        path = findTerrainByLevelHash(hashStr, levelsDir || defaultLevelsDir);
+      }
+      if (!path && levelId) {
+        path = resolveTerrainPath(levelId, levelsDir, undefined);
+      }
+      if (!path) throw new Error('无法解析地形');
+
+      const terrain = loadTerrainFromFile(path);
+      const allTiles = getAllTiles(terrain);
+      const freeTiles = allTiles.filter(t => !t.isConst);
+      const ordered = getCanonicalTileOrder(allTiles);
+      const steps = Math.floor(freeTiles.length / 3);
+
+      // 构建 tileId → color 映射
+      const assignments = new Map<number, number>();
+      for (let i = 0; i < ordered.length && i < replayData.instanceArray.length; i++) {
+        const tile = ordered[i];
+        const elemValue = (replayData.instanceArray[i] & 0x3F) + 1;
+        assignments.set(tile.id, elemValue);
+      }
+
+      // 计算依赖闭包 + 运行贪心模拟
+      const allDeps = computeAllDependencies(allTiles);
+      const { costLog, branchLog } = runPureGreedySimulation(freeTiles, assignments, allDeps, steps);
+
+      const stats = costLog.length > 0 ? {
+        min: Math.min(...costLog),
+        max: Math.max(...costLog),
+        avg: costLog.reduce((a, b) => a + b, 0) / costLog.length,
+      } : { min: 0, max: 0, avg: 0 };
+
+      json(res, {
+        ok: true,
+        costLog,
+        branchLog,
+        stats,
+        totalSteps: steps,
       });
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
     return;
