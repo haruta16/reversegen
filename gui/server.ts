@@ -605,6 +605,85 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // ── API: 从 ReplayCode 提取参数（用于导入到生成输入区）──
+  if (url.pathname === '/api/replay-params' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const { replayCode, levelsDir } = body as {
+        replayCode?: string; levelsDir?: string;
+      };
+      if (!replayCode) throw new Error('Missing replayCode');
+
+      const replayData = decodeFromString(replayCode);
+      if (!replayData) throw new Error('ReplayCode 解码失败');
+
+      // 解析地形
+      let path: string | null = null;
+      let levelId: string | null = null;
+      if (replayData.levelHash !== 0n) {
+        const hashStr = replayData.levelHash.toString(16).padStart(16, '0');
+        path = findTerrainByLevelHash(hashStr, levelsDir || defaultLevelsDir);
+      }
+      if (path) {
+        // 从文件路径提取 levelId（文件名不含扩展名）
+        levelId = basename(path, '.json');
+      }
+
+      // 加载地形以获取深度分层
+      if (!path) throw new Error('无法解析地形（ReplayCode 中无 levelHash 或无匹配关卡文件）');
+      const terrain = loadTerrainFromFile(path);
+      const allTiles = getAllTiles(terrain);
+      const freeTiles = allTiles.filter(t => !t.isConst);
+      const ordered = getCanonicalTileOrder(allTiles);
+
+      // 构建 tileId → element 映射
+      const elemMap = new Map<number, number>();
+      for (let i = 0; i < ordered.length && i < replayData.instanceArray.length; i++) {
+        const tile = ordered[i];
+        if (!tile.isConst) {
+          elemMap.set(tile.id, (replayData.instanceArray[i] & 0x3F) + 1);
+        }
+      }
+
+      // 依赖深度分层
+      const allTileMap = new Map(allTiles.map(t => [t.id, t]));
+      const depthMap = computeDependencyDepth(freeTiles, allTileMap);
+      const maxDepth = freeTiles.length > 0 ? Math.max(...depthMap.values()) : 0;
+      const depthLayers: TerrainTile[][] = [];
+      for (let d = 1; d <= maxDepth; d++) {
+        depthLayers.push(freeTiles.filter(t => depthMap.get(t.id) === d));
+      }
+
+      // 花色数
+      const allColors = new Set<number>();
+      for (const [, color] of elemMap) { if (color > 0) allColors.add(color); }
+      const colorCount = allColors.size;
+
+      // 逐层闭合率（triplet 口径）
+      const closeRates = computeCloseRatesFromAssignments(elemMap, depthLayers);
+
+      // Dock 容量：取 dockEntries 数量（至少为常见默认值 7）
+      const dockFromReplay = replayData.dockEntries.length;
+      const dock = Math.max(dockFromReplay, 7);
+
+      const tilesPerDepth = depthLayers.map(l => l.length);
+
+      json(res, {
+        ok: true,
+        levelId,
+        levelResId: terrain.levelResId,
+        levelHash: terrain.levelHash || '',
+        colorCount,
+        dock,
+        closeRates,
+        depthCount: maxDepth,
+        tilesPerDepth,
+        totalFreeTiles: freeTiles.length,
+      });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
   // ── API: replay cost log ──
   if (url.pathname === '/api/replay-costlog' && req.method === 'POST') {
     const body = await parseBody(req);
