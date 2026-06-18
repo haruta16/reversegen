@@ -562,7 +562,7 @@ const server = createServer(async (req, res) => {
       const layerClosureRates = computeCloseRatesFromAssignments(elemMap, depthLayers);
 
       // 组装 computeMetrics 所需参数（复用上面的 allTileMap）
-      const tileDepSets = computeTileDepSets(allTiles, allTileMap);
+      const tileDepSets = computeTileDepSets(freeOnly, allTileMap);
       const dock = 7; // 默认 dock 容量
 
       const metrics = computeMetrics(
