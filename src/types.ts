@@ -189,15 +189,17 @@ export interface LayerClosureInput {
   /** Dock 槽位容量（用于必输判定等指标，不影响花色分配） */
   dock: number;
   /**
-   * 每层闭合率 [0-1]。
+   * 每层目标闭合率 [0-1]。
    * 长度 = 依赖深度层数 - 1（最后一层自动为 1.0，无需传入）。
-   * closeRates[i] = 到深度 i+1 为止，计数为 3 的倍数的花色占比。
    *
-   * 例：[0.25, 0.5, 0.75] 表示：
-   *   深度1: 25% 花色闭合 → 75% 花色有债务
-   *   深度2: 50% 花色闭合 → 50% 花色有债务
-   *   深度3: 75% 花色闭合 → 25% 花色有债务
-   *   深度4: 100%（自动）
+   * 闭合率的单位是 triplet（组），不是颜色。
+   * closeRates[i] = 到深度 i+1 为止，已完成的 triplet 数 ÷ 累积 tile 数对应的可能 triplet 数。
+   *
+   * 例：4 层共 60 个 tile（20 组），closeRates = [0.2, 0.4, 0.6]：
+   *   深度1 12tile: 4 组可能 → 0.2×4≈1 组已完成 → 1 次消除
+   *   深度2 30tile: 10 组可能 → 0.4×10=4 组已完成 → 4 次消除
+   *   深度3 48tile: 16 组可能 → 0.6×16≈10 组已完成 → 10 次消除
+   *   深度4 60tile: 20 组可能 → 1.0×20=20 组全部完成
    */
   closeRates: number[];
   /**
@@ -246,7 +248,7 @@ export interface DebtMetrics {
   consecutiveOI: number;
   /** 实际使用的花色数 */
   colorCount: number;
-  /** 每层实际闭合率（算法执行后的真实值，对比 closeRates 看偏差） */
+  /** 每层实际闭合率（triplet 口径：已完成 triplet 数 ÷ 可能 triplet 数，对比 closeRates 看偏差） */
   actualCloseRates: number[];
   /** 平均每方块被多少方块遮挡 */
   averageOcclusion: number;

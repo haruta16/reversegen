@@ -1,13 +1,21 @@
 /**
  * LayerClosure（层闭合）花色分配算法 — v3 逐层约束满足。
  *
+ * === 闭合率的定义 ===
+ *
+ * 闭合率 = 已完成的 triplet 数 ÷ 累积 tile 数对应的可能 triplet 数。
+ *
+ * 例：1~n 层共 62 个 tile（20 组 + 2），闭合率 50% = 完成了 10 个 triplet（10 次消除）。
+ *
+ * "闭合"的单位是 triplet（组），不是颜色。花色是手段，闭合率是结果。
+ *
  * === 与 v1/v2 的本质区别 ===
  *
  * v1/v2: closeRates → 翻译成中间表示 → 分配 → 算 actualCloseRates（只展示）
- * v3:    closeRates → 每层直接求解"哪些颜色该闭合" → 分配 → actualCloseRates 尽量接近目标
+ * v3:    closeRates → 每层直接求解"该完成几个 triplet" → 分配 → actualCloseRates 尽量接近目标
  *
  * 不再有深度模式、配额、累积曲线、closureStyle 等中间概念。
- * 只做一件事：每层尽量让闭合颜色数 = round(closeRate × 总色数)。
+ * 只做一件事：每层尽量让已完成 triplet 数 = round(closeRate × 累积 tile 数 ÷ 3)。
  *
  * @module layer-closure-gen
  */
@@ -117,15 +125,17 @@ function assignColorTotals(totalTriplets: number, colorCount: number): number[] 
 }
 
 // ═══════════════════════════════════════════════════════════
-// 3. 逐层约束满足：尽力让每层闭合颜色数 = target
+// 3. 逐层约束满足：尽力让每层已完成 triplet 数 = target
 // ═══════════════════════════════════════════════════════════
 
 /**
  * 逐层分配。每层做一次简单的决策：
- *   "当前有 X 个颜色闭合，目标是 Y 个 → 需要关掉或打开几个颜色"
+ *   "当前完成了 X 个 triplet，目标是 Y 个 → 需要多完成几个 triplet"
  *
  * 决策在容量（该层方块数）和物理（颜色剩余牌数）约束下进行。
  * 不保证完美命中，但会往目标方向尽力。
+ *
+ * 闭合率的单位是 triplet（组），不是颜色。花色是手段，闭合率是结果。
  *
  * @returns { matrix, actualCloseRates }
  */
@@ -142,7 +152,6 @@ function buildMatrixByCloseRates(
   for (let c = 0; c < C; c++) {
     if (colorTotalTiles[c] > 0) active.add(c);
   }
-  const A = active.size; // activeColorCount
 
   // 补全 closeRates
   const fullRates = [...closeRates];
@@ -154,44 +163,44 @@ function buildMatrixByCloseRates(
   const M: number[][] = Array.from({ length: C }, () => new Array(D).fill(0));
   const actualCloseRates: number[] = [];
 
+  // 累积 tile 总数（用于计算 P = ⌊total ÷ 3⌋）
+  let totalCumulative = 0;
+
   for (let d = 0; d < D; d++) {
     const capacity = tilesPerDepth[d];
 
-    // 目标闭合数
-    const targetClosed = d === D - 1
-      ? A  // 最后一层全闭合
-      : clamp(Math.round(fullRates[d] * A), 0, A);
+    // ── 目标完成 triplet 数 ──
+    // P = 本层分配后可形成的 triplet 总数上限
+    const totalTilesAfter = totalCumulative + capacity;
+    const P = Math.floor(totalTilesAfter / 3);
+    const target = d === D - 1
+      ? P  // 最后一层：全部完成
+      : clamp(Math.round(fullRates[d] * P), 0, P);
 
-    // 当前闭合数
-    const currentlyClosed = countClosed(cumulative, active);
+    // 当前已完成 triplet 数
+    const currentlyCompleted = countCompletedTriplets(cumulative);
 
-    // ── 决策：需要改几个颜色的状态 ──
-    const toClose: number[] = []; // 需要从开→关的颜色
-    const toOpen: number[] = [];  // 需要从关→开的颜色
+    // ── 决策：需要多完成几个 triplet ──
+    // 每关闭 1 个颜色 = 完成 1 个 triplet
+    const toClose: number[] = []; // 需要完成 triplet 的颜色
+    const toOpen: number[] = [];  // 需要"打开"的颜色（target < current 时极少触发）
 
-    if (targetClosed > currentlyClosed) {
-      const need = targetClosed - currentlyClosed;
-      // 从"开着且有剩牌"的颜色中挑 need 个，优先挑关闭成本低的
+    if (target > currentlyCompleted) {
+      const need = target - currentlyCompleted;
+      // 从所有有剩牌的颜色中挑 need 个，优先挑完成 triplet 成本低的
       const candidates = [...active]
-        .filter(c => cumulative[c] % 3 !== 0 && remaining[c] > 0)
-        .sort((a, b) => closeCost(cumulative[a]) - closeCost(cumulative[b]));
+        .filter(c => remaining[c] > 0)
+        .sort((a, b) => tripletCost(cumulative[a]) - tripletCost(cumulative[b]));
       for (let i = 0; i < Math.min(need, candidates.length); i++) {
         toClose.push(candidates[i]);
       }
-    } else if (targetClosed < currentlyClosed) {
-      const need = currentlyClosed - targetClosed;
-      // 从"关着且有剩牌"的颜色中挑 need 个
-      const candidates = [...active]
-        .filter(c => cumulative[c] % 3 === 0 && remaining[c] > 0)
-        .sort((a, b) => remaining[a] - remaining[b]);
-      for (let i = 0; i < Math.min(need, candidates.length); i++) {
-        toOpen.push(candidates[i]);
-      }
+    } else if (target < currentlyCompleted) {
+      // 已完成的 triplet 无法撤销。target 是软目标，不做状态变更。
+      // toOpen 留空，仅通过 safe-fill 填充本层。
     }
 
     // ── 闭合预算检查：后续容量必须足够闭合所有花色 ──
-    // 这是 mod3 硬约束的前瞻保障：如果 closeRates 要求保持太多花色开放，
-    // 导致最终层容量不足以闭合全部花色，则在此层强制多闭合几个。
+    // 这是 mod3 硬约束的前瞻保障：确保后续容量足以消除所有不完整 triplet 的债务。
     if (d < D - 1) {
       let projectedDebt = 0;
       for (const c of active) {
@@ -226,7 +235,8 @@ function buildMatrixByCloseRates(
 
     // 第一轮：状态变更的最小需求
     for (const c of toClose) {
-      const need = 3 - (cumulative[c] % 3); // 1 或 2（因为开着，cum%3=1或2）
+      // 完成 1 个 triplet 所需牌数：cum%3=0→3张，cum%3=1→2张，cum%3=2→1张
+      const need = (3 - (cumulative[c] % 3)) % 3 || 3;
       const give = Math.min(need, remaining[c], capacity - used);
       if (give > 0) {
         plan[c] += give;
@@ -244,7 +254,9 @@ function buildMatrixByCloseRates(
 
     // 第二轮：给还没被满足的状态变更补票（如果容量够）
     for (const c of toClose) {
-      const stillNeed = (3 - ((cumulative[c] + plan[c]) % 3)) % 3;
+      const cur = cumulative[c] + plan[c];
+      const stillNeed = (3 - (cur % 3)) % 3;
+      // stillNeed === 0 表示已在 triplet 边界（已完成），无需补票
       if (stillNeed > 0) {
         const give = Math.min(stillNeed, remaining[c] - plan[c], capacity - used);
         if (give > 0) {
@@ -294,27 +306,50 @@ function buildMatrixByCloseRates(
         }
       } else {
         // ── 中间层：safe-fill（尽量不破坏目标闭合状态）──
-        // Step A: 给 3 的倍数
-        for (const c of byRemaining) {
-          if (slack <= 0) break;
-          const maxAdd = remaining[c] - plan[c];
-          if (maxAdd <= 0) continue;
-          const triplets = Math.floor(maxAdd / 3);
-          if (triplets > 0) {
-            const give = Math.min(triplets * 3, slack);
-            plan[c] += give;
-            used += give;
-            slack -= give;
+        //
+        // 在 triplet 口径下，给 3 的倍数 = +1 完成 triplet（与旧模型的"颜色 mod3 闭合"不同）。
+        // 因此 safe-fill Step A 必须有目标上限：只补到 target，超过后只做 Step B。
+
+        // 计算 toClose 两轮后的已完成 triplet 数（基于 projected cumulative）
+        const projectedCum = cumulative.map((c, i) => c + plan[i]);
+        const completedAfterRounds = countCompletedTriplets(projectedCum);
+        const remainingToTarget = target - completedAfterRounds; // 还可以完成几个 triplet
+
+        // Step A: 给 3 的倍数，但只补到目标
+        if (remainingToTarget > 0) {
+          let tripletsAdded = 0;
+          for (const c of byRemaining) {
+            if (slack <= 0 || tripletsAdded >= remainingToTarget) break;
+            const maxAdd = remaining[c] - plan[c];
+            if (maxAdd < 3) continue;
+            const maxTriplets = Math.min(
+              Math.floor(maxAdd / 3),
+              remainingToTarget - tripletsAdded,
+            );
+            if (maxTriplets > 0) {
+              const give = Math.min(maxTriplets * 3, slack);
+              if (give >= 3) {
+                plan[c] += give;
+                used += give;
+                slack -= give;
+                tripletsAdded += Math.floor(give / 3);
+              }
+            }
           }
         }
-        // Step B: safe-fill — 每次迭代重算 curMod 和 maxAdd
+
+        // Step B: safe-fill — 在 triplet 口径下，safe 值确保不增加 floor(cum/3)
+        //
+        // curMod=0: safe=[1,2]（+1/+2 不跨边界）
+        // curMod=1: safe=[1]  （只有+1不跨边界）
+        // curMod=2: safe=[]   （任何正数都跨边界，只能跳过）
         if (slack > 0) {
           for (const c of byRemaining) {
             if (slack <= 0) break;
             let maxAdd = remaining[c] - plan[c];
             if (maxAdd <= 0) continue;
             let curMod = (cumulative[c] + plan[c]) % 3;
-            const safe = curMod === 1 ? [1, 3] : curMod === 2 ? [2, 3] : [1, 2];
+            const safe = curMod === 0 ? [1, 2] : curMod === 1 ? [1] : [];
             for (const s of safe) {
               if (slack <= 0) break;
               // ★ 每次重算：plan[c] 已在上轮 s 迭代中更新
@@ -352,27 +387,31 @@ function buildMatrixByCloseRates(
       cumulative[c] += assign;
       remaining[c] -= assign;
     }
+    totalCumulative += capacity;
 
-    // ── 记录实际闭合率 ──
-    const actualClosed = countClosed(cumulative, active);
-    actualCloseRates.push(A > 0 ? actualClosed / A : 0);
+    // ── 记录实际闭合率（triplet 口径）──
+    const actualCompleted = countCompletedTriplets(cumulative);
+    actualCloseRates.push(P > 0 ? actualCompleted / P : 0);
   }
 
   return { matrix: M, actualCloseRates };
 }
 
-/** 闭合成本：一个开着（cum%3≠0）的颜色需要几张牌才能闭合 */
+/** 完成 1 个 triplet 的成本：需要几张牌才能让 floor(cum/3) 增加 1 */
+function tripletCost(cum: number): number {
+  return cum % 3 === 0 ? 3 : 3 - (cum % 3);
+}
+
+/** 不完整 triplet 的债务：还需要几张牌才能消除当前不完整的 triplet 组（用于 debt check） */
 function closeCost(cum: number): number {
   const r = cum % 3;
   return r === 0 ? 0 : 3 - r;
 }
 
-/** 数目前闭合的颜色数 */
-function countClosed(cumulative: number[], active: Set<number>): number {
+/** 统计已完成的 triplet 数：Σ⌊cum[c] ÷ 3⌋ */
+function countCompletedTriplets(cumulative: number[]): number {
   let n = 0;
-  for (const c of active) {
-    if (cumulative[c] % 3 === 0) n++;
-  }
+  for (const cum of cumulative) n += Math.floor(cum / 3);
   return n;
 }
 
@@ -626,34 +665,20 @@ function buildTriplets(
  *
  * 与 buildMatrixByCloseRates 不同的是，此函数基于「实际落色结果」而非「分配计划」。
  * 生成路径在贴花色后调用，导入路径从 replaycode 的花色映射调用。
- * 两者使用同一个函数，保证闭合率计算完全一致。
+ * 两者使用同一个函数，保证闭合率计算口径一致。
  *
- * 公式：closeRates[d] = closed / active.size
- *   - active: 还有剩余牌待分配的花色（剩余 > 0，即累积 < 总计）
- *   - closed: active 中累积数 % 3 === 0 的花色数
+ * 公式：closeRates[d] = completedTriplets / totalPossibleTriplets
+ *   - completedTriplets = Σ⌊cum[c] ÷ 3⌋（已完成的 triplet 数）
+ *   - totalPossibleTriplets = ⌊Σcum[c] ÷ 3⌋（累积 tile 数对应的可能 triplet 数）
  */
 export function computeCloseRatesFromAssignments(
   assignments: Map<number, number>,
   depthLayers: TerrainTile[][],
 ): number[] {
-  // 各花色总牌数
-  const totalByColor = new Map<number, number>();
-  for (const [, color] of assignments) {
-    if (color > 0) {
-      totalByColor.set(color, (totalByColor.get(color) ?? 0) + 1);
-    }
-  }
-
   const cumByColor = new Map<number, number>();
   const closeRates: number[] = [];
 
   for (const layer of depthLayers) {
-    // active = 还有剩余牌的花色（加本层之前的状态）
-    const active = new Set<number>();
-    for (const [color, total] of totalByColor) {
-      if ((cumByColor.get(color) ?? 0) < total) active.add(color);
-    }
-
     // 累加本层方块
     for (const tile of layer) {
       const color = assignments.get(tile.id) ?? 0;
@@ -662,12 +687,15 @@ export function computeCloseRatesFromAssignments(
       }
     }
 
-    // closed = active 中累积数 % 3 === 0 的花色数
-    let closed = 0;
-    for (const color of active) {
-      if ((cumByColor.get(color) ?? 0) % 3 === 0) closed++;
+    // 计算 triplet 完成率
+    let completedTriplets = 0;
+    let totalTiles = 0;
+    for (const cum of cumByColor.values()) {
+      completedTriplets += Math.floor(cum / 3);
+      totalTiles += cum;
     }
-    closeRates.push(active.size > 0 ? closed / active.size : 0);
+    const totalPossible = Math.floor(totalTiles / 3);
+    closeRates.push(totalPossible > 0 ? completedTriplets / totalPossible : 0);
   }
 
   return closeRates;
