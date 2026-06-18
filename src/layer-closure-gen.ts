@@ -47,7 +47,7 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
   const colorTotalTiles = assignColorTotals(totalTriplets, colorCount);
 
   // ── 3. 逐层约束满足 → 矩阵 M[c][d] ──
-  const { matrix, actualCloseRates } = buildMatrixByCloseRates(
+  const { matrix } = buildMatrixByCloseRates(
     colorTotalTiles, tilesPerDepth, closeRates,
   );
 
@@ -56,10 +56,13 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
   const tileDepSets = computeTileDepSets(freeTiles, tileMap);
   const assignments = placeSuitsFromMatrixWithSpread(matrix, depthLayers, tileDepSets, sp);
 
-  // ── 5. 重建三元组 ──
+  // ── 5. 真实闭合率（基于实际落色结果，与导入路径共用同一函数）──
+  const actualCloseRates = computeCloseRatesFromAssignments(assignments, depthLayers);
+
+  // ── 6. 重建三元组 ──
   const triplets = buildTriplets(assignments, depthLayers);
 
-  // ── 6. 难度指标 ──
+  // ── 7. 难度指标 ──
   const metrics = computeMetrics(assignments, freeTiles, depthLayers, depthMap, tileMap, tileDepSets, dock, colorCount, actualCloseRates);
 
   return { assignments, triplets, metrics };
@@ -617,6 +620,58 @@ function buildTriplets(
 // ═══════════════════════════════════════════════════════════
 // 6. 难度指标
 // ═══════════════════════════════════════════════════════════
+
+/**
+ * 从真实花色分配和深度分层计算逐层闭合率。
+ *
+ * 与 buildMatrixByCloseRates 不同的是，此函数基于「实际落色结果」而非「分配计划」。
+ * 生成路径在贴花色后调用，导入路径从 replaycode 的花色映射调用。
+ * 两者使用同一个函数，保证闭合率计算完全一致。
+ *
+ * 公式：closeRates[d] = closed / active.size
+ *   - active: 还有剩余牌待分配的花色（剩余 > 0，即累积 < 总计）
+ *   - closed: active 中累积数 % 3 === 0 的花色数
+ */
+export function computeCloseRatesFromAssignments(
+  assignments: Map<number, number>,
+  depthLayers: TerrainTile[][],
+): number[] {
+  // 各花色总牌数
+  const totalByColor = new Map<number, number>();
+  for (const [, color] of assignments) {
+    if (color > 0) {
+      totalByColor.set(color, (totalByColor.get(color) ?? 0) + 1);
+    }
+  }
+
+  const cumByColor = new Map<number, number>();
+  const closeRates: number[] = [];
+
+  for (const layer of depthLayers) {
+    // active = 还有剩余牌的花色（加本层之前的状态）
+    const active = new Set<number>();
+    for (const [color, total] of totalByColor) {
+      if ((cumByColor.get(color) ?? 0) < total) active.add(color);
+    }
+
+    // 累加本层方块
+    for (const tile of layer) {
+      const color = assignments.get(tile.id) ?? 0;
+      if (color > 0) {
+        cumByColor.set(color, (cumByColor.get(color) ?? 0) + 1);
+      }
+    }
+
+    // closed = active 中累积数 % 3 === 0 的花色数
+    let closed = 0;
+    for (const color of active) {
+      if ((cumByColor.get(color) ?? 0) % 3 === 0) closed++;
+    }
+    closeRates.push(active.size > 0 ? closed / active.size : 0);
+  }
+
+  return closeRates;
+}
 
 export function computeMetrics(
   assignments: Map<number, number>,
