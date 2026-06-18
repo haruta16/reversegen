@@ -242,3 +242,22 @@ export type {
 // 工具
 export { computeCRC16, computeCRC16Bitwise } from './crc16.js';
 export { logger, setLogLevel, LogLevel } from './logger.js';
+
+// Replay 候选收集与导出
+export {
+  REPLAY_SELECTION_HEADERS,
+  appendReplaySelection,
+  buildReplaySelections,
+  checkReplaySelections,
+  createReplaySelectionRow,
+  defaultReplaySelectionPaths,
+  serializeReplaySelectionCsv,
+} from './replay-selection.js';
+export type {
+  AppendReplaySelectionResult,
+  BuildReplaySelectionResult,
+  ReplaySelectionInput,
+  ReplaySelectionPaths,
+  ReplaySelectionRow,
+  ReplaySelectionSummary,
+} from './replay-selection.js';

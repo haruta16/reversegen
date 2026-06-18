@@ -12,7 +12,9 @@
     "test": "npx tsx --test test/unit/*.test.ts test/integration/*.test.ts",
     "test:algo": "npx tsx --test test/unit/reverse-gen.test.ts",
     "test:serializer": "npx tsx --test test/unit/serializer.test.ts",
-    "gui": "npx tsx gui/server.ts "
+    "gui": "npx tsx gui/server.ts ",
+    "replay:check": "npx tsx cli/replay-selection.ts check",
+    "replay:build": "npx tsx cli/replay-selection.ts build"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

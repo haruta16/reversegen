@@ -11,6 +11,11 @@ import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exec } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import {
+  appendReplaySelection,
+  buildReplaySelections,
+  defaultReplaySelectionPaths,
+} from '../src/replay-selection.js';
 
 import {
   generateBoard,
@@ -429,7 +434,9 @@ const server = createServer(async (req, res) => {
         json(res, {
           ok: true,
           algorithm: 'closure',
+          levelResId: terrain.levelResId,
           replayCode: result.replayCode,
+          elementCount: decodeFromString(result.replayCode)?.elementCount ?? k,
           levelHash: result.levelHash,
           assignments: assignmentsObj,
           tripletCount: result.triplets.length,
@@ -473,7 +480,9 @@ const server = createServer(async (req, res) => {
         json(res, {
           ok: true,
           algorithm: 'cost-ladder',
+          levelResId: terrain.levelResId,
           replayCode: result.replayCode,
+          elementCount: decodeFromString(result.replayCode)?.elementCount ?? k,
           levelHash: result.levelHash,
           completed: result.completed,
           totalSteps: result.totalSteps,
@@ -1438,6 +1447,64 @@ const server = createServer(async (req, res) => {
           ? { strategy1: strategyResult }
           : { standard: legacyResult!.standard, refined: legacyResult!.refined },
         validation,
+      });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
+  // ── API: append replay candidate to CSV ──
+  if (url.pathname === '/api/replay-selection/append' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const { levelResId, replayCode, grade, elementCount } = body as {
+        levelResId?: number | string;
+        replayCode?: string;
+        grade?: number | string | null;
+        elementCount?: number | string;
+      };
+      if (levelResId == null || levelResId === '') throw new Error('缺少 levelResId');
+      if (!replayCode) throw new Error('缺少 ReplayCode');
+      if (elementCount == null || elementCount === '') throw new Error('缺少花色数');
+      const replayData = decodeFromString(replayCode);
+      if (!replayData) throw new Error('ReplayCode 解码失败');
+      if (Number(elementCount) !== replayData.elementCount) {
+        throw new Error(`花色数与 ReplayCode 不一致：提交 ${elementCount}，实际 ${replayData.elementCount}`);
+      }
+
+      const paths = defaultReplaySelectionPaths();
+      const result = appendReplaySelection({
+        levelResId,
+        ReplayCode: replayCode,
+        grade,
+        ElementCount: elementCount,
+      }, paths.csvPath);
+      json(res, {
+        ok: true,
+        duplicate: result.duplicate,
+        totalRows: result.totalRows,
+        replayKey: result.row.ReplayKey,
+        csvPath: paths.csvPath,
+        message: result.duplicate ? '该牌局已在 CSV 中，未重复写入' : '已保存到候选 CSV',
+      });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
+  // ── API: validate CSV and rebuild replay JSON files ──
+  if (url.pathname === '/api/replay-selection/build' && req.method === 'POST') {
+    try {
+      const paths = defaultReplaySelectionPaths();
+      const result = buildReplaySelections(paths.csvPath, paths.generatedDir);
+      json(res, {
+        ok: true,
+        rowsRead: result.rowsRead,
+        validRows: result.validRows,
+        skippedBlankGrade: result.skippedBlankGrade,
+        skippedLines: result.skippedLines,
+        levelCount: result.levelCount,
+        fileCount: result.files.length,
+        files: result.files.map(file => basename(file)),
+        generatedDir: paths.generatedDir,
       });
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
     return;

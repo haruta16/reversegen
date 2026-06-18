@@ -478,6 +478,23 @@ kbd{
       </div>
     </div>
   </div>
+
+  <div class="panel fade-in" style="margin-top:14px">
+    <div class="panel-hd"><span class="dot sage"></span> 候选牌局</div>
+    <div class="panel-bd">
+      <div class="row" style="margin-bottom:6px;align-items:center">
+        <label style="margin:0">Grade</label>
+        <input type="number" id="selectionGrade" min="0" max="5" step="1" placeholder="未分档时留空" style="width:92px;flex:0;text-align:center;font-family:var(--mono)">
+      </div>
+      <div id="selectionHint" style="font-size:9px;color:var(--faint);margin-bottom:7px">分档后会自动填入，也可以手动修改</div>
+      <div class="row">
+        <button class="btn btn-primary" onclick="saveReplaySelection()" id="btnSaveSelection" style="padding:8px 10px;font-size:11px">保存到 CSV</button>
+        <button class="btn btn-outline" onclick="buildReplaySelections()" id="btnBuildSelections" style="padding:8px 10px;font-size:11px">生成 Replay JSON</button>
+      </div>
+      <div class="msg" id="selectionResult"></div>
+      <div style="font-size:9px;color:var(--faint);margin-top:5px">replays/selection.csv → replays/generated/</div>
+    </div>
+  </div>
 </div>
 
 </div><!-- /cols -->
@@ -724,6 +741,7 @@ async function generate(){
     var d=await r.json();
     if(!d.ok){document.getElementById('genErr').textContent=d.error;return}
     S.result=d;S.sims=[];
+    resetReplaySelection();
     document.getElementById('simHistory').innerHTML='';
     document.getElementById('emptyState').style.display='none';
     document.getElementById('verifyEmpty').style.display='none';
@@ -972,6 +990,9 @@ async function decodeCode(){
     var resultObj={
       algorithm:'closure',
       replayCode:code,
+      levelResId:document.getElementById('levelId').value.trim(),
+      elementCount:d.elementCount,
+      colorCount:d.elementCount,
       metrics:metrics,
       tiles:(d.tiles||[]).map(function(t){return{element:t.elemValue};}),
     };
@@ -981,6 +1002,7 @@ async function decodeCode(){
     document.getElementById('emptyState').style.display='none';
 
     S.result=resultObj;S.sims=[];
+    resetReplaySelection();
     document.getElementById('simHistory').innerHTML='';
 
     // 4. 复用和生成完全相同的渲染路径 → showClosure
@@ -1222,6 +1244,7 @@ async function runGrade(){
 function renderGradeResult(v,out){
   var s1=v.simResults.sim1,s5=v.simResults.sim5,s15=v.simResults.sim15;
   var fmt=function(r){return(r.winRate*100).toFixed(1)+'%'};
+  applyGradeSuggestion(v);
 
   // sim 三率行
   var html='<div style="display:flex;gap:10px;margin-bottom:6px;font-size:11px;font-family:var(--mono)">';
@@ -1289,6 +1312,77 @@ function renderGradeResult(v,out){
 
   out.innerHTML=html;out.className='msg';
   toast('分档完成: '+(std.grade>=0?'档'+std.grade+'·'+GRADE_LABELS[std.grade]||'':std.label),'ok');
+}
+
+// ═══════════════════════════════════
+//  Replay candidate collection
+// ═══════════════════════════════════
+function resetReplaySelection(){
+  document.getElementById('selectionGrade').value='';
+  document.getElementById('selectionHint').textContent='分档后会自动填入，也可以手动修改';
+  var out=document.getElementById('selectionResult');out.textContent='';out.className='msg';
+}
+
+function applyGradeSuggestion(v){
+  var grade='';
+  var hint='当前分档未认证，grade 保持为空';
+  if(v.strategy==='strategy1'){
+    var strategyResult=v.grade&&v.grade.strategy1;
+    if(strategyResult&&strategyResult.passed&&strategyResult.grade>=0&&strategyResult.grade<=5){
+      grade=String(strategyResult.grade);hint='已按分档策略1自动填入档'+grade;
+    }
+  }else{
+    var refined=v.grade&&v.grade.refined;
+    var standard=v.grade&&v.grade.standard;
+    var selected=refined&&refined.passed?refined:(standard&&standard.passed?standard:null);
+    if(selected&&selected.grade>=0&&selected.grade<=5){
+      grade=String(selected.grade);hint='已按旧版'+(selected===refined?'精筛':'标准')+'结果自动填入档'+grade;
+    }else if(selected&&selected.grade>5){
+      hint='旧版结果为档'+selected.grade+'，超出候选范围 0-5，grade 保持为空';
+    }
+  }
+  document.getElementById('selectionGrade').value=grade;
+  document.getElementById('selectionHint').textContent=hint;
+}
+
+async function saveReplaySelection(){
+  var d=S.result;
+  if(!d||!d.replayCode){toast('请先生成或导入牌局','err');return}
+  var levelId=d.levelResId||document.getElementById('levelId').value.trim()||(S.level&&S.level.levelResId);
+  if(!levelId){toast('请填写关卡 ID','err');return}
+  var elementCount=d.elementCount||d.colorCount||(d.metrics&&d.metrics.colorCount);
+  if(!elementCount){toast('当前牌局缺少花色数','err');return}
+  var gradeText=document.getElementById('selectionGrade').value.trim();
+  if(gradeText!==''&&(!/^\d+$/.test(gradeText)||+gradeText<0||+gradeText>5)){
+    toast('grade 只能留空或填写 0-5','err');return;
+  }
+
+  var btn=document.getElementById('btnSaveSelection'),out=document.getElementById('selectionResult');
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span>';out.textContent='';out.className='msg';
+  try{
+    var r=await fetch('/api/replay-selection/append',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      levelResId:levelId,replayCode:d.replayCode,grade:gradeText,elementCount:elementCount
+    })});
+    var v=await r.json();
+    if(!v.ok){out.textContent=v.error;out.className='msg msg-err';toast('保存失败','err');return}
+    out.textContent=(v.duplicate?'已存在，未重复写入':'保存成功')+' · 共 '+v.totalRows+' 行 · '+v.replayKey;
+    out.className='msg '+(v.duplicate?'msg-warn':'msg-ok');
+    toast(v.message,v.duplicate?'':'ok');
+  }catch(e){out.textContent=e.message;out.className='msg msg-err';toast('保存失败','err')}
+  finally{btn.disabled=false;btn.textContent='保存到 CSV'}
+}
+
+async function buildReplaySelections(){
+  var btn=document.getElementById('btnBuildSelections'),out=document.getElementById('selectionResult');
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span>';out.textContent='校验并构建中...';out.className='msg';
+  try{
+    var r=await fetch('/api/replay-selection/build',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    var v=await r.json();
+    if(!v.ok){out.textContent=v.error;out.className='msg msg-err';toast('构建失败','err');return}
+    out.textContent='已生成 '+v.fileCount+' 个文件 / '+v.validRows+' 条牌局'+(v.skippedBlankGrade?' · 跳过空 grade '+v.skippedBlankGrade+' 条':'');
+    out.className='msg msg-ok';toast('Replay JSON 构建完成','ok');
+  }catch(e){out.textContent=e.message;out.className='msg msg-err';toast('构建失败','err')}
+  finally{btn.disabled=false;btn.textContent='生成 Replay JSON'}
 }
 
 function renderSimHistory(){
