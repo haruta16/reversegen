@@ -450,17 +450,22 @@ kbd{
       <div class="panel-hd"><span class="dot" style="background:var(--info)"></span> 难度分档</div>
       <div class="panel-bd">
         <div class="row" style="margin-bottom:6px;align-items:center">
+          <label style="margin:0">分档策略</label>
+          <select id="gradeStrategy" style="font-size:11px" onchange="updateGradeTargets()">
+            <option value="strategy1" selected>分档策略1 · 六档认证</option>
+            <option value="legacy">旧版 · 标准/精筛八档</option>
+          </select>
+        </div>
+        <div class="row" style="margin-bottom:6px;align-items:center">
           <label style="margin:0">目标档位</label>
           <select id="gradeTarget" style="font-size:11px">
             <option value="-1">仅分档（不校验）</option>
-            <option value="0">档0 · 极简 (90-100%)</option>
+            <option value="0">档0 · 极易候选 (90-100%)</option>
             <option value="1">档1 · 简单 (60-90%)</option>
             <option value="2">档2 · 中等偏易 (40-60%)</option>
-            <option value="3">档3 · 中等 (25-40%)</option>
-            <option value="4">档4 · 中等偏难 (20-25%)</option>
-            <option value="5">档5 · 困难 (10-20%)</option>
-            <option value="6">档6 · 很难 (5-10%)</option>
-            <option value="7">档7 · 极难 (0-5%)</option>
+            <option value="3">档3 · 中等偏难 (20-40%)</option>
+            <option value="4">档4 · 困难 (10-20%)</option>
+            <option value="5">档5 · 极难 (0-10%)</option>
           </select>
         </div>
         <div class="row" style="margin-top:6px">
@@ -1127,14 +1132,25 @@ async function runSim(){
 //  Grade
 // ═══════════════════════════════════
 var GRADE_LABELS=['档0·极简','档1·简单','档2·中等偏易','档3·中等','档4·中等偏难','档5·困难','档6·很难','档7·极难'];
+var STRATEGY1_LABELS=['档0·极易候选','档1·简单','档2·中等偏易','档3·中等偏难','档4·困难','档5·极难'];
+
+function updateGradeTargets(){
+  var strategy=document.getElementById('gradeStrategy').value;
+  var target=document.getElementById('gradeTarget');
+  var options=strategy==='strategy1'
+    ? [['0','档0 · 极易候选 (90-100%)'],['1','档1 · 简单 (60-90%)'],['2','档2 · 中等偏易 (40-60%)'],['3','档3 · 中等偏难 (20-40%)'],['4','档4 · 困难 (10-20%)'],['5','档5 · 极难 (0-10%)']]
+    : [['0','档0 · 极简 (90-100%)'],['1','档1 · 简单 (60-90%)'],['2','档2 · 中等偏易 (40-60%)'],['3','档3 · 中等 (25-40%)'],['4','档4 · 中等偏难 (20-25%)'],['5','档5 · 困难 (10-20%)'],['6','档6 · 很难 (5-10%)'],['7','档7 · 极难 (0-5%)']];
+  target.innerHTML='<option value="-1">仅分档（不校验）</option>'+options.map(function(o){return'<option value="'+o[0]+'">'+o[1]+'</option>'}).join('');
+}
 
 async function runGrade(){
   var d=S.result;if(!d){toast('请先生成或导入牌局','err');return}
   var btn=document.getElementById('btnGrade'),out=document.getElementById('gradeResult');
   var target=parseInt(document.getElementById('gradeTarget').value);
+  var strategy=document.getElementById('gradeStrategy').value;
   var runs=parseInt(document.getElementById('gradeRuns').value)||100;
   var endpoint=target>=0?'/api/grade/validate':'/api/grade/calculate';
-  var body={replayCode:d.replayCode,levelId:document.getElementById('levelId').value,runs:runs};
+  var body={replayCode:d.replayCode,levelId:document.getElementById('levelId').value,runs:runs,strategy:strategy};
   if(target>=0)body.targetGrade=target;
 
   btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;out.textContent='';out.className='msg';
@@ -1160,7 +1176,30 @@ function renderGradeResult(v,out){
   html+='<span style="color:var(--faint);margin-left:auto">'+(v.runs)+'次</span>';
   html+='</div>';
 
-  // 分档结果 — 颜色只看 pass/fail，和难度无关
+  if(v.strategy==='strategy1'){
+    var result=v.grade.strategy1;
+    var resultCls=result.passed?'var(--ok)':'var(--bad)';
+    var resultIcon=result.passed?'✓':'✗';
+    html+='<div style="padding:7px 9px;background:var(--paper);border-radius:6px;border:1px solid var(--line);margin-bottom:4px">';
+    html+='<span style="color:var(--faint);font-size:9px">分档策略1</span> ';
+    html+='<span style="font-weight:700;color:var(--text)">['+(result.grade>=0?'档'+result.grade:'未认证')+'] '+result.label+'</span> ';
+    html+='<span style="font-weight:700;color:'+resultCls+'">'+resultIcon+'</span>';
+    if(!result.passed&&result.reason)html+='<div style="font-size:9px;color:var(--bad);margin-top:2px">'+result.reason+'</div>';
+    html+='</div>';
+    if(v.validation){
+      var sv=v.validation;
+      html+='<div style="margin-top:6px;padding:6px 8px;background:var(--paper);border-radius:6px;border:1px solid '+(sv.strategy1Match?'var(--ok)':'var(--bad)')+'">';
+      html+='<span style="font-size:9px;color:var(--faint)">校验目标档'+sv.targetGrade+':</span> ';
+      html+=(sv.strategy1Match?'<span style="color:var(--ok);font-weight:600">✓ 通过</span>':'<span style="color:var(--bad);font-weight:600">✗ 未通过</span>');
+      if(sv.reasons&&sv.reasons.length)html+='<div style="font-size:9px;color:var(--bad);margin-top:2px">'+sv.reasons.join('；')+'</div>';
+      html+='</div>';
+    }
+    out.innerHTML=html;out.className='msg';
+    toast('分档策略1: '+(result.grade>=0?(STRATEGY1_LABELS[result.grade]||result.label):'未认证'),result.passed?'ok':'err');
+    return;
+  }
+
+  // 旧版分档结果 — 颜色只看 pass/fail，和难度无关
   var std=v.grade.standard,ref=v.grade.refined;
   var stdCls=std.passed?'var(--ok)':'var(--bad)';
   var refCls=ref.passed?'var(--ok)':'var(--bad)';

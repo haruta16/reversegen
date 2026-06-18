@@ -25,6 +25,7 @@ import {
   computeDependencyDepth,
   gradeStandard,
   gradeRefined,
+  gradeStrategy1,
   gradeFull,
   validateGrade,
   computeStability,
@@ -34,7 +35,7 @@ import {
   computeTileDepSets,
   computeCloseRatesFromAssignments,
 } from '../src/index.js';
-import type { TerrainTile, GradeConfig, GradeResult, GradeValidation } from '../src/index.js';
+import type { TerrainTile, GradeConfig, GradeStrategy1Config, GradeResult, GradeValidation, GradeVerdict } from '../src/index.js';
 import {
   analyzeTriples,
   filterGraphData,
@@ -245,6 +246,7 @@ function buildGameFromReplay(
 
 /** 分档阈值配置的内存缓存，启动时加载。可通过 /api/grade/config-reload 热更新。 */
 let gradeConfig: GradeConfig | null = null;
+let gradeStrategy1Config: GradeStrategy1Config | null = null;
 
 function loadGradeConfig(): GradeConfig {
   const configPath = join(__dirname, '..', 'config', 'grade-thresholds.json');
@@ -263,6 +265,22 @@ function loadGradeConfig(): GradeConfig {
 
 function getGradeConfig(): GradeConfig {
   return gradeConfig ?? loadGradeConfig();
+}
+
+function loadGradeStrategy1Config(): GradeStrategy1Config {
+  const configPath = join(__dirname, '..', 'config', 'grade-strategy-1.json');
+  if (!existsSync(configPath)) throw new Error(`分档策略1配置不存在: ${configPath}`);
+  const cfg = JSON.parse(readFileSync(configPath, 'utf-8')) as GradeStrategy1Config;
+  if (!cfg.version || !cfg.name || !cfg.priority || !cfg.tiers || !cfg.simRates) {
+    throw new Error('分档策略1配置格式无效');
+  }
+  gradeStrategy1Config = cfg;
+  console.log(`[grade-config] 加载成功: ${cfg.name} (v${cfg.version}), ${cfg.tiers.length} 个档位`);
+  return cfg;
+}
+
+function getGradeStrategy1Config(): GradeStrategy1Config {
+  return gradeStrategy1Config ?? loadGradeStrategy1Config();
 }
 
 // ── Server ──
@@ -1176,7 +1194,8 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/grade/config' && req.method === 'GET') {
     try {
       const cfg = getGradeConfig();
-      json(res, { ok: true, config: cfg });
+      const strategy1 = getGradeStrategy1Config();
+      json(res, { ok: true, config: cfg, strategy1 });
     } catch (err) { json(res, { ok: false, error: String(err) }, 500); }
     return;
   }
@@ -1185,8 +1204,10 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/grade/config-reload' && req.method === 'POST') {
     try {
       gradeConfig = null; // 清除缓存
+      gradeStrategy1Config = null;
       const cfg = loadGradeConfig();
-      json(res, { ok: true, message: `已重新加载 (v${cfg.version})`, config: cfg });
+      const strategy1 = loadGradeStrategy1Config();
+      json(res, { ok: true, message: `已重新加载旧版与${strategy1.name}`, config: cfg, strategy1 });
     } catch (err) { json(res, { ok: false, error: String(err) }, 500); }
     return;
   }
@@ -1195,13 +1216,14 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/grade/calculate' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, runs } = body as {
-        replayCode?: string; levelId?: string; levelsDir?: string; runs?: number;
+      const { replayCode, levelId, levelsDir, runs, strategy } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string; runs?: number; strategy?: string;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
 
       const gam = buildGameFromReplay(replayCode, levelId, levelsDir);
-      const cfg = getGradeConfig();
+      const useStrategy1 = strategy === 'strategy1';
+      const cfg = useStrategy1 ? getGradeStrategy1Config() : getGradeConfig();
       const simRuns = runs ?? cfg.defaultRuns;
 
       // 串行跑三个失误率
@@ -1229,13 +1251,19 @@ const server = createServer(async (req, res) => {
         sim15: { ...rawResults.sim15, runs: simRuns },
       };
 
-      const result = gradeFull(snap, cfg);
+      const strategyResult: GradeVerdict | null = useStrategy1
+        ? gradeStrategy1(snap, cfg as GradeStrategy1Config)
+        : null;
+      const legacyResult: GradeResult | null = useStrategy1
+        ? null
+        : gradeFull(snap, cfg as GradeConfig);
 
       // 计算稳定性（兼容旧版本可能没有的字段，这里用 gradeFull 内部的结果）
       const stability = computeStability(snap.sim1.winRate, snap.sim15.winRate);
 
       json(res, {
         ok: true,
+        strategy: useStrategy1 ? 'strategy1' : 'legacy',
         runs: simRuns,
         simResults: {
           sim1: { winRate: snap.sim1.winRate, wins: snap.sim1.wins, losses: snap.sim1.losses, elapsedMs: snap.sim1.elapsedMs },
@@ -1243,10 +1271,9 @@ const server = createServer(async (req, res) => {
           sim15: { winRate: snap.sim15.winRate, wins: snap.sim15.wins, losses: snap.sim15.losses, elapsedMs: snap.sim15.elapsedMs },
         },
         stability,
-        grade: {
-          standard: result.standard,
-          refined: result.refined,
-        },
+        grade: useStrategy1
+          ? { strategy1: strategyResult }
+          : { standard: legacyResult!.standard, refined: legacyResult!.refined },
       });
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
     return;
@@ -1256,16 +1283,18 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/grade/validate' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, runs, targetGrade } = body as {
-        replayCode?: string; levelId?: string; levelsDir?: string; runs?: number; targetGrade?: number;
+      const { replayCode, levelId, levelsDir, runs, targetGrade, strategy } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string; runs?: number; targetGrade?: number; strategy?: string;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
-      if (targetGrade == null || targetGrade < 0 || targetGrade > 7) {
-        throw new Error('targetGrade 需为 0-7 的整数');
+      const useStrategy1 = strategy === 'strategy1';
+      const maxGrade = useStrategy1 ? 5 : 7;
+      if (targetGrade == null || targetGrade < 0 || targetGrade > maxGrade) {
+        throw new Error(`targetGrade 需为 0-${maxGrade} 的整数`);
       }
 
       const gam = buildGameFromReplay(replayCode, levelId, levelsDir);
-      const cfg = getGradeConfig();
+      const cfg = useStrategy1 ? getGradeStrategy1Config() : getGradeConfig();
       const simRuns = runs ?? cfg.defaultRuns;
 
       const simResults: Array<{ rate: number; label: string }> = [
@@ -1292,25 +1321,43 @@ const server = createServer(async (req, res) => {
         sim15: { ...rawResults.sim15, runs: simRuns },
       };
 
-      const full = gradeFull(snap, cfg);
-      const validation = validateGrade(snap, targetGrade, cfg);
+      const strategyResult: GradeVerdict | null = useStrategy1
+        ? gradeStrategy1(snap, cfg as GradeStrategy1Config)
+        : null;
+      const legacyResult: GradeResult | null = useStrategy1
+        ? null
+        : gradeFull(snap, cfg as GradeConfig);
+      const strategy1Match = strategyResult != null
+        && strategyResult.passed
+        && strategyResult.grade === targetGrade;
+      const validation = useStrategy1
+        ? {
+            targetGrade,
+            strategy1Match,
+            reasons: strategy1Match ? [] : [strategyResult!.passed
+              ? `分档策略1: 实际档${strategyResult!.grade}(${strategyResult!.label})，目标档${targetGrade}`
+              : `分档策略1: ${strategyResult!.reason}`],
+          }
+        : validateGrade(snap, targetGrade, cfg as GradeConfig);
       const stability = computeStability(snap.sim1.winRate, snap.sim15.winRate);
 
       json(res, {
         ok: true,
+        strategy: useStrategy1 ? 'strategy1' : 'legacy',
         runs: simRuns,
         targetGrade,
-        allMatch: validation.standardMatch && validation.refinedMatch,
+        allMatch: useStrategy1
+          ? strategy1Match
+          : (validation as GradeValidation).standardMatch && (validation as GradeValidation).refinedMatch,
         simResults: {
           sim1: { winRate: snap.sim1.winRate, wins: snap.sim1.wins, losses: snap.sim1.losses, elapsedMs: snap.sim1.elapsedMs },
           sim5: { winRate: snap.sim5.winRate, wins: snap.sim5.wins, losses: snap.sim5.losses, elapsedMs: snap.sim5.elapsedMs },
           sim15: { winRate: snap.sim15.winRate, wins: snap.sim15.wins, losses: snap.sim15.losses, elapsedMs: snap.sim15.elapsedMs },
         },
         stability,
-        grade: {
-          standard: full.standard,
-          refined: full.refined,
-        },
+        grade: useStrategy1
+          ? { strategy1: strategyResult }
+          : { standard: legacyResult!.standard, refined: legacyResult!.refined },
         validation,
       });
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
@@ -1328,6 +1375,7 @@ const server = createServer(async (req, res) => {
 server.listen(port, () => {
   // 启动时加载分档配置
   try { loadGradeConfig(); } catch (e) { console.warn(`⚠️  分档配置加载失败: ${e}`); }
+  try { loadGradeStrategy1Config(); } catch (e) { console.warn(`⚠️  分档策略1配置加载失败: ${e}`); }
 
   console.log(`\n🔧 ReverseGen GUI → http://localhost:${port}`);
   if (existsSync(defaultLevelsDir)) {

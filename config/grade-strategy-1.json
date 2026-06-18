@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "name": "分档策略1",
+  "description": "基于 SafeRandom + mistake 的 sim1/sim5/sim15 六档认证策略。允许低覆盖；规则重叠时更难档优先。",
+  "priority": "harder-first",
+  "tiers": [
+    {
+      "grade": 0,
+      "label": "极易候选",
+      "targetRate": "90-100%",
+      "conditions": [
+        { "metric": "sim5", "operator": "gte", "value": 0.65 },
+        { "metric": "sim15", "operator": "gte", "value": 0.65 }
+      ]
+    },
+    {
+      "grade": 1,
+      "label": "简单",
+      "targetRate": "60-90%",
+      "conditions": [
+        { "metric": "sim5", "operator": "gte", "value": 0.65 },
+        { "metric": "sim15", "operator": "gte", "value": 0.45 },
+        { "metric": "sim15", "operator": "lt", "value": 0.65 }
+      ]
+    },
+    {
+      "grade": 2,
+      "label": "中等偏易",
+      "targetRate": "40-60%",
+      "conditions": [
+        { "metric": "sim5", "operator": "gte", "value": 0.45 },
+        { "metric": "sim5", "operator": "lt", "value": 0.70 },
+        { "metric": "stability", "operator": "lte", "value": 0.60 }
+      ]
+    },
+    {
+      "grade": 3,
+      "label": "中等偏难",
+      "targetRate": "20-40%",
+      "conditions": [
+        { "metric": "sim5", "operator": "gte", "value": 0.10 },
+        { "metric": "sim5", "operator": "lt", "value": 0.35 },
+        { "metric": "stability", "operator": "lte", "value": 0.50 }
+      ]
+    },
+    {
+      "grade": 4,
+      "label": "困难",
+      "targetRate": "10-20%",
+      "conditions": [
+        { "metric": "sim5", "operator": "lt", "value": 0.15 },
+        { "metric": "sim1", "operator": "lte", "value": 0.50 }
+      ]
+    },
+    {
+      "grade": 5,
+      "label": "极难",
+      "targetRate": "0-10%",
+      "conditions": [
+        { "metric": "sim5", "operator": "lte", "value": 0.05 },
+        { "metric": "sim1", "operator": "lte", "value": 0.10 }
+      ]
+    }
+  ],
+  "simRates": { "ceiling": 0.01, "baseline": 0.05, "floor": 0.15 },
+  "defaultRuns": 100,
+  "codingGuide": "输入胜率使用0-1小数。stability=max(0, sim1-sim15)。多个规则命中时按grade数字从大到小检查，更难档优先。未命中返回grade=-1。"
+}

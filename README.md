@@ -68,6 +68,29 @@ result.matchRate;    // 67.85  匹配率
 result.assignments;  // Map<tileId, elementValue>
 ```
 
+### 难度分档策略1
+
+`config/grade-strategy-1.json` 提供低覆盖、高可信的六档认证规则。输入
+SafeRandom + mistake 在 1% / 5% / 15% 失误率下的模拟胜率；规则重叠时更难档优先。
+
+```typescript
+import { readFileSync } from 'node:fs';
+import { gradeStrategy1 } from 'reversegen';
+import type { GradeStrategy1Config, SimSnapshot } from 'reversegen';
+
+const config = JSON.parse(
+  readFileSync('config/grade-strategy-1.json', 'utf8'),
+) as GradeStrategy1Config;
+
+declare const snapshot: SimSnapshot;
+const verdict = gradeStrategy1(snapshot, config);
+// { grade: 0..5, label: '...', passed: true }
+// 未命中认证规则时：{ grade: -1, label: '未认证', passed: false }
+```
+
+六档目标线上胜率依次为：90–100%、60–90%、40–60%、20–40%、10–20%、0–10%。
+在 Web GUI 的“难度分档”面板中，将“分档策略”切换为“分档策略1 · 六档认证”即可使用。
+
 ### 三种输出模式
 
 | 参数 | 场景 | 输出内容 |

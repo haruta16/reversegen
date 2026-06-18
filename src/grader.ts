@@ -108,6 +108,39 @@ export interface GradeValidation {
   reasons: string[];
 }
 
+/** 分档策略条件使用的模拟指标 */
+export type StrategyMetric = 'sim1' | 'sim5' | 'sim15' | 'stability';
+
+/** 分档策略条件支持的比较运算 */
+export type StrategyOperator = 'gt' | 'gte' | 'lt' | 'lte';
+
+/** 分档策略1中的单个判定条件 */
+export interface StrategyCondition {
+  metric: StrategyMetric;
+  operator: StrategyOperator;
+  value: number;
+}
+
+/** 分档策略1中的单个档位 */
+export interface StrategyTier {
+  grade: number;
+  label: string;
+  targetRate: string;
+  conditions: StrategyCondition[];
+}
+
+/** 可配置的分档策略1 */
+export interface GradeStrategy1Config {
+  version: number;
+  name: string;
+  description?: string;
+  /** harder-first: 多个规则命中时，档位数字更大的（更难）优先 */
+  priority: 'harder-first' | 'listed';
+  tiers: StrategyTier[];
+  simRates: { ceiling: number; baseline: number; floor: number };
+  defaultRuns: number;
+}
+
 // ── 纯函数 ──
 
 /**
@@ -136,6 +169,55 @@ export function checkCondition(cond: GradeCondition, snap: SimSnapshot, stabilit
     default:
       return false;
   }
+}
+
+/** 检查分档策略1中的通用条件。 */
+export function checkStrategyCondition(
+  cond: StrategyCondition,
+  snap: SimSnapshot,
+  stability: number,
+): boolean {
+  const epsilon = 1e-9;
+  const actual = cond.metric === 'stability'
+    ? stability
+    : snap[cond.metric].winRate;
+
+  switch (cond.operator) {
+    case 'gt': return actual > cond.value + epsilon;
+    case 'gte': return actual >= cond.value - epsilon;
+    case 'lt': return actual < cond.value - epsilon;
+    case 'lte': return actual <= cond.value + epsilon;
+    default: return false;
+  }
+}
+
+/**
+ * 六档“分档策略1”。
+ *
+ * 逐档检查配置中的全部条件。harder-first 模式下先检查更难档位，
+ * 用于解决规则区间重叠；没有任何规则命中时返回未认证。
+ */
+export function gradeStrategy1(
+  snap: SimSnapshot,
+  config: GradeStrategy1Config,
+): GradeVerdict {
+  const stability = computeStability(snap.sim1.winRate, snap.sim15.winRate);
+  const tiers = config.priority === 'harder-first'
+    ? [...config.tiers].sort((a, b) => b.grade - a.grade)
+    : config.tiers;
+
+  for (const tier of tiers) {
+    if (tier.conditions.every(cond => checkStrategyCondition(cond, snap, stability))) {
+      return { grade: tier.grade, label: tier.label, passed: true };
+    }
+  }
+
+  return {
+    grade: -1,
+    label: '未认证',
+    passed: false,
+    reason: `未命中${config.name}任何档位（sim1%=${(snap.sim1.winRate * 100).toFixed(1)}%, sim5%=${(snap.sim5.winRate * 100).toFixed(1)}%, sim15%=${(snap.sim15.winRate * 100).toFixed(1)}%, 稳定性=${(stability * 100).toFixed(1)}%）`,
+  };
 }
 
 /**

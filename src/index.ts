@@ -216,8 +216,10 @@ export {
   checkCondition,
   gradeStandard,
   gradeRefined,
+  gradeStrategy1,
   gradeFull,
   validateGrade,
+  checkStrategyCondition,
 } from './grader.js';
 export type {
   SimResult,
@@ -230,6 +232,11 @@ export type {
   GradeVerdict,
   GradeResult,
   GradeValidation,
+  StrategyMetric,
+  StrategyOperator,
+  StrategyCondition,
+  StrategyTier,
+  GradeStrategy1Config,
 } from './grader.js';
 
 // 工具
