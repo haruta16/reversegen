@@ -30,10 +30,10 @@ import { getAllTiles } from './terrain-loader.js';
 export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput {
   const { terrain, colorCount, dock, closeRates, spreadParam } = input;
 
-  // ── 1. 提取自由牌，算依赖深度 ──
+  // ── 1. 提取全量牌，算依赖深度（const 也参与）──
   const allTiles = getAllTiles(terrain);
   const freeTiles = allTiles.filter(t => !t.isConst);
-  const tileMap = new Map(freeTiles.map(t => [t.id, t]));
+  const tileMap = new Map(allTiles.map(t => [t.id, t])); // 全量，const 进入依赖图
 
   if (freeTiles.length === 0) {
     return { assignments: new Map(), triplets: [], metrics: emptyMetrics() };
@@ -42,36 +42,37 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
     throw new Error(`自由牌数量 ${freeTiles.length} 不是 3 的倍数`);
   }
 
-  const depthMap = computeDependencyDepth(freeTiles, tileMap);
+  const depthMap = computeDependencyDepth(allTiles, tileMap);
   const maxDepth = Math.max(...depthMap.values());
   const depthLayers: TerrainTile[][] = [];
   for (let d = 1; d <= maxDepth; d++) {
-    depthLayers.push(freeTiles.filter(t => depthMap.get(t.id) === d));
+    depthLayers.push(allTiles.filter(t => depthMap.get(t.id) === d)); // 全量分层
   }
 
-  // ── 2. 每色总牌数 ──
-  const tilesPerDepth = depthLayers.map(l => l.length);
+  // ── 2. 分层统计 ──
+  const freeTilesPerDepth = depthLayers.map(l => l.filter(t => !t.isConst).length);
+  const allTilesPerDepth = depthLayers.map(l => l.length);
   const totalTriplets = freeTiles.length / 3;
   const colorTotalTiles = assignColorTotals(totalTriplets, colorCount);
 
   // ── 3. 逐层约束满足 → 矩阵 M[c][d] ──
   const { matrix } = buildMatrixByCloseRates(
-    colorTotalTiles, tilesPerDepth, closeRates,
+    colorTotalTiles, freeTilesPerDepth, allTilesPerDepth, closeRates,
   );
 
-  // ── 4. 矩阵 → 具体方块贴花色（支持 spreadParam 控制分布）──
+  // ── 4. 矩阵 → 具体方块贴花色（仅自由牌参与选择）──
   const sp = spreadParam ?? 0.5;
-  const tileDepSets = computeTileDepSets(freeTiles, tileMap);
+  const tileDepSets = computeTileDepSets(allTiles, tileMap);
   const assignments = placeSuitsFromMatrixWithSpread(matrix, depthLayers, tileDepSets, sp);
 
-  // ── 5. 真实闭合率（基于实际落色结果，与导入路径共用同一函数）──
+  // ── 5. 真实闭合率（const 花色参与累积）──
   const actualCloseRates = computeCloseRatesFromAssignments(assignments, depthLayers);
 
-  // ── 6. 重建三元组 ──
+  // ── 6. 重建三元组（const 也参与）──
   const triplets = buildTriplets(assignments, depthLayers);
 
-  // ── 7. 难度指标 ──
-  const metrics = computeMetrics(assignments, freeTiles, depthLayers, depthMap, tileMap, tileDepSets, dock, colorCount, actualCloseRates);
+  // ── 7. 难度指标（const 全面参与）──
+  const metrics = computeMetrics(assignments, allTiles, depthLayers, depthMap, tileMap, tileDepSets, dock, colorCount, actualCloseRates);
 
   return { assignments, triplets, metrics };
 }
@@ -141,11 +142,12 @@ function assignColorTotals(totalTriplets: number, colorCount: number): number[] 
  */
 function buildMatrixByCloseRates(
   colorTotalTiles: number[],
-  tilesPerDepth: number[],
+  freeTilesPerDepth: number[],
+  allTilesPerDepth: number[],
   closeRates: number[],
 ): { matrix: number[][]; actualCloseRates: number[] } {
   const C = colorTotalTiles.length;
-  const D = tilesPerDepth.length;
+  const D = freeTilesPerDepth.length;
 
   // 活跃颜色（有牌的）
   const active = new Set<number>();
@@ -163,16 +165,16 @@ function buildMatrixByCloseRates(
   const M: number[][] = Array.from({ length: C }, () => new Array(D).fill(0));
   const actualCloseRates: number[] = [];
 
-  // 累积 tile 总数（用于计算 P = ⌊total ÷ 3⌋）
-  let totalCumulative = 0;
+  // 全量累积牌数（用于 P = ⌊全量 ÷ 3⌋，闭合率分母包含 const）
+  let allCumulative = 0;
 
   for (let d = 0; d < D; d++) {
-    const capacity = tilesPerDepth[d];
+    const capacity = freeTilesPerDepth[d]; // 本层分配容量（仅自由牌）
 
     // ── 目标完成 triplet 数 ──
-    // P = 本层分配后可形成的 triplet 总数上限
-    const totalTilesAfter = totalCumulative + capacity;
-    const P = Math.floor(totalTilesAfter / 3);
+    // P = 本层后的 triplet 总数上限（分母：全量累积，含 const）
+    const allTilesAfter = allCumulative + allTilesPerDepth[d];
+    const P = Math.floor(allTilesAfter / 3);
     const target = d === D - 1
       ? P  // 最后一层：全部完成
       : clamp(Math.round(fullRates[d] * P), 0, P);
@@ -214,7 +216,7 @@ function buildMatrixByCloseRates(
       }
       let futureCapacity = 0;
       for (let dd = d + 1; dd < D; dd++) {
-        futureCapacity += tilesPerDepth[dd];
+        futureCapacity += freeTilesPerDepth[dd];
       }
       if (projectedDebt > futureCapacity) {
         let excess = projectedDebt - futureCapacity;
@@ -315,26 +317,21 @@ function buildMatrixByCloseRates(
         const completedAfterRounds = countCompletedTriplets(projectedCum);
         const remainingToTarget = target - completedAfterRounds; // 还可以完成几个 triplet
 
-        // Step A: 给 3 的倍数，但只补到目标
+        // Step A: 每次 1 个 triplet，放完重排序存，避免单色独吞
         if (remainingToTarget > 0) {
           let tripletsAdded = 0;
-          for (const c of byRemaining) {
-            if (slack <= 0 || tripletsAdded >= remainingToTarget) break;
-            const maxAdd = remaining[c] - plan[c];
-            if (maxAdd < 3) continue;
-            const maxTriplets = Math.min(
-              Math.floor(maxAdd / 3),
-              remainingToTarget - tripletsAdded,
-            );
-            if (maxTriplets > 0) {
-              const give = Math.min(maxTriplets * 3, slack);
-              if (give >= 3) {
-                plan[c] += give;
-                used += give;
-                slack -= give;
-                tripletsAdded += Math.floor(give / 3);
-              }
-            }
+          while (tripletsAdded < remainingToTarget && slack >= 3) {
+            // 重排序存，选当前库存最大的颜色
+            const sorted = [...active]
+              .map(c => ({ c, stock: remaining[c] - plan[c] }))
+              .filter(x => x.stock >= 3)
+              .sort((a, b) => b.stock - a.stock);
+            if (sorted.length === 0) break; // 无人有能力收 triplet
+            const pick = sorted[0].c;
+            plan[pick] += 3;
+            used += 3;
+            slack -= 3;
+            tripletsAdded++;
           }
         }
 
@@ -387,7 +384,7 @@ function buildMatrixByCloseRates(
       cumulative[c] += assign;
       remaining[c] -= assign;
     }
-    totalCumulative += capacity;
+    allCumulative += allTilesPerDepth[d];
 
     // ── 记录实际闭合率（triplet 口径）──
     const actualCompleted = countCompletedTriplets(cumulative);
@@ -493,7 +490,7 @@ function placeSuitsFromMatrixWithSpread(
   const territory = new Map<number, Set<number>>();
 
   for (let d = 0; d < D; d++) {
-    const pool = new Set(depthLayers[d].map(t => t.id).filter(id => !assignments.has(id)));
+    const pool = new Set(depthLayers[d].filter(t => !t.isConst && !assignments.has(t.id)).map(t => t.id));
 
     // 本层各花色的配额
     const colorsNeeded: Array<{ color: number; count: number }> = [];
@@ -629,14 +626,18 @@ function buildTriplets(
   depthLayers: TerrainTile[][],
 ): Array<{ suitIndex: number; depths: [number, number, number] }> {
   const depthOf = new Map<number, number>();
+  const allAssignments = new Map<number, number>(assignments);
   for (let d = 0; d < depthLayers.length; d++) {
     for (const t of depthLayers[d]) {
       depthOf.set(t.id, d + 1);
+      if (t.isConst && t.constElementValue > 0) {
+        allAssignments.set(t.id, t.constElementValue);
+      }
     }
   }
 
   const bySuit = new Map<number, Array<{ tileId: number; depth: number }>>();
-  for (const [tileId, suit] of assignments) {
+  for (const [tileId, suit] of allAssignments) {
     const depth = depthOf.get(tileId) ?? 1;
     if (!bySuit.has(suit)) bySuit.set(suit, []);
     bySuit.get(suit)!.push({ tileId, depth });
@@ -681,7 +682,7 @@ export function computeCloseRatesFromAssignments(
   for (const layer of depthLayers) {
     // 累加本层方块
     for (const tile of layer) {
-      const color = assignments.get(tile.id) ?? 0;
+      const color = tile.isConst ? tile.constElementValue : (assignments.get(tile.id) ?? 0);
       if (color > 0) {
         cumByColor.set(color, (cumByColor.get(color) ?? 0) + 1);
       }
@@ -701,6 +702,25 @@ export function computeCloseRatesFromAssignments(
   return closeRates;
 }
 
+/**
+ * 合并自由牌花色 + const 牌花色，供指标计算使用。
+ * const 牌的花色视为已知的 assignments。
+ */
+function allTileAssignments(
+  assignments: Map<number, number>,
+  depthLayers: TerrainTile[][],
+): Map<number, number> {
+  const merged = new Map(assignments);
+  for (const layer of depthLayers) {
+    for (const t of layer) {
+      if (t.isConst && t.constElementValue > 0) {
+        merged.set(t.id, t.constElementValue);
+      }
+    }
+  }
+  return merged;
+}
+
 export function computeMetrics(
   assignments: Map<number, number>,
   tiles: TerrainTile[],
@@ -716,19 +736,21 @@ export function computeMetrics(
   const totalTiles = tiles.length;
   const tilesPerLayer = depthLayers.map(l => l.length);
 
+  const allAssign = allTileAssignments(assignments, depthLayers);
+
   const suitCounts = new Map<number, number>();
-  for (const [, suit] of assignments) {
+  for (const [, suit] of allAssign) {
     suitCounts.set(suit, (suitCounts.get(suit) ?? 0) + 1);
   }
   const allSuitsClosed = [...suitCounts.values()].every(c => c % 3 === 0);
   const assignedColorCount = suitCounts.size;
 
-  // debtByLayer: 纯累计
+  // debtByLayer: 纯累计（含 const 花色）
   const cumSuitCounts = new Map<number, number>();
   const debtByLayer: number[] = [];
   for (let d = 0; d < D; d++) {
     for (const tile of depthLayers[d]) {
-      const suit = assignments.get(tile.id);
+      const suit = allAssign.get(tile.id);
       if (suit !== undefined) {
         cumSuitCounts.set(suit, (cumSuitCounts.get(suit) ?? 0) + 1);
       }
@@ -744,15 +766,15 @@ export function computeMetrics(
 
   // expDebt
   const { expDebtByLayer, peakExpDebt, oi, consecutiveOI } =
-    computeExpDebt(tiles, depthLayers, depthMap, tileMap, assignments, dock);
+    computeExpDebt(tiles, depthLayers, depthMap, tileMap, allAssign, dock);
 
   // 遮挡
   let totalEdges = 0, sameColorEdges = 0, crossColorEdges = 0;
   for (const tile of tiles) {
     totalEdges += tile.dependencies.length;
-    const mySuit = assignments.get(tile.id);
+    const mySuit = allAssign.get(tile.id);
     for (const depId of tile.dependencies) {
-      const depSuit = assignments.get(depId);
+      const depSuit = allAssign.get(depId);
       if (mySuit !== undefined && depSuit !== undefined) {
         if (mySuit === depSuit) sameColorEdges++;
         else crossColorEdges++;
@@ -772,7 +794,7 @@ export function computeMetrics(
     for (const suit of suitColors) {
       // 收集该花色所有 tile 的 depSet
       const depSets: Set<number>[] = [];
-      for (const [tid, s] of assignments) {
+      for (const [tid, s] of allAssign) {
         if (s === suit) {
           const ds = tileDepSets.get(tid);
           if (ds) depSets.push(new Set(ds));
@@ -868,7 +890,7 @@ export function computeExpDebt(
       if (!assignments.has(t.id)) continue;
       if (exposed.includes(t)) continue;
       const allDepsCleared = t.dependencies.every(
-        depId => cleared.has(depId) || !tileMap.has(depId),
+        depId => cleared.has(depId),
       );
       if (allDepsCleared) exposed.push(t);
     }
