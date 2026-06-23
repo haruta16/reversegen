@@ -614,7 +614,7 @@ function updateClosurePresets(d){
 }
 function quickCost(steps,std){document.getElementById('targetStd').value=std;generateCost()}
 function quickClosure(rate){
-  document.querySelectorAll('.slider').forEach(function(s){s.value=Math.round(rate*100);s.dataset.prevDc='0'});
+  document.querySelectorAll('#closeRateSliders .slider').forEach(function(s){s.value=Math.round(rate*100);s.dataset.prevDc='0'});
   syncCloseRates();
 }
 
@@ -648,7 +648,7 @@ function updateCloseRateSliders(d){
 }
 
 function syncCloseRates(trigger){
-  var sliders=document.querySelectorAll('.slider');
+  var sliders=document.querySelectorAll('#closeRateSliders .slider');
   var vals=[];
   sliders.forEach(function(s){
     var total=parseInt(s.dataset.total),minC=parseInt(s.dataset.minDc)||0,maxC=parseInt(s.dataset.maxDc)||0;
@@ -798,8 +798,6 @@ function showClosure(d){
     '<div class="stat"><div class="n">'+(m.depthCount||0)+'</div><div class="lbl">深度层</div></div>'+
     '<div class="stat"><div class="n">'+((m.suitSpread||0)*100).toFixed(0)+'%</div><div class="lbl">离散率</div></div>'+
     '<div class="stat"><div class="n">'+((m.suitSpreadNorm||0)*100).toFixed(0)+'%</div><div class="lbl">归一离散</div></div>'+
-    '<div class="stat"><div class="n '+(m.configuredDebtPersistenceWeight!=null?'n-gold':'')+'">'+(m.configuredDebtPersistenceWeight!=null?m.configuredDebtPersistenceWeight.toFixed(2):'—')+'</div><div class="lbl">债务持续p</div></div>'+
-    '<div class="stat"><div class="n">'+(m.totalRetainedOldDebtTiles!=null?m.totalRetainedOldDebtTiles:'—')+'</div><div class="lbl">保留旧债tile</div></div>'+
     '<div class="stat"><div class="n '+(m.allSuitsClosed?'n-ok':'n-bad')+'">'+(m.allSuitsClosed?'✓':'✗')+'</div><div class="lbl">花色×3</div></div>';
   document.getElementById('stepSection').style.display='none';
   document.getElementById('chartTitle').textContent=hasTargets?'闭合率 设定 vs 实际':'闭合率';
@@ -952,7 +950,7 @@ function drawClosureChart(d,m,hasTargets){
     '<span style="color:#d4a853">▮ 设定</span> <span style="color:#7ec99c">▮ 实际</span>'+
     ' <span style="color:#c2784b">┅ 静态债务</span> <span style="color:#e6b450">── 暴露债务</span>'+
     ' · 峰:'+(m.peakDebt||0)+'/'+(m.peakExpDebt||0)+' OI:'+(m.oi||0)+' 离散:'+((m.suitSpread||0)*100).toFixed(0)+'%'+
-    (m.configuredDebtPersistenceWeight!=null?' · p='+(m.configuredDebtPersistenceWeight).toFixed(2)+' 保留旧债:'+(m.totalRetainedOldDebtTiles||0)+' 持续长度:['+((m.debtDurationHistogram||[]).join(','))+']':'');
+    (m.debtDurationHistogram?' · 持续长度:['+((m.debtDurationHistogram||[]).join(','))+']':'');
 }
 
 // ═══════════════════════════════════
