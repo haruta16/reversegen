@@ -59,6 +59,11 @@ export interface GenerateBoardLayerClosureInput {
    * 0=cluster（紧密） / 0.5=neutral（随机，默认） / 1=spread（分散）。
    */
   spreadParam?: number;
+  /**
+   * 债务持续权重 [0-1]（默认 0）。
+   * 0=尽量清旧债 / 1=尽量延旧债。闭合率负责"每层有多少债务"，此参数负责"是不是同一批债务"。
+   */
+  debtPersistenceWeight?: number;
 }
 
 /** generateBoardLayerClosure 的输出 */
@@ -120,6 +125,7 @@ export function generateBoardLayerClosure(
     dock = 7,
     levelHash: hashOverride,
     spreadParam,
+    debtPersistenceWeight,
   } = input;
 
   const allTiles = getAllTiles(terrain);
@@ -135,11 +141,16 @@ export function generateBoardLayerClosure(
     dock,
     closeRates,
     spreadParam,
+    debtPersistenceWeight,
   });
 
   const m = algoResult.metrics;
   logger.info(`  层数:${m.depthCount} 方块:${m.totalTiles} 花色:${m.colorCount}`);
   logger.info(`  闭合率: [${m.actualCloseRates.map(r => (r * 100).toFixed(0) + '%').join(', ')}]`);
+  logger.info(`  花色使用率: [${m.colorUsageRates.map(r => (r * 100).toFixed(0) + '%').join(', ')}]`);
+  logger.info(`  债务保留率: [${m.debtRetentionRates.map(r => (r * 100).toFixed(0) + '%').join(', ')}]`);
+  logger.info(`  债务持续权重 p=${m.configuredDebtPersistenceWeight} 保留旧债tile:[${m.retainedOldDebtTilesByLayer.join(', ')}] 总计:${m.totalRetainedOldDebtTiles}`);
+  logger.info(`  债务持续长度直方图: [${m.debtDurationHistogram.join(', ')}]`);
   logger.info(`  峰值债务:${m.peakDebt} 暴露峰值:${m.peakExpDebt} OI:${m.oi}`);
   logger.info(`  必输: ${m.isDoomed ? '是' : '否'}`);
 
@@ -208,7 +219,7 @@ export { generateCostArray, generateForTerrain } from './cost-generator.js';
 // 依赖图 / 贪心模拟 / 闭合率指标
 export { transitiveClosure, computeAllDependencies } from './dependency-graph.js';
 export { runPureGreedySimulation } from './greedy-sim.js';
-export { computeMetrics, computeExpDebt, computeTileDepSets, computeCloseRatesFromAssignments } from './layer-closure-gen.js';
+export { computeMetrics, computeExpDebt, computeTileDepSets, computeCloseRatesFromAssignments, computeLayerProgressMetrics } from './layer-closure-gen.js';
 
 // 分档
 export {
@@ -217,6 +228,9 @@ export {
   gradeStandard,
   gradeRefined,
   gradeStrategy1,
+  gradeStrategy2,
+  estimateStrategy2Passrate,
+  gradeFromPassrate,
   gradeFull,
   validateGrade,
   checkStrategyCondition,
@@ -237,6 +251,7 @@ export type {
   StrategyCondition,
   StrategyTier,
   GradeStrategy1Config,
+  GradeStrategy2Result,
 } from './grader.js';
 
 // 工具

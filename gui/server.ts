@@ -31,6 +31,7 @@ import {
   gradeStandard,
   gradeRefined,
   gradeStrategy1,
+  gradeStrategy2,
   gradeFull,
   validateGrade,
   computeStability,
@@ -40,7 +41,7 @@ import {
   computeTileDepSets,
   computeCloseRatesFromAssignments,
 } from '../src/index.js';
-import type { TerrainTile, GradeConfig, GradeStrategy1Config, GradeResult, GradeValidation, GradeVerdict } from '../src/index.js';
+import type { TerrainTile, GradeConfig, GradeStrategy1Config, GradeResult, GradeValidation, GradeVerdict, GradeStrategy2Result } from '../src/index.js';
 import {
   analyzeTriples,
   filterGraphData,
@@ -252,6 +253,13 @@ function buildGameFromReplay(
 /** 分档阈值配置的内存缓存，启动时加载。可通过 /api/grade/config-reload 热更新。 */
 let gradeConfig: GradeConfig | null = null;
 let gradeStrategy1Config: GradeStrategy1Config | null = null;
+const gradeStrategy2Info = {
+  name: '评估策略2',
+  description: '基于 sim1/sim5/sim15 的 passrate 估计六档。',
+  formula: 'clamp(0.30*sim1 + 0.10*sim5 + 0.60*sim15 + 0.08, 0, 1)',
+  simRates: { ceiling: 0.01, baseline: 0.05, floor: 0.15 },
+  defaultRuns: 100,
+};
 
 function loadGradeConfig(): GradeConfig {
   const configPath = join(__dirname, '..', 'config', 'grade-thresholds.json');
@@ -382,12 +390,13 @@ const server = createServer(async (req, res) => {
       const {
         algorithm,
         costArray, colorCount, // CostLadder params
-        closeRates, dock, spreadParam, // LayerClosure params
+        closeRates, dock, spreadParam, debtPersistenceWeight, // LayerClosure params
         levelId, levelsDir, terrainPath, levelHash,
       } = body as {
         algorithm?: string;
         costArray?: string; colorCount?: string;           // CostLadder
         closeRates?: string; dock?: string; spreadParam?: string; // LayerClosure
+        debtPersistenceWeight?: string;                    // LayerClosure
         levelId?: string; levelsDir?: string; terrainPath?: string; levelHash?: string;
       };
 
@@ -416,10 +425,13 @@ const server = createServer(async (req, res) => {
                 const dk = parseInt(dock || '7', 10) || 7;
         const sp = parseFloat(spreadParam || '0.5');
         const spread = isNaN(sp) ? 0.5 : Math.max(0, Math.min(1, sp));
+        const dpRaw = parseFloat(debtPersistenceWeight || '0');
+        const dp = isNaN(dpRaw) ? 0 : Math.max(0, Math.min(1, dpRaw));
 
         const result = generateBoardLayerClosure({
           terrain, closeRates: rates, colorCount: k,
           dock: dk, levelHash, spreadParam: spread,
+          debtPersistenceWeight: dp,
         });
 
         const ordered = getCanonicalTileOrder(allTiles);
@@ -602,6 +614,8 @@ const server = createServer(async (req, res) => {
         dock,
         colorCount,
         layerClosureRates,
+        0,   // debtPersistenceWeight: 导入路径无配置，回显 0
+        [],  // retainedOldDebtTilesByLayer: 由 computeLayerProgressMetrics 事后统计
       );
 
       json(res, {
@@ -1283,7 +1297,7 @@ const server = createServer(async (req, res) => {
     try {
       const cfg = getGradeConfig();
       const strategy1 = getGradeStrategy1Config();
-      json(res, { ok: true, config: cfg, strategy1 });
+      json(res, { ok: true, config: cfg, strategy1, strategy2: gradeStrategy2Info });
     } catch (err) { json(res, { ok: false, error: String(err) }, 500); }
     return;
   }
@@ -1295,7 +1309,7 @@ const server = createServer(async (req, res) => {
       gradeStrategy1Config = null;
       const cfg = loadGradeConfig();
       const strategy1 = loadGradeStrategy1Config();
-      json(res, { ok: true, message: `已重新加载旧版与${strategy1.name}`, config: cfg, strategy1 });
+      json(res, { ok: true, message: `已重新加载旧版、${strategy1.name}与${gradeStrategy2Info.name}`, config: cfg, strategy1, strategy2: gradeStrategy2Info });
     } catch (err) { json(res, { ok: false, error: String(err) }, 500); }
     return;
   }
@@ -1311,7 +1325,8 @@ const server = createServer(async (req, res) => {
 
       const gam = buildGameFromReplay(replayCode, levelId, levelsDir);
       const useStrategy1 = strategy === 'strategy1';
-      const cfg = useStrategy1 ? getGradeStrategy1Config() : getGradeConfig();
+      const useStrategy2 = strategy === 'strategy2';
+      const cfg = (useStrategy1 || useStrategy2) ? getGradeStrategy1Config() : getGradeConfig();
       const simRuns = runs ?? cfg.defaultRuns;
 
       // 串行跑三个失误率
@@ -1342,7 +1357,10 @@ const server = createServer(async (req, res) => {
       const strategyResult: GradeVerdict | null = useStrategy1
         ? gradeStrategy1(snap, cfg as GradeStrategy1Config)
         : null;
-      const legacyResult: GradeResult | null = useStrategy1
+      const strategy2Result: GradeStrategy2Result | null = useStrategy2
+        ? gradeStrategy2(snap)
+        : null;
+      const legacyResult: GradeResult | null = (useStrategy1 || useStrategy2)
         ? null
         : gradeFull(snap, cfg as GradeConfig);
 
@@ -1351,7 +1369,7 @@ const server = createServer(async (req, res) => {
 
       json(res, {
         ok: true,
-        strategy: useStrategy1 ? 'strategy1' : 'legacy',
+        strategy: useStrategy1 ? 'strategy1' : useStrategy2 ? 'strategy2' : 'legacy',
         runs: simRuns,
         simResults: {
           sim1: { winRate: snap.sim1.winRate, wins: snap.sim1.wins, losses: snap.sim1.losses, elapsedMs: snap.sim1.elapsedMs },
@@ -1361,7 +1379,9 @@ const server = createServer(async (req, res) => {
         stability,
         grade: useStrategy1
           ? { strategy1: strategyResult }
-          : { standard: legacyResult!.standard, refined: legacyResult!.refined },
+          : useStrategy2
+            ? { strategy2: strategy2Result }
+            : { standard: legacyResult!.standard, refined: legacyResult!.refined },
       });
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
     return;
@@ -1376,13 +1396,14 @@ const server = createServer(async (req, res) => {
       };
       if (!replayCode) throw new Error('缺少 replayCode');
       const useStrategy1 = strategy === 'strategy1';
-      const maxGrade = useStrategy1 ? 5 : 7;
+      const useStrategy2 = strategy === 'strategy2';
+      const maxGrade = (useStrategy1 || useStrategy2) ? 5 : 7;
       if (targetGrade == null || targetGrade < 0 || targetGrade > maxGrade) {
         throw new Error(`targetGrade 需为 0-${maxGrade} 的整数`);
       }
 
       const gam = buildGameFromReplay(replayCode, levelId, levelsDir);
-      const cfg = useStrategy1 ? getGradeStrategy1Config() : getGradeConfig();
+      const cfg = (useStrategy1 || useStrategy2) ? getGradeStrategy1Config() : getGradeConfig();
       const simRuns = runs ?? cfg.defaultRuns;
 
       const simResults: Array<{ rate: number; label: string }> = [
@@ -1412,12 +1433,18 @@ const server = createServer(async (req, res) => {
       const strategyResult: GradeVerdict | null = useStrategy1
         ? gradeStrategy1(snap, cfg as GradeStrategy1Config)
         : null;
-      const legacyResult: GradeResult | null = useStrategy1
+      const strategy2Result: GradeStrategy2Result | null = useStrategy2
+        ? gradeStrategy2(snap)
+        : null;
+      const legacyResult: GradeResult | null = (useStrategy1 || useStrategy2)
         ? null
         : gradeFull(snap, cfg as GradeConfig);
       const strategy1Match = strategyResult != null
         && strategyResult.passed
         && strategyResult.grade === targetGrade;
+      const strategy2Match = strategy2Result != null
+        && strategy2Result.passed
+        && strategy2Result.grade === targetGrade;
       const validation = useStrategy1
         ? {
             targetGrade,
@@ -1426,16 +1453,26 @@ const server = createServer(async (req, res) => {
               ? `分档策略1: 实际档${strategyResult!.grade}(${strategyResult!.label})，目标档${targetGrade}`
               : `分档策略1: ${strategyResult!.reason}`],
           }
+        : useStrategy2
+          ? {
+              targetGrade,
+              strategy2Match,
+              reasons: strategy2Match ? [] : [
+                `评估策略2: 实际档${strategy2Result!.grade}(${strategy2Result!.label})，目标档${targetGrade}，passrate=${(strategy2Result!.passrate * 100).toFixed(1)}%`,
+              ],
+            }
         : validateGrade(snap, targetGrade, cfg as GradeConfig);
       const stability = computeStability(snap.sim1.winRate, snap.sim15.winRate);
 
       json(res, {
         ok: true,
-        strategy: useStrategy1 ? 'strategy1' : 'legacy',
+        strategy: useStrategy1 ? 'strategy1' : useStrategy2 ? 'strategy2' : 'legacy',
         runs: simRuns,
         targetGrade,
         allMatch: useStrategy1
           ? strategy1Match
+          : useStrategy2
+            ? strategy2Match
           : (validation as GradeValidation).standardMatch && (validation as GradeValidation).refinedMatch,
         simResults: {
           sim1: { winRate: snap.sim1.winRate, wins: snap.sim1.wins, losses: snap.sim1.losses, elapsedMs: snap.sim1.elapsedMs },
@@ -1445,7 +1482,9 @@ const server = createServer(async (req, res) => {
         stability,
         grade: useStrategy1
           ? { strategy1: strategyResult }
-          : { standard: legacyResult!.standard, refined: legacyResult!.refined },
+          : useStrategy2
+            ? { strategy2: strategy2Result }
+            : { standard: legacyResult!.standard, refined: legacyResult!.refined },
         validation,
       });
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
@@ -1456,10 +1495,11 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/replay-selection/append' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { levelResId, replayCode, grade, elementCount } = body as {
+      const { levelResId, replayCode, grade, elementCount, passrate } = body as {
         levelResId?: number | string;
         replayCode?: string;
         grade?: number | string | null;
+        passrate?: number | string | null;
         elementCount?: number | string;
       };
       if (levelResId == null || levelResId === '') throw new Error('缺少 levelResId');
@@ -1476,6 +1516,7 @@ const server = createServer(async (req, res) => {
         levelResId,
         ReplayCode: replayCode,
         grade,
+        passrate,
         ElementCount: elementCount,
       }, paths.csvPath);
       json(res, {

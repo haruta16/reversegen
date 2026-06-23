@@ -45,6 +45,7 @@ describe('Replay 候选 CSV', () => {
     assert.equal(result.duplicate, false);
     assert.equal(result.row.ReplayKey, '1-2-3-17-');
     assert.equal(result.row.grade, '');
+    assert.equal(result.row.passrate, 0);
     assert.equal(result.row.DifficultyScore, 0);
     assert.equal(result.row.ExpectConsume, 0);
     assert.equal(result.row.CompletionStatus, 'Success');
@@ -65,6 +66,7 @@ describe('Replay 候选 CSV', () => {
       levelResId: 100075,
       ReplayCode: 'code,"quoted"',
       grade: 2,
+      passrate: 0.491,
       ElementCount: 8,
     });
     row.LevelTags = '中文,标签';
@@ -77,6 +79,7 @@ describe('Replay 候选 CSV', () => {
     assert.equal(data.LevelTags, '中文,标签');
     assert.equal(data.replayInfoList[0].ReplayTags, '第一行\n"第二行"');
     assert.equal(data.replayInfoList[0].ReplayCode, 'code,"quoted"');
+    assert.equal(data.replayInfoList[0].passrate, 0.491);
   });
 
   it('按 levelResId + ReplayCode 幂等判重', () => {
@@ -124,11 +127,26 @@ describe('Replay JSON 构建', () => {
     assert.equal(data.StrategyGroup, 'B');
     assert.deepEqual(data.replayInfoList.map((entry: { ReplayCode: string }) => entry.ReplayCode), ['first', 'second']);
     assert.deepEqual(Object.keys(data.replayInfoList[0]), [
-      'ReplayCode', 'ReplayKey', 'grade', 'ElementCount', 'DifficultyScore',
+      'ReplayCode', 'ReplayKey', 'grade', 'passrate', 'ElementCount', 'DifficultyScore',
       'CompletionStatus', 'ExpectConsume', 'highWinRate', 'MiddleWinRate',
       'LowWinRate', 'ReplayTags',
     ]);
     assert.equal(typeof data.replayInfoList[0].grade, 'number');
+  });
+
+  it('兼容没有 passrate 列的旧 CSV，导出 JSON 时默认 passrate=0', () => {
+    const dir = makeTempDir();
+    const csvPath = join(dir, 'selection.csv');
+    const generatedDir = join(dir, 'generated');
+    writeFileSync(csvPath, [
+      'levelResId,ReplayKey,ReplayCode,grade,ElementCount,DifficultyScore,CompletionStatus,ExpectConsume,LevelTags,ReplayTags,highWinRate,MiddleWinRate,LowWinRate',
+      '1,1-2-3-8-,code,1,8,0,Success,0,,,0,0,0',
+      '',
+    ].join('\n'), 'utf8');
+
+    const result = buildReplaySelections(csvPath, generatedDir);
+    const data = JSON.parse(readFileSync(result.files[0], 'utf8'));
+    assert.equal(data.replayInfoList[0].passrate, 0);
   });
 
   it('全量重建删除旧 JSON，但保留其他文件', () => {
@@ -152,7 +170,7 @@ describe('Replay JSON 构建', () => {
     mkdirSync(generatedDir);
     writeFileSync(join(generatedDir, 'old.json'), '{"old":true}\n');
     const row = createReplaySelectionRow({ levelResId: 1, ReplayCode: 'code', grade: 1, ElementCount: 8 });
-    const invalidCsv = serializeReplaySelectionCsv([row]).replace(',1,8,', ',9,8,');
+    const invalidCsv = serializeReplaySelectionCsv([row]).replace(',1,0,8,', ',9,0,8,');
     writeFileSync(csvPath, invalidCsv, 'utf8');
 
     assert.throws(() => buildReplaySelections(csvPath, generatedDir), /第 2 行 grade 必须是 0-5 的整数/);
