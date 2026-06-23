@@ -90,6 +90,7 @@ const GUI_DIR = __dirname;
 const args = process.argv.slice(2);
 let port = 3000;
 let autoOpen = false;
+let openPath = '/';
 // Default: look for levels in the original TileMatchShell project
 let defaultLevelsDir = join(__dirname, '..', '..', 'TileMatchShell', 'Tools', 'Config', 'Json', 'Levels');
 
@@ -98,6 +99,9 @@ for (let i = 0; i < args.length; i++) {
     port = parseInt(args[i + 1], 10); i++;
   } else if (args[i] === '--open') {
     autoOpen = true;
+  } else if (args[i] === '--open-challenge') {
+    autoOpen = true;
+    openPath = '/challenge-expectation';
   } else if (args[i] === '--levels-dir' && args[i + 1]) {
     defaultLevelsDir = args[i + 1]; i++;
   }
@@ -1556,6 +1560,10 @@ const server = createServer(async (req, res) => {
     serveStatic(res, join(GUI_DIR, 'index.html'));
     return;
   }
+  if (url.pathname === '/challenge-expectation' || url.pathname === '/challenge-expectation/') {
+    serveStatic(res, join(GUI_DIR, 'challenge-expectation', 'index.html'));
+    return;
+  }
   serveStatic(res, join(GUI_DIR, url.pathname));
 });
 
@@ -1576,6 +1584,6 @@ server.listen(port, () => {
   if (autoOpen) {
     const platform = process.platform;
     const cmd = platform === 'darwin' ? 'open' : platform === 'win32' ? 'start' : 'xdg-open';
-    exec(`${cmd} http://localhost:${port}`);
+    exec(`${cmd} http://localhost:${port}${openPath}`);
   }
 });
