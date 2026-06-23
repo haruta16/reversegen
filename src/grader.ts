@@ -76,6 +76,8 @@ export interface GradeVerdict {
   grade: number;
   label: string;
   passed: boolean;
+  /** 评估策略2使用：估计在线胜率 / passrate，0-1 小数 */
+  passrate?: number;
   /** 未通过时的原因说明 */
   reason?: string;
 }
@@ -141,6 +143,16 @@ export interface GradeStrategy1Config {
   defaultRuns: number;
 }
 
+/** 评估策略2：只使用 sim1/sim5/sim15 估计在线胜率。 */
+export interface GradeStrategy2Result extends GradeVerdict {
+  passrate: number;
+  formula: string;
+  targetRate: string;
+}
+
+const STRATEGY2_LABELS = ['极易候选', '简单', '中等偏易', '中等偏难', '困难', '极难'];
+const STRATEGY2_TARGET_RANGES = ['90-100%', '60-90%', '40-60%', '20-40%', '10-20%', '0-10%'];
+
 // ── 纯函数 ──
 
 /**
@@ -149,6 +161,47 @@ export interface GradeStrategy1Config {
  */
 export function computeStability(sim1: number, sim15: number): number {
   return Math.max(0, sim1 - sim15);
+}
+
+function clampRate(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+/**
+ * 评估策略2的 passrate 估计。
+ *
+ * 只使用 sim1/sim5/sim15，不使用在线胜率、地形、债务或其他结构参数。
+ */
+export function estimateStrategy2Passrate(sim1: number, sim5: number, sim15: number): number {
+  return clampRate(0.30 * sim1 + 0.10 * sim5 + 0.60 * sim15 + 0.08);
+}
+
+/** 将 passrate 映射为 0-5 六档。 */
+export function gradeFromPassrate(passrate: number): number {
+  if (passrate >= 0.90) return 0;
+  if (passrate >= 0.60) return 1;
+  if (passrate >= 0.40) return 2;
+  if (passrate >= 0.20) return 3;
+  if (passrate >= 0.10) return 4;
+  return 5;
+}
+
+/** 评估策略2：三率估计 passrate，并按 passrate 六档分档。 */
+export function gradeStrategy2(snap: SimSnapshot): GradeStrategy2Result {
+  const passrate = estimateStrategy2Passrate(
+    snap.sim1.winRate,
+    snap.sim5.winRate,
+    snap.sim15.winRate,
+  );
+  const grade = gradeFromPassrate(passrate);
+  return {
+    grade,
+    label: STRATEGY2_LABELS[grade],
+    passed: true,
+    passrate,
+    targetRate: STRATEGY2_TARGET_RANGES[grade],
+    formula: 'clamp(0.30*sim1 + 0.10*sim5 + 0.60*sim15 + 0.08, 0, 1)',
+  };
 }
 
 /**

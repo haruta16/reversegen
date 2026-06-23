@@ -3,7 +3,7 @@ import * as assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gradeStrategy1 } from '../../src/grader.js';
+import { estimateStrategy2Passrate, gradeFromPassrate, gradeStrategy1, gradeStrategy2 } from '../../src/grader.js';
 import type { GradeStrategy1Config, SimResult, SimSnapshot } from '../../src/grader.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -56,5 +56,25 @@ describe('分档策略1', () => {
     assert.equal(verdict.grade, -1);
     assert.equal(verdict.passed, false);
     assert.match(verdict.reason ?? '', /未命中分档策略1/);
+  });
+});
+
+describe('评估策略2', () => {
+  it('estimates passrate from sim1/sim5/sim15 only', () => {
+    assert.ok(Math.abs(estimateStrategy2Passrate(0.86, 0.63, 0.15) - 0.491) < 1e-12);
+    const result = gradeStrategy2(snap(0.86, 0.63, 0.15));
+    assert.ok(Math.abs(result.passrate - 0.491) < 1e-12);
+    assert.equal(result.grade, 2);
+    assert.equal(result.label, '中等偏易');
+    assert.equal(result.passed, true);
+  });
+
+  it('maps passrate to six target ranges', () => {
+    assert.equal(gradeFromPassrate(0.90), 0);
+    assert.equal(gradeFromPassrate(0.60), 1);
+    assert.equal(gradeFromPassrate(0.40), 2);
+    assert.equal(gradeFromPassrate(0.20), 3);
+    assert.equal(gradeFromPassrate(0.10), 4);
+    assert.equal(gradeFromPassrate(0.099), 5);
   });
 });

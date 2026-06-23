@@ -28,7 +28,8 @@ import { getAllTiles } from './terrain-loader.js';
 // ═══════════════════════════════════════════════════════════
 
 export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput {
-  const { terrain, colorCount, dock, closeRates, spreadParam } = input;
+  const { terrain, colorCount, dock, closeRates, spreadParam, debtPersistenceWeight } = input;
+  const p = Math.max(0, Math.min(1, debtPersistenceWeight ?? 0));
 
   // ── 1. 提取全量牌，算依赖深度（const 也参与）──
   const allTiles = getAllTiles(terrain);
@@ -56,8 +57,8 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
   const colorTotalTiles = assignColorTotals(totalTriplets, colorCount);
 
   // ── 3. 逐层约束满足 → 矩阵 M[c][d] ──
-  const { matrix } = buildMatrixByCloseRates(
-    colorTotalTiles, freeTilesPerDepth, allTilesPerDepth, closeRates,
+  const { matrix, retainedOldDebtTilesByLayer } = buildMatrixByCloseRates(
+    colorTotalTiles, freeTilesPerDepth, allTilesPerDepth, closeRates, p,
   );
 
   // ── 4. 矩阵 → 具体方块贴花色（仅自由牌参与选择）──
@@ -72,7 +73,7 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
   const triplets = buildTriplets(assignments, depthLayers);
 
   // ── 7. 难度指标（const 全面参与）──
-  const metrics = computeMetrics(assignments, allTiles, depthLayers, depthMap, tileMap, tileDepSets, dock, colorCount, actualCloseRates);
+  const metrics = computeMetrics(assignments, allTiles, depthLayers, depthMap, tileMap, tileDepSets, dock, colorCount, actualCloseRates, p, retainedOldDebtTilesByLayer);
 
   return { assignments, triplets, metrics };
 }
@@ -138,16 +139,23 @@ function assignColorTotals(totalTriplets: number, colorCount: number): number[] 
  *
  * 闭合率的单位是 triplet（组），不是颜色。花色是手段，闭合率是结果。
  *
- * @returns { matrix, actualCloseRates }
+ * 债务持续权重 p 控制"下一层债务中保留多少旧债务 tile"：
+ *   目标保留 = round(p × min(本层旧债务 tile 数, 下一层债务 tile 数))
+ *   p=0 → 优先闭合旧债务色（清旧债）；p=1 → 优先闭合非债务色（留旧债）。
+ *   p 是软目标，closeRate(数量)与 mod3 闭合预算(硬约束)优先。
+ *
+ * @returns { matrix, actualCloseRates, retainedOldDebtTilesByLayer }
  */
 function buildMatrixByCloseRates(
   colorTotalTiles: number[],
   freeTilesPerDepth: number[],
   allTilesPerDepth: number[],
   closeRates: number[],
-): { matrix: number[][]; actualCloseRates: number[] } {
+  debtPersistenceWeight: number,
+): { matrix: number[][]; actualCloseRates: number[]; retainedOldDebtTilesByLayer: number[] } {
   const C = colorTotalTiles.length;
   const D = freeTilesPerDepth.length;
+  const p = debtPersistenceWeight;
 
   // 活跃颜色（有牌的）
   const active = new Set<number>();
@@ -164,6 +172,7 @@ function buildMatrixByCloseRates(
   const remaining = [...colorTotalTiles];   // 剩余待分配
   const M: number[][] = Array.from({ length: C }, () => new Array(D).fill(0));
   const actualCloseRates: number[] = [];
+  const retainedOldDebtTilesByLayer: number[] = [];
 
   // 全量累积牌数（用于 P = ⌊全量 ÷ 3⌋，闭合率分母包含 const）
   let allCumulative = 0;
@@ -189,13 +198,51 @@ function buildMatrixByCloseRates(
 
     if (target > currentlyCompleted) {
       const need = target - currentlyCompleted;
-      // 从所有有剩牌的颜色中挑 need 个，优先挑完成 triplet 成本低的
-      const candidates = [...active]
-        .filter(c => remaining[c] > 0)
-        .sort((a, b) => tripletCost(cumulative[a]) - tripletCost(cumulative[b]));
-      for (let i = 0; i < Math.min(need, candidates.length); i++) {
-        toClose.push(candidates[i]);
+
+      // ── 债务持续权重 p：决定本层闭合多少旧债务色 vs 非债务色 ──
+      // oldDebtTiles = 进入本层前的旧债务 tile 总数（Σ cum%3，非0项）
+      // nextDebtTiles = 本层末债务 tile 总数（累计 tile − 已闭合 tile）
+      // targetRetained = round(p × min(oldDebtTiles, nextDebtTiles))
+      // oldDebtToClear = oldDebtTiles − targetRetained（本层应清掉的旧债务 tile 数）
+      const oldDebt = [...active].filter(c => cumulative[c] % 3 !== 0 && remaining[c] > 0);
+      const oldDebtTiles = oldDebt.reduce((s, c) => s + (cumulative[c] % 3), 0);
+      const nextDebtTiles = Math.max(0, allTilesAfter - target * 3);
+      const targetRetained = Math.round(p * Math.min(oldDebtTiles, nextDebtTiles));
+      const oldDebtToClear = Math.max(0, oldDebtTiles - targetRetained);
+
+      // 旧债务色按 r=cum%3 降序（r=2 先清，单色清 2 tile 且只需 1 张牌，性价比高）
+      oldDebt.sort((a, b) => (cumulative[b] % 3) - (cumulative[a] % 3));
+
+      // 1) 选旧债务色子集，Σ r_c ≈ oldDebtToClear，数量 ≤ need
+      const toCloseOld: number[] = [];
+      let clearedTiles = 0;
+      for (const c of oldDebt) {
+        if (toCloseOld.length >= need) break;
+        if (clearedTiles >= oldDebtToClear) break;
+        toCloseOld.push(c);
+        clearedTiles += cumulative[c] % 3;
       }
+
+      // 2) 补足 need：优先非债务色（cum%3=0，闭合不动旧债 → 保留旧债）
+      //    非债务色需 remaining≥3 才能凑出一个 triplet
+      const nonDebt = [...active].filter(c =>
+        cumulative[c] % 3 === 0 && remaining[c] >= 3 && !toCloseOld.includes(c));
+      const toCloseNew: number[] = [];
+      for (const c of nonDebt) {
+        if (toCloseOld.length + toCloseNew.length >= need) break;
+        toCloseNew.push(c);
+      }
+
+      // 3) 仍不够（非债务色余量不足）→ 被迫从剩余旧债务色补（动旧债，实际保留 < 目标）
+      if (toCloseOld.length + toCloseNew.length < need) {
+        for (const c of oldDebt) {
+          if (toCloseOld.includes(c)) continue;
+          if (toCloseOld.length + toCloseNew.length >= need) break;
+          toCloseOld.push(c);
+        }
+      }
+
+      toClose.push(...toCloseOld, ...toCloseNew);
     } else if (target < currentlyCompleted) {
       // 已完成的 triplet 无法撤销。target 是软目标，不做状态变更。
       // toOpen 留空，仅通过 safe-fill 填充本层。
@@ -229,6 +276,20 @@ function buildMatrixByCloseRates(
           toClose.push(c);
         }
       }
+    }
+
+    // ── 记录本层保留的旧债务 tile 数（实际值，供输出校验）──
+    // 在 forceClose 之后计算，计入强制闭合的旧债务色（也算清掉）。
+    // d=0 无"进入本层前的旧债"，不计入。
+    if (d > 0) {
+      let retainedThisLayer = 0;
+      for (const c of active) {
+        const r = cumulative[c] % 3;
+        if (r === 0) continue;
+        // 旧债务色：未被 toClose 选中 → 保留全部 r；被选中 → 清 0
+        retainedThisLayer += toClose.includes(c) ? 0 : r;
+      }
+      retainedOldDebtTilesByLayer.push(retainedThisLayer);
     }
 
     // ── 分配：先满足状态变更，再填满容量 ──
@@ -391,7 +452,7 @@ function buildMatrixByCloseRates(
     actualCloseRates.push(P > 0 ? actualCompleted / P : 0);
   }
 
-  return { matrix: M, actualCloseRates };
+  return { matrix: M, actualCloseRates, retainedOldDebtTilesByLayer };
 }
 
 /** 完成 1 个 triplet 的成本：需要几张牌才能让 floor(cum/3) 增加 1 */
@@ -731,6 +792,8 @@ export function computeMetrics(
   dock: number,
   colorCount: number,
   actualCloseRates: number[],
+  debtPersistenceWeight: number,
+  buildRetainedOldDebtTilesByLayer: number[],
 ): DebtMetrics {
   const D = depthLayers.length;
   const totalTiles = tiles.length;
@@ -744,6 +807,16 @@ export function computeMetrics(
   }
   const allSuitsClosed = [...suitCounts.values()].every(c => c % 3 === 0);
   const assignedColorCount = suitCounts.size;
+
+  const { colorUsageRates, averageColorActivationLayer, debtTileCountsByLayer,
+    debtRetentionRates, weightedDebtRetentionRate,
+    retainedOldDebtTilesByLayer: metricsRetained, debtDurationHistogram } =
+    computeLayerProgressMetrics(allAssign, depthLayers);
+
+  // 逐层保留旧债务 tile 数必须采用落色后的事实统计。
+  void buildRetainedOldDebtTilesByLayer;
+  const retainedOldDebtTilesByLayer = metricsRetained;
+  const totalRetainedOldDebtTiles = retainedOldDebtTilesByLayer.reduce((a, b) => a + b, 0);
 
   // debtByLayer: 纯累计（含 const 花色）
   const cumSuitCounts = new Map<number, number>();
@@ -835,6 +908,15 @@ export function computeMetrics(
     consecutiveOI,
     colorCount: assignedColorCount,
     actualCloseRates,
+    colorUsageRates,
+    averageColorActivationLayer,
+    debtTileCountsByLayer,
+    debtRetentionRates,
+    weightedDebtRetentionRate,
+    configuredDebtPersistenceWeight: debtPersistenceWeight,
+    retainedOldDebtTilesByLayer,
+    totalRetainedOldDebtTiles,
+    debtDurationHistogram,
     averageOcclusion: Math.round(averageOcclusion * 100) / 100,
     totalEdges,
     sameColorEdges,
@@ -844,6 +926,116 @@ export function computeMetrics(
     suitSpread,
     suitSpreadNorm,
   };
+}
+
+/**
+ * 计算与闭合率同层级的累计花色/债务指标。
+ *
+ * - 花色使用率按 1~L 累计出现花色数计算。
+ * - 债务 tile 是每色累计数量除以 3 后的余数牌。
+ * - 债务保留率按具体旧债务 tile 加权：若下一层新增牌足以完成该色当前三连，
+ *   该色的旧债务 tile 全部解除；否则全部保留。
+ */
+export function computeLayerProgressMetrics(
+  assignments: Map<number, number>,
+  depthLayers: TerrainTile[][],
+): {
+  colorUsageRates: number[];
+  averageColorActivationLayer: number;
+  debtTileCountsByLayer: number[];
+  debtRetentionRates: number[];
+  weightedDebtRetentionRate: number;
+  retainedOldDebtTilesByLayer: number[];
+  debtDurationHistogram: number[];
+} {
+  const allColors = new Set(assignments.values());
+  const totalColors = allColors.size;
+  const D = depthLayers.length;
+  const cumulative = new Map<number, number>();
+  const colorUsageRates: number[] = [];
+  const debtTileCountsByLayer: number[] = [];
+  const debtRetentionRates: number[] = [];
+  const retainedOldDebtTilesByLayer: number[] = [];
+  const activationLayer = new Map<number, number>();
+  let totalPreviousDebtTiles = 0;
+  let totalRetainedDebtTiles = 0;
+
+  // 债务段追踪：每色 cum%3 从 0→非0 记出生层，非0→0 记清除层
+  const debtStart = new Map<number, number>(); // color → 出生层(1-indexed)
+  const debtDurationHistogram = new Array<number>(D).fill(0);
+
+  for (let d = 0; d < D; d++) {
+    const additions = new Map<number, number>();
+    for (const tile of depthLayers[d]) {
+      const color = assignments.get(tile.id);
+      if (color === undefined) continue;
+      additions.set(color, (additions.get(color) ?? 0) + 1);
+    }
+
+    if (d > 0) {
+      let previousDebtTiles = 0;
+      let retainedDebtTiles = 0;
+      for (const [color, count] of cumulative) {
+        const remainder = count % 3;
+        if (remainder === 0) continue;
+        previousDebtTiles += remainder;
+        const added = additions.get(color) ?? 0;
+        if (added < 3 - remainder) retainedDebtTiles += remainder;
+      }
+      debtRetentionRates.push(previousDebtTiles > 0
+        ? retainedDebtTiles / previousDebtTiles
+        : 0);
+      retainedOldDebtTilesByLayer.push(retainedDebtTiles);
+      totalPreviousDebtTiles += previousDebtTiles;
+      totalRetainedDebtTiles += retainedDebtTiles;
+    }
+
+    // 累加并检测债务段状态转换（出生/清除）
+    for (const [color, count] of additions) {
+      if (!activationLayer.has(color)) activationLayer.set(color, d + 1);
+      const prev = cumulative.get(color) ?? 0;
+      const next = prev + count;
+      const prevR = prev % 3;
+      const nextR = next % 3;
+      // 出生：0 → 非0
+      if (prevR === 0 && nextR !== 0) {
+        debtStart.set(color, d + 1);
+      }
+      // 清除：非0 → 0
+      if (prevR !== 0 && nextR === 0) {
+        const start = debtStart.get(color);
+        if (start !== undefined) {
+          // 持续长度 = 债务实际存在过的层末端点数。
+          // 若第 start 层末出生，并在当前层被清除，则当前层末已不再是债务，所以不计当前层。
+          const dur = (d + 1) - start;
+          if (dur >= 1 && dur <= D) debtDurationHistogram[dur - 1]++;
+          debtStart.delete(color);
+        }
+      }
+      cumulative.set(color, next);
+    }
+
+    colorUsageRates.push(totalColors > 0 ? cumulative.size / totalColors : 0);
+    let debtTiles = 0;
+    for (const count of cumulative.values()) debtTiles += count % 3;
+    debtTileCountsByLayer.push(debtTiles);
+  }
+
+  // 到最后一层仍未清除的债务段：持续 = D - 出生层 + 1
+  for (const [color, start] of debtStart) {
+    const dur = D - start + 1;
+    if (dur >= 1 && dur <= D) debtDurationHistogram[dur - 1]++;
+  }
+
+  const averageColorActivationLayer = activationLayer.size > 0
+    ? [...activationLayer.values()].reduce((a, b) => a + b, 0) / activationLayer.size
+    : 0;
+  const weightedDebtRetentionRate = totalPreviousDebtTiles > 0
+    ? totalRetainedDebtTiles / totalPreviousDebtTiles
+    : 0;
+  return { colorUsageRates, averageColorActivationLayer, debtTileCountsByLayer,
+    debtRetentionRates, weightedDebtRetentionRate,
+    retainedOldDebtTilesByLayer, debtDurationHistogram };
 }
 
 export function computeExpDebt(
@@ -930,6 +1122,10 @@ function emptyMetrics(): DebtMetrics {
     depthCount: 0, totalTiles: 0, tilesPerLayer: [],
     debtByLayer: [], expDebtByLayer: [], peakDebt: 0, peakExpDebt: 0,
     oi: 0, consecutiveOI: 0, colorCount: 0, actualCloseRates: [],
+    colorUsageRates: [], debtTileCountsByLayer: [], debtRetentionRates: [],
+    averageColorActivationLayer: 0, weightedDebtRetentionRate: 0,
+    configuredDebtPersistenceWeight: 0, retainedOldDebtTilesByLayer: [],
+    totalRetainedOldDebtTiles: 0, debtDurationHistogram: [],
     averageOcclusion: 0, totalEdges: 0, sameColorEdges: 0, crossColorEdges: 0,
     allSuitsClosed: true, isDoomed: false,
     suitSpread: 0, suitSpreadNorm: 0,

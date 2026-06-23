@@ -46,6 +46,7 @@ const { values } = parseArgs({
     'close-rates':  { type: 'string' },
         'dock':         { type: 'string', default: '7' },
     'spread':       { type: 'string', default: '0.5' },
+    'debt-persistence': { type: 'string', default: '0' },
     json:          { type: 'boolean', short: 'j', default: false },
     quiet:         { type: 'boolean', short: 'q', default: false },
     verbose:       { type: 'boolean', short: 'v', default: false },
@@ -83,6 +84,7 @@ OPTIONS:
     --close-rates <csv>   每层闭合率 (e.g. "0.3,0.6,0.8")
     --dock <n>            Dock容量 (默认: 7)
     --spread <n>          同色分布 [0-1] 0=紧密 0.5=随机 1=分散 (默认: 0.5)
+    --debt-persistence <n> 债务持续权重 [0-1] 0=清旧债 1=延旧债 (默认: 0)
 
 EXAMPLES:
   # CostLadder (默认)
@@ -210,6 +212,8 @@ try {
         const dock = parseInt(values['dock']!, 10) || 7;
     const spread = parseFloat(values['spread']!);
     const spreadParam = isNaN(spread) ? 0.5 : Math.max(0, Math.min(1, spread));
+    const dpRaw = parseFloat(values['debt-persistence']!);
+    const debtPersistenceWeight = isNaN(dpRaw) ? 0 : Math.max(0, Math.min(1, dpRaw));
 
     const result = generateBoardLayerClosure({
       terrain,
@@ -218,6 +222,7 @@ try {
       dock,
       levelHash: values.hash,
       spreadParam,
+      debtPersistenceWeight,
     });
 
     const m = result.metrics;
@@ -252,6 +257,13 @@ try {
           isDoomed: m.isDoomed,
           suitSpread: m.suitSpread,
           suitSpreadNorm: m.suitSpreadNorm,
+          configuredDebtPersistenceWeight: m.configuredDebtPersistenceWeight,
+          retainedOldDebtTilesByLayer: m.retainedOldDebtTilesByLayer,
+          totalRetainedOldDebtTiles: m.totalRetainedOldDebtTiles,
+          debtDurationHistogram: m.debtDurationHistogram,
+          debtRetentionRates: m.debtRetentionRates,
+          weightedDebtRetentionRate: m.weightedDebtRetentionRate,
+          colorUsageRates: m.colorUsageRates,
         },
       }, null, 2));
     } else {
@@ -267,6 +279,8 @@ try {
       console.log(`  平均遮挡: ${m.averageOcclusion}  花色*3: ${m.allSuitsClosed ? '✓' : '✗'}`);
       console.log(`  必输判定: ${m.isDoomed ? '是' : '否'}`);
       console.log(`  花色离散率: ${(m.suitSpread * 100).toFixed(1)}%  归一离散率: ${(m.suitSpreadNorm * 100).toFixed(1)}%`);
+      console.log(`  债务持续权重 p=${m.configuredDebtPersistenceWeight}  保留旧债tile: [${m.retainedOldDebtTilesByLayer.join(', ')}] 总计:${m.totalRetainedOldDebtTiles}`);
+      console.log(`  债务持续长度直方图(持续k层各有几段): [${m.debtDurationHistogram.join(', ')}]`);
       console.log(`  Level hash: ${result.levelHash}`);
 
       console.log(`\n── ReplayCode ──`);

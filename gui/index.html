@@ -311,6 +311,12 @@ kbd{
           <input class="slider" type="range" id="spreadParam" min="0" max="100" value="50" step="5" oninput="updateSpreadLabel()">
           <span class="sl-l" style="text-align:left">分散</span>
         </div>
+        <label style="margin-top:6px">债务持续权重 <span style="font-weight:400;font-size:9px" id="debtLabel">— 0.00</span></label>
+        <div class="slider-row">
+          <span class="sl-l">清旧债</span>
+          <input class="slider" type="range" id="debtPersistence" min="0" max="100" value="0" step="5" oninput="updateDebtLabel()">
+          <span class="sl-l" style="text-align:left">延旧债</span>
+        </div>
       </div>
 
       <button class="btn btn-primary" onclick="generate()" id="btnGen" style="margin-top:12px">
@@ -454,6 +460,7 @@ kbd{
           <label style="margin:0">分档策略</label>
           <select id="gradeStrategy" style="font-size:11px" onchange="updateGradeTargets()">
             <option value="strategy1" selected>分档策略1 · 六档认证</option>
+            <option value="strategy2">评估策略2 · 三率 passrate</option>
             <option value="legacy">旧版 · 标准/精筛八档</option>
           </select>
         </div>
@@ -509,6 +516,7 @@ var S={
   result:null,
   sims:[],
   algo:'closure',
+  selectionPassrate:0,
 };
 
 // ═══════════════════════════════════
@@ -606,7 +614,7 @@ function updateClosurePresets(d){
 }
 function quickCost(steps,std){document.getElementById('targetStd').value=std;generateCost()}
 function quickClosure(rate){
-  document.querySelectorAll('.slider').forEach(function(s){s.value=Math.round(rate*100);s.dataset.prevDc='0'});
+  document.querySelectorAll('#closeRateSliders .slider').forEach(function(s){s.value=Math.round(rate*100);s.dataset.prevDc='0'});
   syncCloseRates();
 }
 
@@ -640,7 +648,7 @@ function updateCloseRateSliders(d){
 }
 
 function syncCloseRates(trigger){
-  var sliders=document.querySelectorAll('.slider');
+  var sliders=document.querySelectorAll('#closeRateSliders .slider');
   var vals=[];
   sliders.forEach(function(s){
     var total=parseInt(s.dataset.total),minC=parseInt(s.dataset.minDc)||0,maxC=parseInt(s.dataset.maxDc)||0;
@@ -692,6 +700,11 @@ function updateSpreadLabel(){
   document.getElementById('spreadLabel').textContent='— '+v.toFixed(2);
 }
 
+function updateDebtLabel(){
+  var v=parseInt(document.getElementById('debtPersistence').value)/100;
+  document.getElementById('debtLabel').textContent='— '+v.toFixed(2);
+}
+
 // ═══════════════════════════════════
 //  Algorithm switch
 // ═══════════════════════════════════
@@ -733,6 +746,7 @@ async function generate(){
     body.closeRates=document.getElementById('closeRates').value.trim();
     body.dock=document.getElementById('dock').value;
     body.spreadParam=(parseInt(document.getElementById('spreadParam').value)/100).toFixed(2);
+    body.debtPersistenceWeight=(parseInt(document.getElementById('debtPersistence').value)/100).toFixed(2);
   }else{body.costArray=document.getElementById('costArray').value.trim()}
 
   btn.innerHTML='<span class="spinner"></span> 生成中...';btn.disabled=true;
@@ -935,7 +949,8 @@ function drawClosureChart(d,m,hasTargets){
   document.getElementById('chartLegend').innerHTML=
     '<span style="color:#d4a853">▮ 设定</span> <span style="color:#7ec99c">▮ 实际</span>'+
     ' <span style="color:#c2784b">┅ 静态债务</span> <span style="color:#e6b450">── 暴露债务</span>'+
-    ' · 峰:'+(m.peakDebt||0)+'/'+(m.peakExpDebt||0)+' OI:'+(m.oi||0)+' 离散:'+((m.suitSpread||0)*100).toFixed(0)+'%';
+    ' · 峰:'+(m.peakDebt||0)+'/'+(m.peakExpDebt||0)+' OI:'+(m.oi||0)+' 离散:'+((m.suitSpread||0)*100).toFixed(0)+'%'+
+    (m.debtDurationHistogram?' · 持续长度:['+((m.debtDurationHistogram||[]).join(','))+']':'');
 }
 
 // ═══════════════════════════════════
@@ -1211,11 +1226,12 @@ async function runSim(){
 // ═══════════════════════════════════
 var GRADE_LABELS=['档0·极简','档1·简单','档2·中等偏易','档3·中等','档4·中等偏难','档5·困难','档6·很难','档7·极难'];
 var STRATEGY1_LABELS=['档0·极易候选','档1·简单','档2·中等偏易','档3·中等偏难','档4·困难','档5·极难'];
+var STRATEGY2_LABELS=['档0·极易候选','档1·简单','档2·中等偏易','档3·中等偏难','档4·困难','档5·极难'];
 
 function updateGradeTargets(){
   var strategy=document.getElementById('gradeStrategy').value;
   var target=document.getElementById('gradeTarget');
-  var options=strategy==='strategy1'
+  var options=(strategy==='strategy1'||strategy==='strategy2')
     ? [['0','档0 · 极易候选 (90-100%)'],['1','档1 · 简单 (60-90%)'],['2','档2 · 中等偏易 (40-60%)'],['3','档3 · 中等偏难 (20-40%)'],['4','档4 · 困难 (10-20%)'],['5','档5 · 极难 (0-10%)']]
     : [['0','档0 · 极简 (90-100%)'],['1','档1 · 简单 (60-90%)'],['2','档2 · 中等偏易 (40-60%)'],['3','档3 · 中等 (25-40%)'],['4','档4 · 中等偏难 (20-25%)'],['5','档5 · 困难 (10-20%)'],['6','档6 · 很难 (5-10%)'],['7','档7 · 极难 (0-5%)']];
   target.innerHTML='<option value="-1">仅分档（不校验）</option>'+options.map(function(o){return'<option value="'+o[0]+'">'+o[1]+'</option>'}).join('');
@@ -1278,6 +1294,27 @@ function renderGradeResult(v,out){
     return;
   }
 
+  if(v.strategy==='strategy2'){
+    var result2=v.grade.strategy2;
+    html+='<div style="padding:7px 9px;background:var(--paper);border-radius:6px;border:1px solid var(--line);margin-bottom:4px">';
+    html+='<span style="color:var(--faint);font-size:9px">评估策略2 · 三率 passrate</span> ';
+    html+='<span style="font-weight:700;color:var(--text)">[档'+result2.grade+'] '+result2.label+'</span> ';
+    html+='<span style="font-weight:700;color:var(--ok)">✓</span>';
+    html+='<div style="font-size:10px;color:var(--dim);margin-top:2px">passrate <b style="color:var(--text)">'+(result2.passrate*100).toFixed(1)+'%</b> · 目标区间 '+result2.targetRate+'</div>';
+    html+='</div>';
+    if(v.validation){
+      var sv2=v.validation;
+      html+='<div style="margin-top:6px;padding:6px 8px;background:var(--paper);border-radius:6px;border:1px solid '+(sv2.strategy2Match?'var(--ok)':'var(--bad)')+'">';
+      html+='<span style="font-size:9px;color:var(--faint)">校验目标档'+sv2.targetGrade+':</span> ';
+      html+=(sv2.strategy2Match?'<span style="color:var(--ok);font-weight:600">✓ 通过</span>':'<span style="color:var(--bad);font-weight:600">✗ 未通过</span>');
+      if(sv2.reasons&&sv2.reasons.length)html+='<div style="font-size:9px;color:var(--bad);margin-top:2px">'+sv2.reasons.join('；')+'</div>';
+      html+='</div>';
+    }
+    out.innerHTML=html;out.className='msg';
+    toast('评估策略2: 档'+result2.grade+' · passrate '+(result2.passrate*100).toFixed(1)+'%','ok');
+    return;
+  }
+
   // 旧版分档结果 — 颜色只看 pass/fail，和难度无关
   var std=v.grade.standard,ref=v.grade.refined;
   var stdCls=std.passed?'var(--ok)':'var(--bad)';
@@ -1320,16 +1357,26 @@ function renderGradeResult(v,out){
 function resetReplaySelection(){
   document.getElementById('selectionGrade').value='';
   document.getElementById('selectionHint').textContent='分档后会自动填入，也可以手动修改';
+  S.selectionPassrate=0;
   var out=document.getElementById('selectionResult');out.textContent='';out.className='msg';
 }
 
 function applyGradeSuggestion(v){
   var grade='';
   var hint='当前分档未认证，grade 保持为空';
+  S.selectionPassrate=0;
   if(v.strategy==='strategy1'){
     var strategyResult=v.grade&&v.grade.strategy1;
     if(strategyResult&&strategyResult.passed&&strategyResult.grade>=0&&strategyResult.grade<=5){
       grade=String(strategyResult.grade);hint='已按分档策略1自动填入档'+grade;
+      S.selectionPassrate=strategyResult.passrate||0;
+    }
+  }else if(v.strategy==='strategy2'){
+    var strategy2Result=v.grade&&v.grade.strategy2;
+    if(strategy2Result&&strategy2Result.passed&&strategy2Result.grade>=0&&strategy2Result.grade<=5){
+      grade=String(strategy2Result.grade);
+      S.selectionPassrate=strategy2Result.passrate||0;
+      hint='已按评估策略2自动填入档'+grade+'，passrate '+(S.selectionPassrate*100).toFixed(1)+'%';
     }
   }else{
     var refined=v.grade&&v.grade.refined;
@@ -1337,6 +1384,7 @@ function applyGradeSuggestion(v){
     var selected=refined&&refined.passed?refined:(standard&&standard.passed?standard:null);
     if(selected&&selected.grade>=0&&selected.grade<=5){
       grade=String(selected.grade);hint='已按旧版'+(selected===refined?'精筛':'标准')+'结果自动填入档'+grade;
+      S.selectionPassrate=selected.passrate||0;
     }else if(selected&&selected.grade>5){
       hint='旧版结果为档'+selected.grade+'，超出候选范围 0-5，grade 保持为空';
     }
@@ -1361,7 +1409,7 @@ async function saveReplaySelection(){
   btn.disabled=true;btn.innerHTML='<span class="spinner"></span>';out.textContent='';out.className='msg';
   try{
     var r=await fetch('/api/replay-selection/append',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-      levelResId:levelId,replayCode:d.replayCode,grade:gradeText,elementCount:elementCount
+      levelResId:levelId,replayCode:d.replayCode,grade:gradeText,elementCount:elementCount,passrate:S.selectionPassrate||0
     })});
     var v=await r.json();
     if(!v.ok){out.textContent=v.error;out.className='msg msg-err';toast('保存失败','err');return}

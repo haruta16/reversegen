@@ -16,6 +16,7 @@ export const REPLAY_SELECTION_HEADERS = [
   'ReplayKey',
   'ReplayCode',
   'grade',
+  'passrate',
   'ElementCount',
   'DifficultyScore',
   'CompletionStatus',
@@ -32,6 +33,7 @@ export interface ReplaySelectionRow {
   ReplayKey: string;
   ReplayCode: string;
   grade: number | '';
+  passrate: number;
   ElementCount: number;
   DifficultyScore: number;
   CompletionStatus: string;
@@ -47,6 +49,7 @@ export interface ReplaySelectionInput {
   levelResId: number | string;
   ReplayCode: string;
   grade?: number | string | null;
+  passrate?: number | string | null;
   ElementCount: number | string;
 }
 
@@ -87,6 +90,7 @@ interface ReplayInfoJson {
   ReplayCode: string;
   ReplayKey: string;
   grade: number;
+  passrate: number;
   ElementCount: number;
   DifficultyScore: number;
   CompletionStatus: string;
@@ -103,6 +107,8 @@ interface ReplayFileJson {
   LevelTags: string;
   replayInfoList: ReplayInfoJson[];
 }
+
+const LEGACY_REPLAY_SELECTION_HEADERS = REPLAY_SELECTION_HEADERS.filter(header => header !== 'passrate');
 
 const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -205,11 +211,21 @@ function parseGrade(value: string | number | null | undefined, lineNumber: numbe
   return requireInteger(value, 'grade', lineNumber, 0, 5);
 }
 
+function parsePassrate(value: string | number | null | undefined, lineNumber: number): number {
+  if (value == null || String(value).trim() === '') return 0;
+  const number = requireNumber(value, 'passrate', lineNumber);
+  if (number < 0 || number > 1) throw new Error(`CSV 第 ${lineNumber} 行 passrate 必须是 0-1 的数字`);
+  return number;
+}
+
 function rowFromCells(cells: string[], lineNumber: number): ReplaySelectionRow {
-  if (cells.length !== REPLAY_SELECTION_HEADERS.length) {
-    throw new Error(`CSV 第 ${lineNumber} 行应有 ${REPLAY_SELECTION_HEADERS.length} 列，实际 ${cells.length} 列`);
+  const hasPassrate = cells.length === REPLAY_SELECTION_HEADERS.length;
+  const headers = hasPassrate ? REPLAY_SELECTION_HEADERS : LEGACY_REPLAY_SELECTION_HEADERS;
+  if (cells.length !== headers.length) {
+    throw new Error(`CSV 第 ${lineNumber} 行应有 ${REPLAY_SELECTION_HEADERS.length} 列（兼容旧格式 ${LEGACY_REPLAY_SELECTION_HEADERS.length} 列），实际 ${cells.length} 列`);
   }
-  const raw = Object.fromEntries(REPLAY_SELECTION_HEADERS.map((header, index) => [header, cells[index]]));
+  const raw = Object.fromEntries(headers.map((header, index) => [header, cells[index]])) as Record<string, string>;
+  if (!hasPassrate) raw.passrate = '0';
   const replayKey = raw.ReplayKey.trim();
   const replayCode = raw.ReplayCode.trim();
   const completionStatus = raw.CompletionStatus.trim();
@@ -222,6 +238,7 @@ function rowFromCells(cells: string[], lineNumber: number): ReplaySelectionRow {
     ReplayKey: replayKey,
     ReplayCode: replayCode,
     grade: parseGrade(raw.grade, lineNumber),
+    passrate: parsePassrate(raw.passrate, lineNumber),
     ElementCount: requireInteger(raw.ElementCount, 'ElementCount', lineNumber, 1, 99),
     DifficultyScore: requireNumber(raw.DifficultyScore, 'DifficultyScore', lineNumber),
     CompletionStatus: completionStatus,
@@ -239,9 +256,12 @@ function readAndValidateCsv(csvPath: string): ValidatedSelection {
   const records = parseCsv(readFileSync(csvPath, 'utf8'));
   if (records.length === 0) throw new Error('候选 CSV 为空');
   const actualHeaders = records[0].cells;
-  if (actualHeaders.length !== REPLAY_SELECTION_HEADERS.length
-    || actualHeaders.some((header, index) => header !== REPLAY_SELECTION_HEADERS[index])) {
-    throw new Error(`CSV 表头必须严格为: ${REPLAY_SELECTION_HEADERS.join(',')}`);
+  const isCurrentHeader = actualHeaders.length === REPLAY_SELECTION_HEADERS.length
+    && actualHeaders.every((header, index) => header === REPLAY_SELECTION_HEADERS[index]);
+  const isLegacyHeader = actualHeaders.length === LEGACY_REPLAY_SELECTION_HEADERS.length
+    && actualHeaders.every((header, index) => header === LEGACY_REPLAY_SELECTION_HEADERS[index]);
+  if (!isCurrentHeader && !isLegacyHeader) {
+    throw new Error(`CSV 表头必须为: ${REPLAY_SELECTION_HEADERS.join(',')}（兼容旧表头: ${LEGACY_REPLAY_SELECTION_HEADERS.join(',')}）`);
   }
 
   const rows = records.slice(1).map(record => ({
@@ -293,6 +313,7 @@ export function createReplaySelectionRow(input: ReplaySelectionInput): ReplaySel
     ReplayKey: `1-2-3-${elementCount}-`,
     ReplayCode: replayCode,
     grade: parseGrade(input.grade, 1),
+    passrate: parsePassrate(input.passrate, 1),
     ElementCount: elementCount,
     DifficultyScore: 0,
     CompletionStatus: 'Success',
@@ -343,6 +364,7 @@ function toReplayFiles(validated: ValidatedSelection): Map<number, ReplayFileJso
       ReplayCode: row.ReplayCode,
       ReplayKey: row.ReplayKey,
       grade: row.grade,
+      passrate: row.passrate,
       ElementCount: row.ElementCount,
       DifficultyScore: row.DifficultyScore,
       CompletionStatus: row.CompletionStatus,

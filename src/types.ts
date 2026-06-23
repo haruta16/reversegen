@@ -213,6 +213,17 @@ export interface LayerClosureInput {
    * 不影响 Step 1-3（深度计算、花色总数、逐层闭合率矩阵）。
    */
   spreadParam?: number;
+  /**
+   * 债务持续权重 [0-1]，控制下一层债务中有多少来自上一层的旧债务 tile。
+   *
+   * - 0 = 尽量清掉旧债务，用新花色制造下一层债务（默认，等价旧行为）
+   * - 1 = 尽量延续旧债务；无法延续的部分才换新
+   *
+   * 目标保留旧债务 tile = round(p × min(本层旧债务 tile 数, 下一层债务 tile 数))。
+   * 受花色余量与容量约束，实际保留量不一定精确命中。
+   * 闭合率仍负责"每层有多少债务"，此参数只负责"是不是同一批债务"。
+   */
+  debtPersistenceWeight?: number;
 }
 
 /** 层闭合算法的难度指标 */
@@ -250,6 +261,40 @@ export interface DebtMetrics {
   colorCount: number;
   /** 每层实际闭合率（triplet 口径：已完成 triplet 数 ÷ 可能 triplet 数，对比 closeRates 看偏差） */
   actualCloseRates: number[];
+  /**
+   * 逐层累计花色使用率。
+   * colorUsageRates[i] = 深度 1~i+1 已出现花色数 ÷ 全局实际花色数。
+   */
+  colorUsageRates: number[];
+  /** 每个花色首次出现的依赖层编号的平均值（层编号从1开始）。 */
+  averageColorActivationLayer: number;
+  /**
+   * 逐层债务 tile 数。
+   * debtTileCountsByLayer[i] = 深度 1~i+1 累计后，各花色 count % 3 的总和。
+   */
+  debtTileCountsByLayer: number[];
+  /**
+   * 相邻累计层的债务 tile 保留率，长度 = depthCount - 1。
+   * debtRetentionRates[i] = 1~i+1 的债务 tile 中，到 1~i+2 后仍未闭合的比例。
+   * 若前一层没有债务 tile，则该项为 0。
+   */
+  debtRetentionRates: number[];
+  /** 跨所有相邻层、按旧债务 tile 数加权的债务保留率。 */
+  weightedDebtRetentionRate: number;
+  /** 配置的债务持续权重 p（回显输入，默认 0） */
+  configuredDebtPersistenceWeight: number;
+  /** 逐层实际保留的旧债务 tile 数，长度 = depthCount - 1 */
+  retainedOldDebtTilesByLayer: number[];
+  /** 全部相邻层实际保留旧债务 tile 的总和 */
+  totalRetainedOldDebtTiles: number;
+  /**
+   * 债务持续长度直方图，长度 = depthCount。
+   * debtDurationHistogram[k-1] = 持续恰好 k 层的债务段数。
+   * 债务段 = 某花色累计 count%3 从 0 变非0（出生）到再次归 0（清除）的区间。
+   * 持续长度按“债务实际存在的层末端点数”计算；若下一层马上清除，则长度为 1。
+   * 到最后一层仍未清除的段，持续长度 = depthCount - 出生层 + 1。
+   */
+  debtDurationHistogram: number[];
   /** 平均每方块被多少方块遮挡 */
   averageOcclusion: number;
   /** 遮挡边总数 */
