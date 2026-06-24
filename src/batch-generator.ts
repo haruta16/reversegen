@@ -327,7 +327,7 @@ export function collectGradesForTerrain(
   terrainIndex: number, terrainPath: string,
   maxGrade: number, targetPerTier: number, maxAttempts: number,
   simRuns: number, baseSeed: number,
-  onProgress?: (collected: Record<number, number>, attempts: number) => void,
+  onProgress?: (collected: Record<number, number>, attempts: number, latestRow: BatchRow | null) => void,
 ): { rows: BatchRow[]; collected: Record<number, number>; attempts: number } {
   // 桶: 0..maxGrade 有 targetPerTier 要求; 超出也收但不强制
   const buckets: Record<number, BatchRow[]> = {};
@@ -366,7 +366,7 @@ export function collectGradesForTerrain(
     if (onProgress) {
       const cts: Record<number, number> = {};
       for (let g = 0; g <= Math.max(maxGrade, 5); g++) cts[g] = buckets[g].length;
-      onProgress(cts, attempts);
+      onProgress(cts, attempts, row);
     }
   }
 
@@ -475,12 +475,13 @@ export async function runBatchGeneration(
     const { rows: cRows, collected, attempts } = collectGradesForTerrain(
       terrain, unified, i, path, maxGrade,
       config.targetPerTier, config.maxAttempts, config.simRuns, seed,
-      (cts, att) => {
+      (cts, att, latestRow) => {
         tp.collected = { ...cts };
         if (probe.success && probe.grade >= 0) {
           tp.collected[probe.grade] = Math.max(tp.collected[probe.grade], 1);
         }
         tp.attempts = att;
+        if (latestRow) { tp.rows.push(latestRow); progress.totalRows++; }
         if (onProgress) onProgress(progress);
       },
     );
@@ -488,8 +489,7 @@ export async function runBatchGeneration(
     if (probe.success && probe.grade >= 0) {
       tp.collected[probe.grade] = Math.max(tp.collected[probe.grade], 1);
     }
-    tp.rows.push(...cRows);
-    progress.totalRows += cRows.length;
+    // Rows already pushed incrementally via onProgress callback — skip double-add
     tp.phase = 'done';
     if (onProgress) onProgress(progress);
   }
