@@ -1547,9 +1547,11 @@ const server = createServer(async (req, res) => {
       };
       batchJobs.set(jobId, jobEntry);
 
-      console.log('[batch] step8: firing runBatchGeneration');
+      console.log('[batch] step8: firing runBatchGeneration (deferred)');
       let lastWritten = 0;
-      runBatchGeneration(config, (prog) => {
+      // async 函数内部无 await，会同步阻塞 → setTimeout 推迟
+      setTimeout(() => {
+        runBatchGeneration(config, (prog) => {
         jobEntry.progress = prog;
         for (const tp of prog.terrains) {
           while (lastWritten < tp.rows.length) {
@@ -1576,6 +1578,7 @@ const server = createServer(async (req, res) => {
           error: err instanceof Error ? err.message : String(err),
         };
       });
+      }); // setTimeout
       console.log('[batch] step9: sending response');
       json(res, { ok: true, jobId });
     } catch (err) { console.log('[batch] start error:', String(err)); json(res, { ok: false, error: String(err) }, 400); }
