@@ -300,10 +300,9 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
       <div class="tbl-wrap" style="border:none;border-radius:0">
         <table>
           <thead><tr>
-            <th>#</th><th>地形</th><th>档</th><th>passrate</th><th>花色</th>
+            <th>#</th><th>地形</th><th>档</th><th>pass</th><th>花色</th>
             <th>闭合率</th><th>分布</th><th>债务</th>
-            <th>sim1%</th><th>sim5%</th><th>sim15%</th>
-            <th>债务峰</th><th>OI</th><th>状态</th><th>耗时</th>
+            <th>sim1/sim5/sim15</th><th>实际闭合率</th><th>状态</th>
           </tr></thead>
           <tbody id="resultsBody"></tbody>
         </table>
@@ -438,7 +437,8 @@ async function startBatch(){
   document.getElementById('btnStart').disabled=true;
   document.getElementById('btnStart').innerHTML='<span class="spinner"></span> 运行中...';
   document.getElementById('btnStop').style.display='';
-  document.getElementById('btnDownload').disabled=true;
+  document.getElementById('btnDownload').disabled=false;
+  document.getElementById('btnDownload').textContent='⬇ 下载当前 CSV';
   document.getElementById('actionMsg').textContent='';
   document.getElementById('progressPanel').style.display='';
   document.getElementById('progressSpinner').style.display='';
@@ -482,11 +482,17 @@ async function pollProgress(){
     var d=await r.json();
     if(!d.ok)return;
     renderProgress(d);
+    // Show incremental row count during run
+    if(d.totalRows>0){
+      document.getElementById('actionMsg').textContent='运行中 · 已生成 '+d.totalRows+' 条（CSV 实时可下载）';
+      document.getElementById('actionMsg').className='msg';
+    }
     if(d.status==='done'||d.status==='error'){
       clearInterval(S.pollTimer);S.pollTimer=null;
       S.running=false;resetUI();
       document.getElementById('progressSpinner').style.display='none';
       document.getElementById('btnDownload').disabled=false;
+      document.getElementById('btnDownload').textContent='⬇ 下载 CSV';
       if(d.status==='error'){document.getElementById('actionMsg').textContent=d.error||'出错';document.getElementById('actionMsg').className='msg msg-err'}
       else{document.getElementById('actionMsg').textContent='完成 · 共 '+d.totalRows+' 条';document.getElementById('actionMsg').className='msg msg-ok'}
       S.allRows=[];
@@ -536,23 +542,25 @@ function renderResults(rows){
   document.getElementById('resultsPanel').style.display='';
   document.getElementById('resultCount').textContent='共 '+rows.length+' 条';
   var body=document.getElementById('resultsBody');
-  if(!rows.length){body.innerHTML='<tr><td colspan="15" style="color:var(--faint);text-align:center;padding:20px">—</td></tr>';return}
+  if(!rows.length){body.innerHTML='<tr><td colspan="11" style="color:var(--faint);text-align:center;padding:20px">—</td></tr>';return}
   var html='';
   rows.forEach(function(r,i){
     var gCls='g'+Math.min(5,Math.max(0,r.grade||0));
     var status=r.success?'<span style="color:var(--ok)">✓</span>':'<span style="color:var(--bad)">'+esc(r.error||'失败')+'</span>';
     var name=(r.terrainPath||'').replace(/^.*[\\/]/,'').replace('.json','');
+    var simStr=(r.sim1WinRate*100).toFixed(0)+'/'+(r.sim5WinRate*100).toFixed(0)+'/'+(r.sim15WinRate*100).toFixed(0)+'%';
+    var actCr=(r.actualCloseRates||[]).map(function(v){return (v*100).toFixed(0)}).join(',')+'%';
     html+='<tr>'+
       '<td style="color:var(--faint)">'+(i+1)+'</td>'+
       '<td title="'+esc(r.terrainPath||'')+'">'+name+'</td>'+
       '<td class="'+gCls+'"><b>'+(r.grade>=0?'档'+r.grade:'—')+'</b></td>'+
-      '<td>'+(r.passrate*100).toFixed(1)+'%</td>'+
+      '<td>'+(r.passrate*100).toFixed(0)+'%</td>'+
       '<td>'+r.colorCount+'</td>'+
-      '<td style="font-size:9px;max-width:100px;overflow:hidden;text-overflow:ellipsis">'+(r.closeRates||[]).map(function(v){return v.toFixed(2)}).join(',')+'</td>'+
+      '<td style="font-size:9px;max-width:90px;overflow:hidden;text-overflow:ellipsis">'+(r.closeRates||[]).map(function(v){return (v*100).toFixed(0)}).join(',')+'%</td>'+
       '<td>'+r.spreadParam.toFixed(2)+'</td><td>'+r.debtPersistenceWeight.toFixed(2)+'</td>'+
-      '<td>'+(r.sim1WinRate*100).toFixed(0)+'%</td><td>'+(r.sim5WinRate*100).toFixed(0)+'%</td><td>'+(r.sim15WinRate*100).toFixed(0)+'%</td>'+
-      '<td>'+r.peakDebt+'/'+r.peakExpDebt+'</td><td>'+r.oi+'</td>'+
-      '<td>'+status+'</td><td style="color:var(--faint)">'+(r.elapsedMs/1000).toFixed(1)+'s</td>'+
+      '<td style="font-size:9px">'+simStr+'</td>'+
+      '<td style="font-size:9px">'+actCr+'</td>'+
+      '<td>'+status+'</td>'+
     '</tr>';
   });
   body.innerHTML=html;

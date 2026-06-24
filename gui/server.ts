@@ -6,8 +6,9 @@
  */
 
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
-import { readFileSync, existsSync, readdirSync, writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, writeFileSync, appendFileSync, unlinkSync, mkdirSync, rmSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { exec } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -62,6 +63,8 @@ import {
 import {
   runBatchGeneration,
   serializeBatchCsv,
+  serializeBatchRow,
+  BATCH_CSV_HEADERS,
   type BatchConfig,
   type BatchProgress,
   type BatchRow,
@@ -71,8 +74,8 @@ import {
 const ANALYSIS_CACHE_MAX = 50;
 const analysisCache = new Map<string, ReturnType<typeof analyzeTriples>>();
 
-/** 批量任务状态存储 (jobId → BatchProgress + allRows) */
-const batchJobs = new Map<string, { progress: BatchProgress; rows: BatchRow[]; abort: boolean }>();
+/** 批量任务状态存储 (jobId → progress + csvPath) */
+const batchJobs = new Map<string, { progress: BatchProgress; rows: BatchRow[]; csvPath: string; abort: boolean }>();
 
 function cacheGet(key: string): ReturnType<typeof analyzeTriples> | undefined {
   // LRU: delete + re-insert to move to end
@@ -1518,20 +1521,36 @@ const server = createServer(async (req, res) => {
       config.maxAttempts = config.maxAttempts || 500;
 
       const jobId = `batch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-      const jobEntry: { progress: BatchProgress; rows: BatchRow[]; abort: boolean } = { progress: null as unknown as BatchProgress, rows: [] as BatchRow[], abort: false };
+      const csvPath = join(tmpdir(), `reversegen_batch_${jobId}.csv`);
+      // Write CSV header
+      writeFileSync(csvPath, `﻿${BATCH_CSV_HEADERS.join(',')}\n`, 'utf-8');
+
+      const jobEntry: { progress: BatchProgress; rows: BatchRow[]; csvPath: string; abort: boolean } = {
+        progress: null as unknown as BatchProgress, rows: [] as BatchRow[], csvPath, abort: false,
+      };
       batchJobs.set(jobId, jobEntry);
 
-      // Fire and forget — 异步运行，通过轮询获取进度
+      // Fire and forget — 增量写 CSV
+      let lastWritten = 0;
       runBatchGeneration(config, (prog) => {
         jobEntry.progress = prog;
+        // 增量追加新增的行
+        for (const tp of prog.terrains) {
+          while (lastWritten < tp.rows.length) {
+            const row = tp.rows[lastWritten++];
+            appendFileSync(csvPath, serializeBatchRow(row) + '\n', 'utf-8');
+          }
+        }
         jobEntry.rows = [];
         for (const tp of prog.terrains) { jobEntry.rows.push(...tp.rows); }
       }).then((final) => {
         jobEntry.progress = final;
         jobEntry.rows = [];
         for (const tp of final.terrains) { jobEntry.rows.push(...tp.rows); }
-        // Keep job in map for 30 min after completion
-        setTimeout(() => { batchJobs.delete(jobId); }, 30 * 60 * 1000);
+        setTimeout(() => {
+          batchJobs.delete(jobId);
+          try { rmSync(csvPath); } catch {}
+        }, 30 * 60 * 1000);
       }).catch((err) => {
         jobEntry.progress = {
           jobId,
@@ -1564,12 +1583,14 @@ const server = createServer(async (req, res) => {
     if (!jobId) { json(res, { ok: false, error: 'Missing jobId' }, 400); return; }
     const job = batchJobs.get(jobId);
     if (!job) { json(res, { ok: false, error: 'Job not found' }, 404); return; }
-    const csv = serializeBatchCsv(job.rows);
-    res.writeHead(200, {
-      'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="batch_result_${jobId}.csv"`,
-    });
-    res.end(csv);
+    try {
+      const csv = readFileSync(job.csvPath, 'utf-8');
+      res.writeHead(200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="batch_result_${jobId}.csv"`,
+      });
+      res.end(csv);
+    } catch { json(res, { ok: false, error: 'CSV file not available' }, 500); }
     return;
   }
 

@@ -380,15 +380,15 @@ export function collectGradesForTerrain(
 // ═══════════════════════════════════════════════════════════
 
 export const BATCH_CSV_HEADERS = [
+  // 前 13 列：兼容现有 replay-selection 格式
   'levelResId', 'ReplayKey', 'ReplayCode', 'grade', 'passrate', 'ElementCount',
   'DifficultyScore', 'CompletionStatus', 'ExpectConsume', 'LevelTags', 'ReplayTags',
   'highWinRate', 'MiddleWinRate', 'LowWinRate',
+  // 后 12 列：生成参数 + sim 详情 + 实际闭合率 + 元信息
   'colorCount', 'closeRates', 'spreadParam', 'debtPersistenceWeight',
-  'freeTiles', 'totalTiles', 'depthCount',
-  'peakDebt', 'peakExpDebt', 'oi', 'consecutiveOI', 'suitSpreadNorm', 'isDoomed',
-  'actualCloseRates', 'weightedDebtRetentionRate',
   'simRuns', 'sim1Wins', 'sim5Wins', 'sim15Wins',
-  'elapsedMs', 'terrainPath', 'attemptIndex', 'isMaxGradeProbe',
+  'actualCloseRates',
+  'attemptIndex', 'isMaxGradeProbe', 'terrainPath',
 ];
 
 function csvEscape(val: unknown): string {
@@ -406,20 +406,20 @@ export function serializeBatchRow(row: BatchRow): string {
   const tags = `cr=${row.closeRates.map(r => r.toFixed(2)).join('|')}|sp=${row.spreadParam.toFixed(2)}|dp=${row.debtPersistenceWeight.toFixed(2)}|cc=${row.colorCount}`;
 
   return [
+    // 前 13
     levelResId, replayKey, row.replayCode, grade, passrate, row.colorCount,
     0, status, 0, tags, '',
     row.sim1WinRate, row.sim5WinRate, row.sim15WinRate,
+    // 后 12
     row.colorCount, row.closeRates.join(','), row.spreadParam, row.debtPersistenceWeight,
-    row.freeTiles, row.totalTiles, row.depthCount,
-    row.peakDebt, row.peakExpDebt, row.oi, row.consecutiveOI, row.suitSpreadNorm, row.isDoomed ? 1 : 0,
-    row.actualCloseRates.join(','), row.weightedDebtRetentionRate,
     row.simRuns, row.sim1Wins, row.sim5Wins, row.sim15Wins,
-    row.elapsedMs, row.terrainPath, row.attemptIndex, row.isMaxGradeProbe ? 1 : 0,
+    row.actualCloseRates.join(','),
+    row.attemptIndex, row.isMaxGradeProbe ? 1 : 0, row.terrainPath,
   ].map(csvEscape).join(',');
 }
 
 export function serializeBatchCsv(rows: BatchRow[]): string {
-  return `﻿${[BATCH_CSV_HEADERS.join(',')].concat(rows.map(serializeBatchRow)).join('\n')}\n`;
+  return `﻿${BATCH_CSV_HEADERS.join(',')}\n${rows.map(serializeBatchRow).join('\n')}\n`;
 }
 
 // ═══════════════════════════════════════════════════════════
