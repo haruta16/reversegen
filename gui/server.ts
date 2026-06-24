@@ -1513,18 +1513,25 @@ const server = createServer(async (req, res) => {
     console.log('[batch] start route hit');
     const body = await parseBody(req);
     console.log('[batch] body parsed:', JSON.stringify(body).slice(0, 200));
+    console.log('[batch] step1: before try');
     try {
+      console.log('[batch] step2: casting config');
       const config = body as unknown as BatchConfig;
+      console.log('[batch] step3: validating terrainPaths');
       if (!config.terrainPaths || !Array.isArray(config.terrainPaths) || config.terrainPaths.length === 0) {
         throw new Error('请至少加载一个地形');
       }
+      console.log('[batch] step4: terrainPaths OK, count:', config.terrainPaths.length);
       config.simRuns = config.simRuns || 200;
       config.targetPerTier = config.targetPerTier || 10;
       config.maxAttempts = config.maxAttempts || 500;
 
       const jobId = `batch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      console.log('[batch] step5: jobId:', jobId);
       const csvPath = join(tmpdir(), `reversegen_batch_${jobId}.csv`);
+      console.log('[batch] step6: csvPath:', csvPath);
       writeFileSync(csvPath, `﻿${BATCH_CSV_HEADERS.join(',')}\n`, 'utf-8');
+      console.log('[batch] step7: csv header written');
 
       const initialProgress: BatchProgress = {
         jobId, status: 'running',
@@ -1540,15 +1547,13 @@ const server = createServer(async (req, res) => {
       };
       batchJobs.set(jobId, jobEntry);
 
-      // Fire and forget — 增量写 CSV
+      console.log('[batch] step8: firing runBatchGeneration');
       let lastWritten = 0;
       runBatchGeneration(config, (prog) => {
         jobEntry.progress = prog;
-        // 增量追加新增的行
         for (const tp of prog.terrains) {
           while (lastWritten < tp.rows.length) {
-            const row = tp.rows[lastWritten++];
-            appendFileSync(csvPath, serializeBatchRow(row) + '\n', 'utf-8');
+            appendFileSync(csvPath, serializeBatchRow(tp.rows[lastWritten++]) + '\n', 'utf-8');
           }
         }
         jobEntry.rows = [];
@@ -1571,8 +1576,7 @@ const server = createServer(async (req, res) => {
           error: err instanceof Error ? err.message : String(err),
         };
       });
-
-      console.log('[batch] start success, jobId:', jobId);
+      console.log('[batch] step9: sending response');
       json(res, { ok: true, jobId });
     } catch (err) { console.log('[batch] start error:', String(err)); json(res, { ok: false, error: String(err) }, 400); }
     return;
