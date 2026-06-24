@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>批量产关 · ReverseGen</title>
+<style>
+/* ═══════════════════════════════════════════════
+   PRECISION CONSOLE — same design system
+   ═══════════════════════════════════════════════ */
+:root{
+  --ink:#0d0d0c; --paper:#181814; --line:#2a2820; --line2:#1f1e1a;
+  --gold:#d4a853; --gold-dim:#8a7040; --sage:#7a9a7e; --copper:#c2784b;
+  --text:#e8e4dd; --dim:#8a867c; --faint:#5c5950;
+  --ok:#7ec99c; --warn:#d4a853; --bad:#d9706a; --info:#7a9aae;
+  --sans:"PingFang SC","Noto Sans SC","Microsoft YaHei",-apple-system,sans-serif;
+  --mono:"SF Mono","Cascadia Code","JetBrains Mono",monospace;
+  --shadow:0 1px 0 var(--line2),0 4px 16px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:var(--sans);background:var(--ink);color:var(--text);
+  font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  background-image:radial-gradient(ellipse at 50% 0%,#1a1914 0%,var(--ink) 70%);
+  min-height:100vh;
+}
+/* ── Top bar ── */
+.topbar{
+  position:sticky;top:0;z-index:100;background:var(--ink);border-bottom:1px solid var(--line);
+  padding:14px 24px;display:flex;align-items:center;gap:18px;backdrop-filter:blur(8px);
+  box-shadow:0 4px 20px rgba(0,0,0,.5);
+}
+.topbar .brand{font-weight:700;font-size:16px;letter-spacing:-.3px;white-space:nowrap}
+.topbar .brand span{color:var(--gold);margin-right:6px;font-size:18px}
+.topbar .sep{width:1px;height:28px;background:var(--line)}
+.topbar .spacer{flex:1}
+.topbar a{color:var(--dim);text-decoration:none;font-size:12px;transition:color .2s;padding:6px 10px;border-radius:5px}
+.topbar a:hover{color:var(--gold)}
+.topbar a.active{color:var(--gold);background:rgba(212,168,83,.08)}
+/* ── Main ── */
+.main{padding:20px;max-width:1300px;margin:0 auto}
+.cols{display:grid;grid-template-columns:380px 1fr;gap:20px;align-items:start}
+@media(max-width:900px){.cols{grid-template-columns:1fr}}
+/* ── Panels ── */
+.panel{
+  background:var(--paper);border:1px solid var(--line);border-radius:10px;
+  overflow:hidden;box-shadow:var(--shadow);margin-bottom:14px;
+}
+.panel-hd{
+  display:flex;align-items:center;gap:8px;padding:10px 14px;
+  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;
+  color:var(--dim);border-bottom:1px solid var(--line2);
+  background:linear-gradient(180deg,rgba(255,255,255,.015),transparent);
+}
+.panel-hd .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.panel-hd .dot.gold{background:var(--gold);box-shadow:0 0 6px var(--gold-dim)}
+.panel-hd .dot.sage{background:var(--sage)}
+.panel-hd .dot.copper{background:var(--copper)}
+.panel-hd .dot.info{background:var(--info)}
+.panel-bd{padding:12px 14px}
+.panel+.panel{margin-top:14px}
+/* ── Forms ── */
+label{display:block;font-size:10px;color:var(--dim);margin-bottom:3px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+label .extra{font-weight:400;text-transform:none;letter-spacing:0}
+input,textarea,select{
+  width:100%;background:var(--ink);border:1px solid var(--line);border-radius:6px;
+  color:var(--text);padding:7px 10px;font-size:12px;font-family:var(--sans);
+  outline:none;transition:all .2s;
+}
+input:focus,textarea:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,168,83,.08)}
+select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a867c' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;padding-right:28px}
+.row{display:flex;gap:8px;align-items:center}
+.row>*{flex:1}
+/* ── Buttons ── */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:5px;
+  cursor:pointer;border:none;border-radius:6px;padding:8px 16px;
+  font-size:12px;font-weight:600;font-family:var(--sans);
+  transition:all .2s;white-space:nowrap;
+}
+.btn:disabled{opacity:.4;cursor:not-allowed;filter:grayscale(.5)}
+.btn-primary{background:var(--gold);color:#1a1810;width:100%;padding:11px;font-size:13px;letter-spacing:.3px}
+.btn-primary:hover:not(:disabled){background:#e0b860;transform:translateY(-1px);box-shadow:0 4px 12px rgba(212,168,83,.25)}
+.btn-primary:active:not(:disabled){transform:translateY(0)}
+.btn-secondary{background:var(--line);color:var(--text)}
+.btn-secondary:hover:not(:disabled){background:#3a3830}
+.btn-outline{background:transparent;border:1px solid var(--line);color:var(--dim);flex:1}
+.btn-outline:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}
+.btn-xs{padding:3px 8px;font-size:10px;border-radius:4px}
+/* ── Toggle ── */
+.toggle-wrap{display:flex;align-items:center;gap:8px}
+.toggle-track{
+  width:34px;height:18px;border-radius:9px;cursor:pointer;transition:all .25s;
+  background:var(--line);position:relative;flex-shrink:0;
+}
+.toggle-track.on{background:var(--gold)}
+.toggle-track .knob{
+  position:absolute;top:1.5px;left:1.5px;width:15px;height:15px;border-radius:50%;
+  background:#fff;transition:all .25s;box-shadow:0 1px 3px rgba(0,0,0,.3);
+}
+.toggle-track.on .knob{left:17.5px}
+.toggle-label-txt{font-size:9px;color:var(--faint);min-width:28px}
+/* ── Sliders ── */
+.slider-row{display:flex;align-items:center;gap:6px;margin-top:3px}
+.slider-row .sl-l{font-size:9px;color:var(--dim);width:44px;text-align:right;line-height:1.2}
+.slider-row .sl-v{font-size:9px;color:var(--text);width:42px;font-family:var(--mono)}
+.slider{flex:1;-webkit-appearance:none;appearance:none;height:5px;border-radius:3px;outline:none;background:var(--line)}
+.slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;background:var(--gold);cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.4);transition:transform .15s}
+.slider::-webkit-slider-thumb:hover{transform:scale(1.15)}
+.slider::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--gold);cursor:pointer;border:none;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+/* ── Terrain summary ── */
+.terrain-list{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.terrain-tag{
+  font-size:9px;padding:3px 8px;border-radius:10px;
+  background:var(--ink);border:1px solid var(--line);color:var(--dim);
+  font-family:var(--mono);
+}
+.terrain-tag b{color:var(--gold)}
+/* ── Progress ── */
+.progress-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--line2);font-size:10px}
+.progress-row:last-child{border-bottom:0}
+.progress-row .pname{width:130px;flex-shrink:0;font-weight:600}
+.progress-row .pbar-outer{flex:1;height:5px;background:var(--ink);border-radius:3px;overflow:hidden}
+.progress-row .pbar-fill{height:100%;border-radius:3px;transition:width .4s ease}
+.progress-row .pstat{font-family:var(--mono);font-size:9px;color:var(--dim);width:220px;flex-shrink:0;text-align:right}
+.pbadge{display:inline-block;min-width:16px;text-align:center;padding:0 3px;border-radius:3px;font-weight:700;font-size:9px;margin:0 1px}
+.pbadge.done{background:rgba(126,201,156,.15);color:var(--ok)}
+.pbadge.pending{background:rgba(90,90,80,.15);color:var(--faint)}
+/* ── Results table ── */
+.tbl-wrap{max-height:500px;overflow:auto;border:1px solid var(--line);border-radius:6px}
+.tbl-wrap table{width:100%;border-collapse:collapse;font-size:10px;font-family:var(--mono)}
+.tbl-wrap th,.tbl-wrap td{padding:3px 6px;text-align:left;border-bottom:1px solid var(--line2);white-space:nowrap}
+.tbl-wrap th{font-size:8px;color:var(--dim);font-weight:700;background:var(--ink);position:sticky;top:0;z-index:1;text-transform:uppercase;letter-spacing:.5px}
+.tbl-wrap tr:hover td{background:rgba(255,255,255,.015)}
+.g0{color:var(--ok)}.g1{color:#a0d8a0}.g2{color:var(--warn)}.g3{color:var(--copper)}.g4{color:#d9806a}.g5{color:var(--bad)}
+/* ── Info-block ── */
+.info-block{font-size:10px;color:var(--dim);line-height:1.6}
+.info-block b{color:var(--text);font-weight:600}
+.info-block .k{color:var(--gold);font-weight:600}
+.msg{font-size:10px;min-height:16px;margin-top:4px;transition:all .3s}
+.msg-ok{color:var(--ok)}.msg-warn{color:var(--warn)}.msg-err{color:var(--bad)}
+/* ── Toast ── */
+#toast{
+  position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);
+  padding:10px 22px;border-radius:8px;font-size:12px;font-weight:600;
+  z-index:999;opacity:0;transition:all .3s cubic-bezier(.4,0,.2,1);pointer-events:none;
+  background:var(--paper);border:1px solid var(--line);color:var(--text);
+  box-shadow:0 8px 24px rgba(0,0,0,.5);
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.ok{border-color:var(--ok)}#toast.err{border-color:var(--bad)}
+/* ── Animations ── */
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
+.loading{animation:pulse 1.2s ease-in-out infinite}
+</style>
+</head>
+<body>
+
+<nav class="topbar">
+  <div class="brand"><span>◈</span>ReverseGen</div>
+  <div class="sep"></div>
+  <a href="/">主页</a>
+  <a href="/challenge-expectation">挑战期望</a>
+  <a href="/analysis.html">分析</a>
+  <a href="/batch-generate.html" class="active">批量产关</a>
+</nav>
+<div id="toast"></div>
+
+<div class="main">
+<div class="cols">
+
+<!-- ═══════════ COL 1: CONFIGURE ═══════════ -->
+<div>
+
+  <!-- Terrain IDs -->
+  <div class="panel">
+    <div class="panel-hd"><span class="dot gold"></span> 地形列表</div>
+    <div class="panel-bd">
+      <textarea id="terrainIds" placeholder="输入地形ID，逗号或换行分隔&#10;如: 100001, 100002, 100003" style="min-height:48px;font-size:11px;font-family:var(--mono)"></textarea>
+      <button class="btn btn-outline" onclick="loadTerrains()" style="width:100%;margin-top:5px">加载地形信息</button>
+      <div class="terrain-list" id="terrainTags"></div>
+      <div class="msg" id="terrainMsg"></div>
+    </div>
+  </div>
+
+  <!-- Generation Params — unified, same layout as main page -->
+  <div class="panel">
+    <div class="panel-hd"><span class="dot sage"></span> 生成参数（统一）</div>
+    <div class="panel-bd">
+
+      <!-- closeRates -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <label style="margin:0;flex-shrink:0">层闭合率</label>
+        <div class="toggle-wrap">
+          <div class="toggle-track on" id="tgCloseRates" onclick="toggleAndUpdate('tgCloseRates','randCloseRates')"><div class="knob"></div></div>
+          <span class="toggle-label-txt" id="tgTxtCloseRates">随机</span>
+        </div>
+      </div>
+      <input type="text" id="closeRates" placeholder="0.3,0.6,0.8" disabled style="opacity:.3;font-family:var(--mono);font-size:11px" oninput="syncCloseRatesInput()">
+      <div style="font-size:8px;color:var(--faint);margin-top:2px">随机：每层 target = randomInt(上层target, ⌊累积牌数÷3⌋)，反算百分比 · 固定：逗号分隔 [0-1]，超范围自动 clamp</div>
+
+      <!-- colorCount -->
+      <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+        <label style="margin:0;flex-shrink:0">花色数</label>
+        <div class="toggle-wrap">
+          <div class="toggle-track on" id="tgColorCount" onclick="toggleAndUpdate('tgColorCount','randColorCount')"><div class="knob"></div></div>
+          <span class="toggle-label-txt" id="tgTxtColorCount">随机</span>
+        </div>
+        <input type="number" id="colorCountRatio" value="0.6" min="0" max="1" step="0.05" style="width:80px;flex:none;font-family:var(--mono)" title="ratio × ⌊自由牌÷3⌋ = 花色数">
+        <input type="number" id="colorCount" value="8" min="1" max="99" disabled style="opacity:.3;width:72px;flex:none;display:none">
+        <span style="font-size:9px;color:var(--faint)" id="colorCountPreview"></span>
+      </div>
+
+      <!-- spreadParam -->
+      <label style="margin-top:10px">同色分布 <span style="font-weight:400;font-size:9px" id="spreadLabel">— 0.50</span></label>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="toggle-wrap" style="margin-right:4px">
+          <div class="toggle-track on" id="tgSpread" onclick="toggleAndUpdate('tgSpread','randSpread')"><div class="knob"></div></div>
+          <span class="toggle-label-txt" id="tgTxtSpread">随机</span>
+        </div>
+        <div class="slider-row" style="flex:1;margin-top:0">
+          <span class="sl-l">紧密</span>
+          <input class="slider" type="range" id="spreadParam" min="0" max="100" value="50" step="5" oninput="updateSpreadLabel()">
+          <span class="sl-l" style="text-align:left">分散</span>
+        </div>
+      </div>
+
+      <!-- debtPersistence -->
+      <label style="margin-top:8px">债务持续权重 <span style="font-weight:400;font-size:9px" id="debtLabel">— 0.00</span></label>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="toggle-wrap" style="margin-right:4px">
+          <div class="toggle-track on" id="tgDebt" onclick="toggleAndUpdate('tgDebt','randDebt')"><div class="knob"></div></div>
+          <span class="toggle-label-txt" id="tgTxtDebt">随机</span>
+        </div>
+        <div class="slider-row" style="flex:1;margin-top:0">
+          <span class="sl-l">清旧债</span>
+          <input class="slider" type="range" id="debtPersistence" min="0" max="100" value="0" step="5" oninput="updateDebtLabel()">
+          <span class="sl-l" style="text-align:left">延旧债</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Grade & Sim settings -->
+  <div class="panel">
+    <div class="panel-hd"><span class="dot copper"></span> 评估设置</div>
+    <div class="panel-bd">
+      <div class="row">
+        <div><label>模拟次数</label><input type="number" id="simRuns" value="200" min="10" max="1000" step="10"></div>
+        <div><label>每档目标数</label><input type="number" id="targetPerTier" value="10" min="1" max="50"></div>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <div><label>最大尝试次数</label><input type="number" id="maxAttempts" value="500" min="10" max="2000" step="10"></div>
+        <div><label>分档策略</label>
+          <select id="gradeStrategy"><option value="strategy2" selected>评估策略2 · 三率 passrate</option></select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <button class="btn btn-primary" onclick="startBatch()" id="btnStart">▶ 开始批量产关</button>
+  <div style="display:flex;gap:8px;margin-top:8px">
+    <button class="btn btn-outline" onclick="stopBatch()" id="btnStop" style="display:none">■ 停止</button>
+    <button class="btn btn-outline" onclick="downloadCSV()" id="btnDownload" disabled>⬇ 下载 CSV</button>
+  </div>
+  <div class="msg" id="actionMsg"></div>
+
+</div>
+
+<!-- ═══════════ COL 2: PROGRESS & RESULTS ═══════════ -->
+<div>
+
+  <!-- Progress -->
+  <div class="panel" id="progressPanel" style="display:none">
+    <div class="panel-hd">
+      <span class="dot copper"></span> 进度
+      <span id="progressSpinner" style="display:none;font-size:9px;color:var(--gold);margin-left:8px" class="loading">● 运行中</span>
+    </div>
+    <div class="panel-bd" id="progressBody"></div>
+  </div>
+
+  <!-- Empty state -->
+  <div class="panel empty-state" id="emptyState" style="text-align:center;padding:48px 24px;color:var(--faint)">
+    <div style="font-size:36px;margin-bottom:10px;opacity:.25">◈</div>
+    <p style="font-size:13px;margin-bottom:4px">准备就绪</p>
+    <p style="font-size:11px">左侧输入地形ID并加载 → 配置生成参数 → 开始批量产关</p>
+  </div>
+
+  <!-- Results -->
+  <div class="panel" id="resultsPanel" style="display:none">
+    <div class="panel-hd">
+      <span class="dot info"></span> 结果
+      <span style="margin-left:auto;font-weight:400;font-size:9px;letter-spacing:0" id="resultCount"></span>
+    </div>
+    <div class="panel-bd" style="padding:0">
+      <div class="tbl-wrap" style="border:none;border-radius:0">
+        <table>
+          <thead><tr>
+            <th>#</th><th>地形</th><th>档</th><th>passrate</th><th>花色</th>
+            <th>闭合率</th><th>分布</th><th>债务</th>
+            <th>sim1%</th><th>sim5%</th><th>sim15%</th>
+            <th>债务峰</th><th>OI</th><th>状态</th><th>耗时</th>
+          </tr></thead>
+          <tbody id="resultsBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div><!-- /cols -->
+</div><!-- /main -->
+
+<script>
+// ═══════ State ═══════
+var S={
+  terrains:[],       // {id, path, info} — loaded terrains
+  randCloseRates:true,
+  randColorCount:true,
+  randSpread:true,
+  randDebt:true,
+  jobId:null, running:false, pollTimer:null, allRows:[],
+};
+
+// ═══════ Toast ═══════
+var _tid;
+function toast(m,t){
+  var el=document.getElementById('toast');
+  el.textContent=m;el.className=t||'';clearTimeout(_tid);
+  requestAnimationFrame(function(){el.classList.add('show')});
+  _tid=setTimeout(function(){el.classList.remove('show')},2200);
+}
+
+// ═══════ Toggle ═══════
+function toggleAndUpdate(trackId, key){
+  var track=document.getElementById(trackId);
+  var on=track.classList.toggle('on');
+  S[key]=on;
+  var txtEl=document.getElementById('tgTxt'+trackId.replace('tg',''));
+  if(txtEl)txtEl.textContent=on?'随机':'固定';
+  if(key==='randCloseRates'){
+    var inp=document.getElementById('closeRates');
+    inp.disabled=on;inp.style.opacity=on?'0.3':'1';
+  }else if(key==='randColorCount'){
+    document.getElementById('colorCountRatio').style.display=on?'':'none';
+    document.getElementById('colorCount').style.display=on?'none':'';
+    document.getElementById('colorCount').disabled=on;
+    document.getElementById('colorCount').style.opacity=on?'0.3':'1';
+    updateColorCountPreview();
+  }
+}
+
+function updateColorCountPreview(){
+  if(!S.randColorCount)return;
+  var ratio=parseFloat(document.getElementById('colorCountRatio').value)||0.6;
+  var preview='';
+  if(S.terrains.length){
+    preview=S.terrains.map(function(t){
+      var N=Math.floor(t.info.freeTiles/3);
+      var cc=Math.floor(ratio*N);
+      return '#'+t.id+':'+cc;
+    }).join(' ');
+  }
+  document.getElementById('colorCountPreview').textContent=preview;
+}
+document.getElementById('colorCountRatio').addEventListener('input',updateColorCountPreview);
+
+// ═══════ Slider labels ═══════
+function updateSpreadLabel(){
+  var v=parseInt(document.getElementById('spreadParam').value)/100;
+  document.getElementById('spreadLabel').textContent='— '+v.toFixed(2);
+}
+function updateDebtLabel(){
+  var v=parseInt(document.getElementById('debtPersistence').value)/100;
+  document.getElementById('debtLabel').textContent='— '+v.toFixed(2);
+}
+
+// ═══════ Load terrains ═══════
+async function loadTerrains(){
+  var raw=document.getElementById('terrainIds').value;
+  if(!raw.trim()){toast('请输入地形ID','err');return}
+  var ids=raw.split(/[,\s\n]+/).filter(Boolean);
+  var unique=[...new Set(ids)];
+
+  var tags=document.getElementById('terrainTags');
+  var msg=document.getElementById('terrainMsg');
+  tags.innerHTML='';msg.textContent='加载中...';msg.className='msg';
+  S.terrains=[];
+
+  var loaded=[], failed=[];
+  for(var id of unique){
+    try{
+      var r=await fetch('/api/terrain-info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({levelId:id})});
+      var d=await r.json();
+      if(!d.ok){failed.push(id);continue}
+      S.terrains.push({id:id, path:d.resolvedPath, info:d});
+      loaded.push(id);
+    }catch(e){failed.push(id)}
+  }
+
+  // Render tags
+  var html='';
+  S.terrains.forEach(function(t){
+    html+='<span class="terrain-tag"><b>#'+t.id+'</b> '+t.info.freeTiles+'牌·'+t.info.steps+'步·'+t.info.depthCount+'层</span>';
+  });
+  tags.innerHTML=html||'<span style="color:var(--faint);font-size:10px">—</span>';
+
+  msg.textContent='加载 '+loaded.length+'/'+unique.length+' 个地形'+(failed.length?'，失败: '+failed.join(', '):'');
+  msg.className=loaded.length>0?'msg msg-ok':'msg msg-err';
+  if(loaded.length>0){toast('已加载 '+loaded.length+' 个地形','ok');updateColorCountPreview();}
+  else toast('全部加载失败','err');
+
+  document.getElementById('emptyState').style.display=S.terrains.length?'none':'';
+}
+
+// ═══════ Start / Stop batch ═══════
+async function startBatch(){
+  if(!S.terrains.length){toast('请先加载地形','err');return}
+  if(S.running)return;
+
+  var config={
+    terrainPaths: S.terrains.map(function(t){return t.path}),
+    closeRates: S.randCloseRates?'random':(document.getElementById('closeRates').value.trim()||'0.3,0.6,0.8'),
+    colorCount: S.randColorCount?'random':(parseInt(document.getElementById('colorCount').value)||8),
+    colorCountRatio: parseFloat(document.getElementById('colorCountRatio').value)||0.6,
+    spreadParam: S.randSpread?'random':(parseInt(document.getElementById('spreadParam').value)/100),
+    debtPersistenceWeight: S.randDebt?'random':(parseInt(document.getElementById('debtPersistence').value)/100),
+    simRuns: parseInt(document.getElementById('simRuns').value)||200,
+    targetPerTier: parseInt(document.getElementById('targetPerTier').value)||10,
+    maxAttempts: parseInt(document.getElementById('maxAttempts').value)||500,
+  };
+
+  S.running=true;S.allRows=[];
+  document.getElementById('btnStart').disabled=true;
+  document.getElementById('btnStart').innerHTML='<span class="spinner"></span> 运行中...';
+  document.getElementById('btnStop').style.display='';
+  document.getElementById('btnDownload').disabled=true;
+  document.getElementById('actionMsg').textContent='';
+  document.getElementById('progressPanel').style.display='';
+  document.getElementById('progressSpinner').style.display='';
+  document.getElementById('resultsPanel').style.display='';
+  document.getElementById('resultsBody').innerHTML='';
+  document.getElementById('progressBody').innerHTML='<span style="color:var(--faint)">启动中...</span>';
+
+  try{
+    var r=await fetch('/api/batch-generate/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(config)});
+    var d=await r.json();
+    if(!d.ok){toast(d.error,'err');resetUI();return}
+    S.jobId=d.jobId;
+    document.getElementById('actionMsg').textContent='任务 '+d.jobId+' · '+S.terrains.length+' 个地形';
+    document.getElementById('actionMsg').className='msg msg-ok';
+    startPolling();
+  }catch(e){toast(e.message,'err');resetUI()}
+}
+
+function stopBatch(){
+  if(S.pollTimer)clearInterval(S.pollTimer);
+  S.running=false;resetUI();
+  document.getElementById('progressSpinner').style.display='none';
+  toast('已停止轮询');
+}
+
+function resetUI(){
+  document.getElementById('btnStart').disabled=false;
+  document.getElementById('btnStart').innerHTML='▶ 开始批量产关';
+  document.getElementById('btnStop').style.display='none';
+}
+
+function startPolling(){
+  S.pollTimer=setInterval(pollProgress,1500);
+  pollProgress();
+}
+
+async function pollProgress(){
+  if(!S.jobId)return;
+  try{
+    var r=await fetch('/api/batch-generate/status?jobId='+encodeURIComponent(S.jobId));
+    var d=await r.json();
+    if(!d.ok)return;
+    renderProgress(d);
+    if(d.status==='done'||d.status==='error'){
+      clearInterval(S.pollTimer);S.pollTimer=null;
+      S.running=false;resetUI();
+      document.getElementById('progressSpinner').style.display='none';
+      document.getElementById('btnDownload').disabled=false;
+      if(d.status==='error'){document.getElementById('actionMsg').textContent=d.error||'出错';document.getElementById('actionMsg').className='msg msg-err'}
+      else{document.getElementById('actionMsg').textContent='完成 · 共 '+d.totalRows+' 条';document.getElementById('actionMsg').className='msg msg-ok'}
+      S.allRows=[];
+      if(d.terrains)d.terrains.forEach(function(t){if(t.rows)S.allRows=S.allRows.concat(t.rows)});
+      renderResults(S.allRows);
+    }
+  }catch(e){}
+}
+
+// ═══════ Progress ═══════
+function renderProgress(d){
+  var target=parseInt(document.getElementById('targetPerTier').value)||10;
+  var body=document.getElementById('progressBody');
+  if(!d.terrains)return;
+  var html='';
+  d.terrains.forEach(function(t){
+    var totalTarget=(t.maxGrade+1)*target;
+    var collected=0;
+    var maxG=Math.max(t.maxGrade||0,5);
+    for(var g=0;g<=maxG;g++)collected+=(t.collected&&t.collected[g])||0;
+    var pct=totalTarget>0?Math.min(100,Math.round(collected/totalTarget*100)):0;
+    var barColor='var(--ok)';
+    if(pct<30)barColor='var(--copper)';else if(pct<70)barColor='var(--warn)';
+    var name=(t.terrainPath||'').replace(/^.*[\\/]/,'').replace('.json','');
+
+    html+='<div class="progress-row">'+
+      '<span class="pname">'+name+'</span>'+
+      '<span style="font-size:9px;color:var(--dim);width:32px;flex-shrink:0;text-align:center">'+
+        (t.phase==='maxgrade'?'探顶':t.phase==='collecting'?'收样':t.phase==='done'?'完成':'就绪')+'</span>'+
+      '<div class="pbar-outer"><div class="pbar-fill" style="width:'+pct+'%;background:'+barColor+'"></div></div>'+
+      '<span class="pstat">';
+    if(t.maxGrade>=0){
+      for(var g=0;g<=maxG;g++){
+        var cnt=(t.collected&&t.collected[g])||0;
+        var required=g<=t.maxGrade?target:0;
+        html+='<span class="pbadge '+(cnt>=required||!required?'done':'pending')+'"'+
+          (required?'':' style="opacity:.5"')+'>G'+g+':'+cnt+'</span> ';
+      }
+    }
+    html+='尝试'+t.attempts+'次</span></div>';
+  });
+  body.innerHTML=html||'<span style="color:var(--faint)">等待中...</span>';
+}
+
+// ═══════ Results ═══════
+function renderResults(rows){
+  document.getElementById('resultsPanel').style.display='';
+  document.getElementById('resultCount').textContent='共 '+rows.length+' 条';
+  var body=document.getElementById('resultsBody');
+  if(!rows.length){body.innerHTML='<tr><td colspan="15" style="color:var(--faint);text-align:center;padding:20px">—</td></tr>';return}
+  var html='';
+  rows.forEach(function(r,i){
+    var gCls='g'+Math.min(5,Math.max(0,r.grade||0));
+    var status=r.success?'<span style="color:var(--ok)">✓</span>':'<span style="color:var(--bad)">'+esc(r.error||'失败')+'</span>';
+    var name=(r.terrainPath||'').replace(/^.*[\\/]/,'').replace('.json','');
+    html+='<tr>'+
+      '<td style="color:var(--faint)">'+(i+1)+'</td>'+
+      '<td title="'+esc(r.terrainPath||'')+'">'+name+'</td>'+
+      '<td class="'+gCls+'"><b>'+(r.grade>=0?'档'+r.grade:'—')+'</b></td>'+
+      '<td>'+(r.passrate*100).toFixed(1)+'%</td>'+
+      '<td>'+r.colorCount+'</td>'+
+      '<td style="font-size:9px;max-width:100px;overflow:hidden;text-overflow:ellipsis">'+(r.closeRates||[]).map(function(v){return v.toFixed(2)}).join(',')+'</td>'+
+      '<td>'+r.spreadParam.toFixed(2)+'</td><td>'+r.debtPersistenceWeight.toFixed(2)+'</td>'+
+      '<td>'+(r.sim1WinRate*100).toFixed(0)+'%</td><td>'+(r.sim5WinRate*100).toFixed(0)+'%</td><td>'+(r.sim15WinRate*100).toFixed(0)+'%</td>'+
+      '<td>'+r.peakDebt+'/'+r.peakExpDebt+'</td><td>'+r.oi+'</td>'+
+      '<td>'+status+'</td><td style="color:var(--faint)">'+(r.elapsedMs/1000).toFixed(1)+'s</td>'+
+    '</tr>';
+  });
+  body.innerHTML=html;
+}
+
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
+
+// ═══════ Download CSV ═══════
+async function downloadCSV(){
+  if(!S.jobId){toast('请先运行任务','err');return}
+  try{
+    var r=await fetch('/api/batch-generate/csv?jobId='+encodeURIComponent(S.jobId));
+    if(!r.ok){var e=await r.json();toast(e.error,'err');return}
+    var blob=await r.blob();
+    var a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='batch_result_'+S.jobId+'.csv';
+    a.click();URL.revokeObjectURL(a.href);
+    toast('CSV 下载中','ok');
+  }catch(e){toast(e.message,'err')}
+}
+
+// ═══════ Hotkey ═══════
+document.addEventListener('keydown',function(e){
+  if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();if(!S.running)startBatch()}
+});
+</script>
+</body>
+</html>

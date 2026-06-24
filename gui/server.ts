@@ -59,10 +59,20 @@ import {
   OfflineTile,
   PileType,
 } from '../src/solver/index.js';
+import {
+  runBatchGeneration,
+  serializeBatchCsv,
+  type BatchConfig,
+  type BatchProgress,
+  type BatchRow,
+} from '../src/batch-generator.js';
 
 /** 内存中的分析结果缓存 (keyed by terrainHash)，最多保留 50 条，LRU 淘汰 */
 const ANALYSIS_CACHE_MAX = 50;
 const analysisCache = new Map<string, ReturnType<typeof analyzeTriples>>();
+
+/** 批量任务状态存储 (jobId → BatchProgress + allRows) */
+const batchJobs = new Map<string, { progress: BatchProgress; rows: BatchRow[]; abort: boolean }>();
 
 function cacheGet(key: string): ReturnType<typeof analyzeTriples> | undefined {
   // LRU: delete + re-insert to move to end
@@ -1495,6 +1505,74 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // ── API: Batch Generate — Start ──
+  if (url.pathname === '/api/batch-generate/start' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const config = body as unknown as BatchConfig;
+      if (!config.terrainPaths || !Array.isArray(config.terrainPaths) || config.terrainPaths.length === 0) {
+        throw new Error('请至少加载一个地形');
+      }
+      config.simRuns = config.simRuns || 200;
+      config.targetPerTier = config.targetPerTier || 10;
+      config.maxAttempts = config.maxAttempts || 500;
+
+      const jobId = `batch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      const jobEntry: { progress: BatchProgress; rows: BatchRow[]; abort: boolean } = { progress: null as unknown as BatchProgress, rows: [] as BatchRow[], abort: false };
+      batchJobs.set(jobId, jobEntry);
+
+      // Fire and forget — 异步运行，通过轮询获取进度
+      runBatchGeneration(config, (prog) => {
+        jobEntry.progress = prog;
+        jobEntry.rows = [];
+        for (const tp of prog.terrains) { jobEntry.rows.push(...tp.rows); }
+      }).then((final) => {
+        jobEntry.progress = final;
+        jobEntry.rows = [];
+        for (const tp of final.terrains) { jobEntry.rows.push(...tp.rows); }
+        // Keep job in map for 30 min after completion
+        setTimeout(() => { batchJobs.delete(jobId); }, 30 * 60 * 1000);
+      }).catch((err) => {
+        jobEntry.progress = {
+          jobId,
+          status: 'error',
+          terrains: [],
+          totalRows: 0,
+          startedAt: Date.now(),
+          error: err instanceof Error ? err.message : String(err),
+        };
+      });
+
+      json(res, { ok: true, jobId });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
+  // ── API: Batch Generate — Status ──
+  if (url.pathname === '/api/batch-generate/status' && req.method === 'GET') {
+    const jobId = url.searchParams.get('jobId');
+    if (!jobId) { json(res, { ok: false, error: 'Missing jobId' }, 400); return; }
+    const job = batchJobs.get(jobId);
+    if (!job) { json(res, { ok: false, error: 'Job not found' }, 404); return; }
+    json(res, { ok: true, ...job.progress });
+    return;
+  }
+
+  // ── API: Batch Generate — Download CSV ──
+  if (url.pathname === '/api/batch-generate/csv' && req.method === 'GET') {
+    const jobId = url.searchParams.get('jobId');
+    if (!jobId) { json(res, { ok: false, error: 'Missing jobId' }, 400); return; }
+    const job = batchJobs.get(jobId);
+    if (!job) { json(res, { ok: false, error: 'Job not found' }, 404); return; }
+    const csv = serializeBatchCsv(job.rows);
+    res.writeHead(200, {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="batch_result_${jobId}.csv"`,
+    });
+    res.end(csv);
+    return;
+  }
+
   // ── API: append replay candidate to CSV ──
   if (url.pathname === '/api/replay-selection/append' && req.method === 'POST') {
     const body = await parseBody(req);
@@ -1562,6 +1640,10 @@ const server = createServer(async (req, res) => {
   }
   if (url.pathname === '/challenge-expectation' || url.pathname === '/challenge-expectation/') {
     serveStatic(res, join(GUI_DIR, 'challenge-expectation', 'index.html'));
+    return;
+  }
+  if (url.pathname === '/batch-generate.html' || url.pathname === '/batch-generate') {
+    serveStatic(res, join(GUI_DIR, 'batch-generate.html'));
     return;
   }
   serveStatic(res, join(GUI_DIR, url.pathname));
