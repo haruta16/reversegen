@@ -1510,7 +1510,9 @@ const server = createServer(async (req, res) => {
 
   // ── API: Batch Generate — Start ──
   if (url.pathname === '/api/batch-generate/start' && req.method === 'POST') {
+    console.log('[batch] start route hit');
     const body = await parseBody(req);
+    console.log('[batch] body parsed:', JSON.stringify(body).slice(0, 200));
     try {
       const config = body as unknown as BatchConfig;
       if (!config.terrainPaths || !Array.isArray(config.terrainPaths) || config.terrainPaths.length === 0) {
@@ -1570,17 +1572,19 @@ const server = createServer(async (req, res) => {
         };
       });
 
+      console.log('[batch] start success, jobId:', jobId);
       json(res, { ok: true, jobId });
-    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    } catch (err) { console.log('[batch] start error:', String(err)); json(res, { ok: false, error: String(err) }, 400); }
     return;
   }
 
   // ── API: Batch Generate — Status ──
   if (url.pathname === '/api/batch-generate/status' && req.method === 'GET') {
     const jobId = url.searchParams.get('jobId');
+    console.log('[batch] status route hit, jobId:', jobId);
     if (!jobId) { json(res, { ok: false, error: 'Missing jobId' }, 400); return; }
     const job = batchJobs.get(jobId);
-    if (!job) { json(res, { ok: false, error: 'Job not found' }, 404); return; }
+    if (!job) { console.log('[batch] job not found:', jobId); json(res, { ok: false, error: 'Job not found' }, 404); return; }
     json(res, { ok: true, ...job.progress });
     return;
   }
