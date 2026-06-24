@@ -1549,7 +1549,6 @@ const server = createServer(async (req, res) => {
 
       console.log('[batch] step8: firing runBatchGeneration (deferred)');
       let lastWritten = 0;
-      // async 函数内部无 await，会同步阻塞 → setTimeout 推迟
       setTimeout(() => {
         runBatchGeneration(config, (prog) => {
         jobEntry.progress = prog;
@@ -1560,7 +1559,7 @@ const server = createServer(async (req, res) => {
         }
         jobEntry.rows = [];
         for (const tp of prog.terrains) { jobEntry.rows.push(...tp.rows); }
-      }).then((final) => {
+      }, () => jobEntry.abort).then((final) => {
         jobEntry.progress = final;
         jobEntry.rows = [];
         for (const tp of final.terrains) { jobEntry.rows.push(...tp.rows); }
@@ -1582,6 +1581,19 @@ const server = createServer(async (req, res) => {
       console.log('[batch] step9: sending response');
       json(res, { ok: true, jobId });
     } catch (err) { console.log('[batch] start error:', String(err)); json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
+  // ── API: Batch Generate — Stop ──
+  if (url.pathname === '/api/batch-generate/stop' && req.method === 'POST') {
+    const body = await parseBody(req);
+    const jobId = (body as { jobId?: string }).jobId;
+    if (!jobId) { json(res, { ok: false, error: 'Missing jobId' }, 400); return; }
+    const job = batchJobs.get(jobId);
+    if (!job) { json(res, { ok: false, error: 'Job not found' }, 404); return; }
+    job.abort = true;
+    console.log('[batch] stop requested for', jobId);
+    json(res, { ok: true });
     return;
   }
 

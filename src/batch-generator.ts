@@ -79,7 +79,7 @@ export interface TerrainProgress {
 }
 
 export interface BatchProgress {
-  jobId: string; status: 'running' | 'done' | 'error';
+  jobId: string; status: 'running' | 'done' | 'error' | 'aborted';
   terrains: TerrainProgress[]; totalRows: number; startedAt: number; error?: string;
 }
 
@@ -329,6 +329,7 @@ export async function collectGradesForTerrain(
   terrainIndex: number, terrainPath: string,
   maxGrade: number, targetPerTier: number, maxAttempts: number,
   simRuns: number, baseSeed: number,
+  isAborted?: () => boolean,
   onProgress?: (collected: Record<number, number>, attempts: number, latestRow: BatchRow | null) => void,
 ): Promise<{ rows: BatchRow[]; collected: Record<number, number>; attempts: number }> {
   // 桶: 0..maxGrade 有 targetPerTier 要求; 超出也收但不强制
@@ -372,6 +373,7 @@ export async function collectGradesForTerrain(
     }
     // 让出事件循环，允许轮询请求得到处理
     await yieldTick();
+    if (isAborted?.()) break;
   }
 
   const collected: Record<number, number> = {};
@@ -432,6 +434,7 @@ export function serializeBatchCsv(rows: BatchRow[]): string {
 
 export async function runBatchGeneration(
   config: BatchConfig, onProgress?: ProgressCallback,
+  isAborted?: () => boolean,
 ): Promise<BatchProgress> {
   const jobId = `batch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const progress: BatchProgress = {
@@ -450,6 +453,7 @@ export async function runBatchGeneration(
   };
 
   for (let i = 0; i < config.terrainPaths.length; i++) {
+    if (isAborted?.()) break;
     const path = config.terrainPaths[i];
     const tp = progress.terrains[i];
 
@@ -480,6 +484,7 @@ export async function runBatchGeneration(
     const { rows: cRows, collected, attempts } = await collectGradesForTerrain(
       terrain, unified, i, path, maxGrade,
       config.targetPerTier, config.maxAttempts, config.simRuns, seed,
+      isAborted,
       (cts, att, latestRow) => {
         tp.collected = { ...cts };
         if (probe.success && probe.grade >= 0) {
@@ -499,7 +504,7 @@ export async function runBatchGeneration(
     if (onProgress) onProgress(progress);
   }
 
-  progress.status = 'done';
+  progress.status = isAborted?.() ? 'aborted' as const : 'done';
   if (onProgress) onProgress(progress);
   return progress;
 }
