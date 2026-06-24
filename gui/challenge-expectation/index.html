@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>关卡挑战次数期望 · ReverseGen</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" onerror="this.onerror=null;this.src='https://unpkg.com/chart.js@4.4.0/dist/chart.umd.min.js'"></script>
+<style>
+/* ── 沿用项目视觉体系 ── */
+:root{
+  --ink:#0d0d0c; --paper:#181814; --line:#2a2820; --line2:#1f1e1a;
+  --gold:#d4a853; --gold-dim:#8a7040; --sage:#7a9a7e; --copper:#c2784b;
+  --text:#e8e4dd; --dim:#8a867c; --faint:#5c5950;
+  --ok:#7ec99c; --warn:#d4a853; --bad:#d9706a; --info:#7a9aae;
+  --sans:"PingFang SC","Noto Sans SC","Microsoft YaHei",-apple-system,sans-serif;
+  --mono:"SF Mono","Cascadia Code","JetBrains Mono",monospace;
+  --shadow:0 1px 0 var(--line2),0 4px 16px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:var(--sans);background:var(--ink);color:var(--text);
+  font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  min-height:100vh;
+  background-image:radial-gradient(ellipse at 50% 0%,#1a1914 0%,var(--ink) 70%);
+}
+
+.topbar{
+  position:sticky;top:0;z-index:100;background:var(--ink);border-bottom:1px solid var(--line);
+  padding:12px 20px;display:flex;align-items:center;gap:14px;
+  backdrop-filter:blur(8px);box-shadow:0 4px 20px rgba(0,0,0,.5);
+}
+.topbar .brand{font-weight:700;font-size:15px;letter-spacing:-.2px}
+.topbar .brand span{color:var(--gold);margin-right:5px;font-size:16px}
+.topbar .sep{width:1px;height:22px;background:var(--line)}
+.topbar .sub{font-size:11px;color:var(--dim)}
+.topbar .spacer{flex:1}
+.topbar a{color:var(--dim);text-decoration:none;font-size:11px}
+.topbar a:hover{color:var(--gold)}
+
+.main{padding:16px 20px;max-width:1560px;margin:0 auto}
+.layout{display:grid;grid-template-columns:290px 1fr;gap:18px;align-items:start}
+@media(max-width:900px){.layout{grid-template-columns:1fr}}
+
+/* right side split: stats/charts left, steps right */
+.right-inner{display:grid;grid-template-columns:1fr 380px;gap:12px;align-items:start}
+@media(max-width:1260px){.right-inner{grid-template-columns:1fr}}
+
+.panel{
+  background:var(--paper);border:1px solid var(--line);border-radius:10px;
+  overflow:hidden;box-shadow:var(--shadow);
+}
+.panel-hd{
+  display:flex;align-items:center;gap:7px;padding:10px 13px;
+  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;
+  color:var(--dim);border-bottom:1px solid var(--line2);
+  background:linear-gradient(180deg,rgba(255,255,255,.015),transparent);
+}
+.panel-hd .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.panel-hd .dot.gold{background:var(--gold);box-shadow:0 0 6px var(--gold-dim)}
+.panel-hd .dot.copper{background:var(--copper)}
+.panel-hd .dot.sage{background:var(--sage)}
+.panel-hd .dot.info{background:var(--info)}
+.panel-bd{padding:12px 14px}
+.panel+.panel{margin-top:12px}
+
+label{display:block;font-size:10px;color:var(--dim);margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+label .unit{font-weight:400;text-transform:none;color:var(--faint)}
+input{
+  width:100%;background:var(--ink);border:1px solid var(--line);border-radius:6px;
+  color:var(--text);padding:8px 10px;font-size:13px;outline:none;transition:all .2s;
+}
+input:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,168,83,.08)}
+input[type="number"]{font-family:var(--mono)}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:5px;
+  cursor:pointer;border:none;border-radius:6px;padding:8px 16px;
+  font-size:12px;font-weight:600;transition:all .2s;
+}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--gold);color:#1a1810;width:100%;padding:11px;font-size:13px}
+.btn-primary:hover:not(:disabled){background:#e0b860}
+
+.prob-tag{
+  display:flex;align-items:center;gap:8px;padding:6px 10px;
+  background:var(--ink);border:1px solid var(--line);border-radius:5px;font-size:11px;margin-bottom:4px;
+}
+.prob-tag .g{color:var(--gold);font-weight:700;min-width:20px}
+.prob-tag .pct{color:var(--info);font-family:var(--mono);font-size:12px;font-weight:600}
+
+.stat-row{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(120px,1fr));
+  gap:10px;margin-bottom:14px;
+}
+.stat{
+  background:var(--ink);border:1px solid var(--line);border-radius:8px;
+  padding:10px;text-align:center;
+}
+.stat .val{font-size:1.3rem;font-weight:700;font-family:var(--mono)}
+.stat .lbl{font-size:9px;color:var(--dim);margin-top:3px;text-transform:uppercase;letter-spacing:.4px}
+.stat .gold{color:var(--gold)}.stat .ok{color:var(--ok)}.stat .copper{color:var(--copper)}
+.stat .info{color:var(--info)}.stat .bad{color:var(--bad)}
+.stat.highlight{border-color:var(--gold-dim);background:linear-gradient(135deg,rgba(212,168,83,.08),rgba(0,0,0,0))}
+.stat.highlight .val{color:var(--gold);font-size:1.5rem}
+
+/* ── Step table (right column) ── */
+.step-table{width:100%;border-collapse:collapse;font-size:11px}
+.step-table th{text-align:left;color:var(--dim);font-weight:500;font-size:9px;text-transform:uppercase;letter-spacing:.4px;padding:7px 8px;border-bottom:1px solid var(--line)}
+.step-table td{padding:6px 8px;border-bottom:1px solid var(--line2);font-size:11px}
+.step-table tr:hover{background:rgba(212,168,83,.03)}
+.step-table .exhaust td{color:var(--copper)}
+.step-table .mono{font-family:var(--mono);font-size:11px}
+
+.formula{
+  margin-top:8px;padding:8px 12px;background:var(--ink);border-radius:6px;
+  font-family:var(--mono);font-size:10px;color:var(--dim);line-height:1.7;
+  border:1px solid var(--line2);
+}
+
+.chart-wrap{position:relative;height:260px}
+.chart-wrap canvas{width:100%!important;height:100%!important}
+.charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+.explain{font-size:10px;color:var(--dim);line-height:1.7;margin-top:6px}
+.explain b{color:var(--text)}
+
+.presets{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+.preset{
+  font-size:10px;padding:3px 8px;border-radius:4px;cursor:pointer;
+  border:1px solid var(--line);background:transparent;color:var(--dim);
+  font-family:var(--mono);transition:all .2s;
+}
+.preset:hover{border-color:var(--gold);color:var(--gold)}
+.preset.active{border-color:var(--gold);color:var(--gold);background:rgba(212,168,83,.08)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><span>◈</span>ReverseGen</div>
+  <div class="sep"></div>
+  <div class="sub">关卡挑战次数期望计算</div>
+  <div class="spacer"></div>
+  <a href="/">◈ 牌局生成器</a>
+  <a href="/analysis.html">Triple 分析 →</a>
+</div>
+
+<div class="main">
+<div class="layout">
+
+<!-- ═══════ LEFT: 参数 ═══════ -->
+<div class="col-left">
+  <div class="panel">
+    <div class="panel-hd"><span class="dot gold"></span> GradeSequence</div>
+    <div class="panel-bd">
+      <div class="presets" id="presets"></div>
+      <label>难度序列（逗号分隔）</label>
+      <input id="seqInput" type="text" value="5,4,3" spellcheck="false" style="font-family:var(--mono)">
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="dot copper"></span> 过关概率 p(grade)</div>
+    <div class="panel-bd">
+      <label>自定义概率 <span class="unit">（留空用内置映射）</span></label>
+      <input id="probInput" type="text" placeholder="如: 0.02,0.10,0.35" style="font-family:var(--mono)">
+      <div id="probTags" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hd"><span class="dot sage"></span> 蒙特卡洛</div>
+    <div class="panel-bd">
+      <label>模拟次数</label>
+      <input id="simCount" type="number" value="50000" min="1000" max="500000" step="5000">
+    </div>
+  </div>
+
+  <button class="btn btn-primary" onclick="calculate()">▶ 计算期望</button>
+
+  <div class="panel" style="margin-top:12px">
+    <div class="panel-hd"><span class="dot info"></span> 内置档位映射</div>
+    <div class="panel-bd" style="font-size:11px;color:var(--dim);line-height:1.8">
+      <div>grade 0 极易 &nbsp;→ <span style="color:var(--ok);font-weight:600">95%</span></div>
+      <div>grade 1 简单 &nbsp;→ <span style="color:var(--ok);font-weight:600">75%</span></div>
+      <div>grade 2 中等偏易 → <span style="color:var(--warn);font-weight:600">50%</span></div>
+      <div>grade 3 中等偏难 → <span style="color:var(--copper);font-weight:600">30%</span></div>
+      <div>grade 4 困难 &nbsp;→ <span style="color:var(--bad);font-weight:600">15%</span></div>
+      <div>grade 5 极难 &nbsp;→ <span style="color:var(--bad);font-weight:600">5%</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ RIGHT: 结果 ═══════ -->
+<div class="col-right">
+
+  <!-- 关键指标 -->
+  <div class="panel">
+    <div class="panel-hd"><span class="dot gold"></span> 关键指标</div>
+    <div class="panel-bd">
+      <div class="stat-row">
+        <div class="stat highlight">
+          <div class="val" id="statPassrate">-</div>
+          <div class="lbl">综合通过率 1/E[T]</div>
+        </div>
+        <div class="stat"><div class="val gold" id="statMean">-</div><div class="lbl">解析 E[T]</div></div>
+        <div class="stat"><div class="val ok" id="statSimMean">-</div><div class="lbl">模拟 E[T]</div></div>
+        <div class="stat"><div class="val copper" id="statMedian">-</div><div class="lbl">中位数 P50</div></div>
+        <div class="stat"><div class="val info" id="statMode">-</div><div class="lbl">众数</div></div>
+        <div class="stat"><div class="val" style="color:#facc15" id="statP90">-</div><div class="lbl">P90</div></div>
+        <div class="stat"><div class="val bad" id="statP99">-</div><div class="lbl">P99</div></div>
+        <div class="stat"><div class="val info" id="statSkew">-</div><div class="lbl">偏度</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右侧内部分两列：图表（左）+ 步骤（右） -->
+  <div class="right-inner">
+
+    <!-- 图表区 -->
+    <div>
+      <div class="panel">
+        <div class="panel-hd"><span class="dot sage"></span> 概率质量函数 PMF</div>
+        <div class="panel-bd"><div class="chart-wrap"><canvas id="pmfChart"></canvas></div></div>
+      </div>
+      <div class="panel" style="margin-top:12px">
+        <div class="panel-hd"><span class="dot info"></span> 累积分布函数 CDF</div>
+        <div class="panel-bd">
+          <div class="chart-wrap"><canvas id="cdfChart"></canvas></div>
+          <div class="explain" id="cdfExplain"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 步骤分解区 -->
+    <div>
+      <div class="panel">
+        <div class="panel-hd"><span class="dot copper"></span> 逐步骤分解</div>
+        <div class="panel-bd" style="overflow-x:auto">
+          <table class="step-table" id="stepTable">
+            <thead><tr><th>步骤</th><th>难度</th><th>p</th><th>累积失败率</th><th>贡献</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="formula" id="formulaNote"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+</div><!-- .layout -->
+</div><!-- .main -->
+
+<script>
+const GRADE_PROB={0:0.95,1:0.75,2:0.50,3:0.30,4:0.15,5:0.05};
+const GRADE_LABEL={0:'极易',1:'简单',2:'中等偏易',3:'中等偏难',4:'困难',5:'极难'};
+const PRESETS=['5,4,3','5','3,2,1','4,3,2,1,0','0,0,0','5,4,3,2,1','4,3,2,1'];
+
+function analytical(sequence,probs){
+  const k=sequence.length;
+  let cf=1,total=0;
+  const steps=[];
+  for(let i=0;i<k;i++){
+    const p=probs[i];
+    steps.push({attempt:i+1,grade:sequence[i],prob:p,cf,contrib:(i+1)*cf*p});
+    total+=(i+1)*cf*p;
+    cf*=(1-p);
+  }
+  const pk=probs[k-1],phase2=cf*(k+1/pk);
+  total+=phase2;
+  steps.push({attempt:k+1,grade:sequence[k-1],prob:pk,cf,contrib:phase2,isTail:true});
+  return{expectation:total,steps,exhaustProb:cf};
+}
+
+function monteCarlo(sequence,probs,n){
+  const k=sequence.length,pk=probs[k-1];
+  const samples=[];
+  for(let s=0;s<n;s++){
+    let a=0;
+    while(true){a++;if(Math.random()<(a<=k?probs[a-1]:pk)){samples.push(a);break}}
+  }
+  samples.sort((a,b)=>a-b);
+  const mean=samples.reduce((a,b)=>a+b,0)/n;
+  const mdn=samples[Math.floor(n*.5)],p90=samples[Math.floor(n*.9)],p99=samples[Math.floor(n*.99)];
+  let m2=0,m3=0;
+  for(const x of samples){const d=x-mean;m2+=d*d;m3+=d*d*d}
+  const std=Math.sqrt(m2/n),skew=std>0?(m3/n)/Math.pow(std,3):0;
+  const freq={};
+  for(const x of samples)freq[x]=(freq[x]||0)+1;
+  let mode=1,mf=0;
+  for(const[x,f]of Object.entries(freq)){if(f>mf){mf=f;mode=+x}}
+  const maxT=p99+10,pmf={};
+  let cf=1;
+  for(let t=1;t<=Math.min(k,maxT);t++){const p=probs[t-1];pmf[t]=cf*p;cf*=(1-p)}
+  for(let t=k+1;t<=maxT;t++)pmf[t]=cf*Math.pow(1-pk,t-k-1)*pk;
+  const simFreq={};for(const x of samples)simFreq[x]=(simFreq[x]||0)+1;
+  return{mean,median:mdn,p90,p99,skew,std,mode,samples,n,pmf,freq,simFreq};
+}
+
+let pmfChart=null,cdfChart=null;
+
+function drawCharts(pmf,freq,n,k){
+  if(typeof Chart==='undefined'){console.warn('Chart.js未加载');return}
+  const maxT=Math.min(Math.max(...Object.keys(pmf).map(Number)),30);
+  const labels=[],pmfVals=[],simVals=[],cdfVals=[];
+  let cum=0;
+  for(let t=1;t<=maxT;t++){
+    labels.push(t);
+    const p=pmf[t]||0;pmfVals.push(p*100);cum+=p;cdfVals.push(cum*100);
+    simVals.push(((freq[t]||0)/n)*100);
+  }
+  const bgColors=labels.map(t=>{
+    if(t<=k){const a=0.25+0.55*(t-1)/Math.max(k-1,1);return`rgba(212,168,83,${a.toFixed(2)})`}
+    return'rgba(194,120,75,0.45)';
+  });
+  const borderColors=bgColors.map(c=>c.replace(/[\d.]+\)$/,'1)'));
+
+  const ctx1=document.getElementById('pmfChart');
+  const ctx2=document.getElementById('cdfChart');
+  if(!ctx1||!ctx2)return;
+
+  if(pmfChart)pmfChart.destroy();
+  pmfChart=new Chart(ctx1,{
+    type:'bar',
+    data:{labels,datasets:[
+      {label:'解析 PMF',data:pmfVals,backgroundColor:bgColors,borderColor:borderColors,borderWidth:1},
+      {label:'模拟频率',data:simVals,type:'line',borderColor:'rgba(122,154,126,0.9)',backgroundColor:'transparent',borderWidth:2,pointRadius:2,tension:0.1},
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'#8a867c',usePointStyle:true,padding:16,font:{size:11}}}},
+      scales:{
+        x:{ticks:{color:'#5c5950',font:{size:10}},grid:{color:'#1f1e1a'}},
+        y:{ticks:{color:'#5c5950',callback:v=>v+'%',font:{size:10}},grid:{color:'#1f1e1a'},beginAtZero:true}
+      }
+    }
+  });
+
+  let p50t=null,p75t=null,p95t=null;let tmp=0;
+  for(let i=0;i<labels.length;i++){tmp+=(pmf[labels[i]]||0);if(!p50t&&tmp>=0.5)p50t={t:labels[i],pct:(pmf[labels[i]]?tmp*100:50)};if(!p75t&&tmp>=0.75)p75t={t:labels[i],pct:tmp*100};if(!p95t&&tmp>=0.95)p95t={t:labels[i],pct:tmp*100}}
+
+  if(cdfChart)cdfChart.destroy();
+  cdfChart=new Chart(ctx2,{
+    type:'line',
+    data:{labels,datasets:[{
+      label:'累积概率 CDF',data:cdfVals,
+      borderColor:'rgba(122,154,174,0.9)',backgroundColor:'rgba(122,154,174,0.08)',
+      fill:true,borderWidth:2.5,pointRadius:2,tension:0.2
+    }]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'#8a867c',usePointStyle:true,font:{size:11}}}},
+      scales:{
+        x:{ticks:{color:'#5c5950',font:{size:10}},grid:{color:'#1f1e1a'}},
+        y:{ticks:{color:'#5c5950',callback:v=>v+'%',font:{size:10}},grid:{color:'#1f1e1a'},min:0,max:105}
+      }
+    }
+  });
+
+  let html='<b>CDF 用途</b>：回答「多少比例的玩家能在 N 次内过关」。';
+  if(p50t)html+=` P50: <b style="color:var(--gold)">${p50t.pct.toFixed(0)}%</b> 的玩家 ≤${p50t.t} 次过关。`;
+  if(p75t)html+=` P75: ≤${p75t.t} 次。`;
+  if(p95t)html+=` P95: ≤${p95t.t} 次。`;
+  html+='<br>用于设定设计目标，如「80% 玩家应在 5 次内过关」→ 查横坐标 5 对应的纵坐标。';
+  const ce=document.getElementById('cdfExplain');if(ce)ce.innerHTML=html;
+}
+
+function updateProbTags(){
+  const seq=document.getElementById('seqInput').value.split(',').map(s=>s.trim()).filter(Boolean).map(Number);
+  const ps=document.getElementById('probInput').value.trim();
+  const cp=ps?ps.split(',').map(Number):null;
+  const c=document.getElementById('probTags');
+  if(cp&&cp.length===seq.length){
+    c.innerHTML=seq.map((g,i)=>`<div class="prob-tag"><span class="g">grade ${g}</span><span class="pct">${(cp[i]*100).toFixed(0)}%</span></div>`).join('');
+  }else{
+    c.innerHTML=seq.map(g=>{const p=GRADE_PROB[g]??0.05,l=GRADE_LABEL[g]||'';return`<div class="prob-tag"><span class="g">grade ${g}</span>${l?l:''} <span class="pct">${(p*100).toFixed(0)}%</span></div>`}).join('');
+  }
+}
+
+function renderPresets(){
+  const si=document.getElementById('seqInput');
+  document.getElementById('presets').innerHTML=PRESETS.map(s=>`<button class="preset${si.value===s?' active':''}" onclick="setPreset('${s}')">${s}</button>`).join('');
+}
+function setPreset(s){document.getElementById('seqInput').value=s;renderPresets();updateProbTags();calculate()}
+document.getElementById('seqInput').addEventListener('input',()=>{renderPresets();updateProbTags()});
+document.getElementById('probInput').addEventListener('input',updateProbTags);
+renderPresets();updateProbTags();
+
+function calculate(){
+  const ss=document.getElementById('seqInput').value.trim();
+  const ps=document.getElementById('probInput').value.trim();
+  const sc=parseInt(document.getElementById('simCount').value)||50000;
+  if(!ss)return;
+  const seq=ss.split(',').map(Number);
+  if(seq.some(isNaN))return;
+  let probs;
+  if(ps){
+    probs=ps.split(',').map(Number);
+    if(probs.length!==seq.length||probs.some(p=>isNaN(p)||p<0||p>1))return;
+  }else{probs=seq.map(g=>GRADE_PROB[g]??0.05)}
+  const k=seq.length,an=analytical(seq,probs),mc=monteCarlo(seq,probs,sc);
+  const passrate=1/an.expectation;
+  document.getElementById('statPassrate').textContent=(passrate*100).toFixed(1)+'%';
+  document.getElementById('statMean').textContent=an.expectation.toFixed(3);
+  document.getElementById('statSimMean').textContent=mc.mean.toFixed(3);
+  document.getElementById('statMedian').textContent=mc.median;
+  document.getElementById('statMode').textContent=mc.mode;
+  document.getElementById('statP90').textContent=mc.p90;
+  document.getElementById('statP99').textContent=mc.p99;
+  document.getElementById('statSkew').textContent=mc.skew>0.5?mc.skew.toFixed(2)+' ↱':mc.skew.toFixed(2)+' ≈';
+  const tb=document.querySelector('#stepTable tbody');
+  tb.innerHTML=an.steps.map(s=>{
+    const cls=s.isTail?'exhaust':'';
+    const gs=s.isTail?`grade ${s.grade}（序列耗尽）`:`grade ${s.grade}`;
+    const cs=s.isTail?s.contrib.toFixed(4)+'（含几何）':s.contrib.toFixed(4);
+    return`<tr class="${cls}"><td>${s.isTail?`第${s.attempt}+次`:`第${s.attempt}次`}</td><td>${gs}</td><td class="mono">${(s.prob*100).toFixed(0)}%</td><td class="mono">${(s.cf*100).toFixed(2)}%</td><td class="mono">${cs}</td></tr>`;
+  }).join('');
+  document.getElementById('formulaNote').innerHTML=
+    `E[T] = Σ<sub>i=1..${k}</sub> i·p<sub>i</sub>·∏<sub>j&lt;i</sub>(1-p<sub>j</sub>) + ∏<sub>j=1..${k}</sub>(1-p<sub>j</sub>)·(${k}+1/p<sub>${k}</sub>)`+
+    ` = <b style="color:var(--gold)">${an.expectation.toFixed(4)}</b><br>`+
+    `综合通过率 = 1/E[T] = <b style="color:var(--ok)">${(passrate*100).toFixed(1)}%</b>（等效单次挑战过关概率）`;
+  drawCharts(mc.pmf,mc.freq,mc.n,k);
+}
+
+// 等待 Chart.js 加载后计算
+function init(){
+  if(typeof Chart!=='undefined'){calculate();return}
+  if(window._retry>10)return;
+  window._retry=(window._retry||0)+1;
+  setTimeout(init,200);
+}
+window._retry=0;
+init();
+</script>
+</body>
+</html>
