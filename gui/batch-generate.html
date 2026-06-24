@@ -448,7 +448,10 @@ async function startBatch(){
 
   try{
     document.getElementById('progressBody').innerHTML='<span style="color:var(--faint)">提交任务...</span>';
-    var r=await fetch('/api/batch-generate/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(config)});
+    var ctrl=new AbortController();
+    var tid=setTimeout(function(){ctrl.abort()},15000);
+    var r=await fetch('/api/batch-generate/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(config),signal:ctrl.signal});
+    clearTimeout(tid);
     var d=await r.json();
     document.getElementById('progressBody').innerHTML='<span style="color:var(--faint)">服务器响应: ok='+d.ok+' jobId='+(d.jobId||'?')+'</span>';
     if(!d.ok){
