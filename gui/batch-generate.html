@@ -495,9 +495,13 @@ async function pollProgress(){
     if(!d.ok){document.getElementById('progressBody').innerHTML='<span style="color:var(--bad)">轮询失败: '+(d.error||'unknown')+'</span>';return}
     if(!d.terrains){document.getElementById('progressBody').innerHTML='<span style="color:var(--warn)">等待服务端初始化...</span>';return}
     renderProgress(d);
+    // 增量刷新结果表格 + CSV 条数
+    S.allRows=[];
+    if(d.terrains)d.terrains.forEach(function(t){if(t.rows)S.allRows=S.allRows.concat(t.rows)});
     if(d.totalRows>0){
       document.getElementById('actionMsg').textContent='运行中 · 已生成 '+d.totalRows+' 条（CSV 实时可下载）';
       document.getElementById('actionMsg').className='msg';
+      renderResults(S.allRows);
     }
     if(d.status==='done'||d.status==='error'){
       clearInterval(S.pollTimer);S.pollTimer=null;
