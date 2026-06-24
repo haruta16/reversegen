@@ -322,13 +322,15 @@ export function determineMaxGrade(
 // Phase 2: 收样
 // ═══════════════════════════════════════════════════════════
 
-export function collectGradesForTerrain(
+const yieldTick = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+
+export async function collectGradesForTerrain(
   terrain: TerrainData, unifiedParams: UnifiedParams,
   terrainIndex: number, terrainPath: string,
   maxGrade: number, targetPerTier: number, maxAttempts: number,
   simRuns: number, baseSeed: number,
   onProgress?: (collected: Record<number, number>, attempts: number, latestRow: BatchRow | null) => void,
-): { rows: BatchRow[]; collected: Record<number, number>; attempts: number } {
+): Promise<{ rows: BatchRow[]; collected: Record<number, number>; attempts: number }> {
   // 桶: 0..maxGrade 有 targetPerTier 要求; 超出也收但不强制
   const buckets: Record<number, BatchRow[]> = {};
   for (let g = 0; g <= Math.max(maxGrade, 5); g++) buckets[g] = [];
@@ -368,6 +370,8 @@ export function collectGradesForTerrain(
       for (let g = 0; g <= Math.max(maxGrade, 5); g++) cts[g] = buckets[g].length;
       onProgress(cts, attempts, row);
     }
+    // 让出事件循环，允许轮询请求得到处理
+    await yieldTick();
   }
 
   const collected: Record<number, number> = {};
@@ -469,10 +473,11 @@ export async function runBatchGeneration(
     for (let g = 0; g <= Math.max(maxGrade, 5); g++) tp.collected[g] = 0;
     if (probe.success && probe.grade >= 0) tp.collected[probe.grade] = 1;
     if (onProgress) onProgress(progress);
+    await yieldTick();
 
     // Phase 2
     tp.phase = 'collecting';
-    const { rows: cRows, collected, attempts } = collectGradesForTerrain(
+    const { rows: cRows, collected, attempts } = await collectGradesForTerrain(
       terrain, unified, i, path, maxGrade,
       config.targetPerTier, config.maxAttempts, config.simRuns, seed,
       (cts, att, latestRow) => {
