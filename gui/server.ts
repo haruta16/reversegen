@@ -1522,11 +1522,19 @@ const server = createServer(async (req, res) => {
 
       const jobId = `batch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
       const csvPath = join(tmpdir(), `reversegen_batch_${jobId}.csv`);
-      // Write CSV header
       writeFileSync(csvPath, `﻿${BATCH_CSV_HEADERS.join(',')}\n`, 'utf-8');
 
+      const initialProgress: BatchProgress = {
+        jobId, status: 'running',
+        terrains: config.terrainPaths.map((p, i) => ({
+          terrainIndex: i, terrainPath: p,
+          phase: 'idle' as const, maxGrade: 0, collected: {}, attempts: 0, rows: [],
+        })),
+        totalRows: 0, startedAt: Date.now(),
+      };
+
       const jobEntry: { progress: BatchProgress; rows: BatchRow[]; csvPath: string; abort: boolean } = {
-        progress: null as unknown as BatchProgress, rows: [] as BatchRow[], csvPath, abort: false,
+        progress: initialProgress, rows: [] as BatchRow[], csvPath, abort: false,
       };
       batchJobs.set(jobId, jobEntry);
 
