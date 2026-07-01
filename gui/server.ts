@@ -6,11 +6,11 @@
  */
 
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
-import { readFileSync, existsSync, readdirSync, writeFileSync, appendFileSync, unlinkSync, mkdirSync, rmSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, writeFileSync, appendFileSync, unlinkSync, mkdirSync, rmSync, renameSync, statSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { exec } from 'node:child_process';
+import { exec, execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   appendReplaySelection,
@@ -57,6 +57,7 @@ import {
   solvePlayerRiskyBatch,
   solvePlayerCostCapBatch,
   solvePlayerMistakeBatch,
+  solvePlayerShortestBatch,
   OfflineTile,
   PileType,
 } from '../src/solver/index.js';
@@ -98,6 +99,19 @@ function cacheSet(key: string, value: ReturnType<typeof analyzeTriples>): void {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const GUI_DIR = __dirname;
+const PROJECT_ROOT = join(__dirname, '..');
+const GENERATION_FEATURE_DIR = join(PROJECT_ROOT, 'output', 'generation_feature');
+const GENERATION_STRATEGIES_DIR = join(GENERATION_FEATURE_DIR, 'strategies');
+const GENERATION_HISTORY_DIR = join(GENERATION_FEATURE_DIR, 'strategy_history');
+const GENERATION_RUNS_DIR = join(GENERATION_FEATURE_DIR, 'runs');
+const GENERATION_SCHEMA_PATH = join(GENERATION_FEATURE_DIR, 'strategy.schema.json');
+const GENERATION_CATALOG_PATH = join(PROJECT_ROOT, 'config', 'generation-feature-catalog.json');
+const GENERATION_RUNS_LOG = join(GENERATION_FEATURE_DIR, 'runs.jsonl');
+const MANAGE_GENERATION_FEATURE = join(PROJECT_ROOT, 'tools', 'manage_generation_feature.py');
+const BUNDLED_PYTHON = '/Users/wenhaowang/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3';
+const GENERATION_STRATEGY_ID = /^[a-z0-9][a-z0-9_-]{2,79}$/;
+
+type GenerationStrategy = Record<string, any>;
 
 // ── CLI Args ──
 const args = process.argv.slice(2);
@@ -150,6 +164,193 @@ function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
     req.on('data', (chunk) => (body += chunk));
     req.on('end', () => { try { resolve(JSON.parse(body)); } catch { resolve({}); } });
   });
+}
+
+function generationStrategyPath(strategyId: string): string {
+  if (!GENERATION_STRATEGY_ID.test(strategyId)) throw new Error('策略 ID 仅允许小写字母、数字、下划线和连字符');
+  return join(GENERATION_STRATEGIES_DIR, `${strategyId}.json`);
+}
+
+function readJsonFile<T = any>(path: string): T {
+  return JSON.parse(readFileSync(path, 'utf-8')) as T;
+}
+
+function readGenerationCatalog(): any {
+  const catalog = readJsonFile<any>(GENERATION_CATALOG_PATH);
+  const groups = catalog.fieldGroups || {};
+  const generators = catalog.generators || {};
+  const modes = catalog.policyModes || {};
+  const policyFields = new Set(['value', 'ratio', 'jitter', 'min', 'max', 'points']);
+  if (!catalog.workflows || !Object.keys(catalog.workflows).length) throw new Error('页面能力目录缺少 workflows');
+  for (const [workflowId, workflow] of Object.entries<any>(catalog.workflows)) {
+    for (const section of workflow.sections || []) {
+      if (section !== 'generation' && !groups[section]) throw new Error(`工作流 ${workflowId} 引用了未知模块 ${section}`);
+    }
+    for (const [group, fieldIds] of Object.entries<any>(workflow.fields || {})) {
+      if (!groups[group]) throw new Error(`工作流 ${workflowId} 引用了未知字段组 ${group}`);
+      for (const fieldId of fieldIds || []) {
+        if (!groups[group].includes(fieldId)) throw new Error(`工作流 ${workflowId} 引用了未知字段 ${group}.${fieldId}`);
+      }
+    }
+    for (const generatorId of workflow.supportedGenerators || []) {
+      if (!generators[generatorId]) throw new Error(`工作流 ${workflowId} 引用了未知生成器 ${generatorId}`);
+    }
+  }
+  for (const [generatorId, generator] of Object.entries<any>(generators)) {
+    for (const policy of generator.policies || []) {
+      if (!generator.policyModes?.[policy]) throw new Error(`生成器 ${generatorId} 缺少 ${policy} 的 mode 列表`);
+      for (const mode of generator.policyModes[policy]) {
+        if (!modes[mode]) throw new Error(`生成器 ${generatorId}.${policy} 引用了未知 mode ${mode}`);
+      }
+    }
+  }
+  for (const [mode, definition] of Object.entries<any>(modes)) {
+    for (const field of definition.fields || []) {
+      if (!policyFields.has(field)) throw new Error(`参数 mode ${mode} 引用了未知输入字段 ${field}`);
+    }
+  }
+  return catalog;
+}
+
+function writeJsonAtomic(path: string, value: unknown): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const temp = `${path}.${Date.now()}.tmp`;
+  writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, 'utf-8');
+  renameSync(temp, path);
+}
+
+function strategySummary(strategy: GenerationStrategy, path: string) {
+  const meta = strategy.meta || {};
+  const target = strategy.target || {};
+  const adapter = strategy.adapter || {};
+  const scope = strategy.scope || {};
+  return {
+    strategyId: String(meta.strategy_id || basename(path, '.json')),
+    name: String(meta.name || ''),
+    version: Number(meta.version || 0),
+    purpose: String(meta.purpose || ''),
+    status: String(meta.status || 'draft'),
+    executor: String(adapter.executor || ''),
+    grades: Array.isArray(target.grades) ? target.grades : [],
+    targetCount: Number(target.target_count_per_grade || 0),
+    sourceCsv: String(scope.source_csv || ''),
+    updatedAt: statSync(path).mtime.toISOString(),
+  };
+}
+
+function listGenerationStrategies() {
+  mkdirSync(GENERATION_STRATEGIES_DIR, { recursive: true });
+  return readdirSync(GENERATION_STRATEGIES_DIR)
+    .filter(name => name.endsWith('.json'))
+    .map(name => {
+      const path = join(GENERATION_STRATEGIES_DIR, name);
+      try { return strategySummary(readJsonFile<GenerationStrategy>(path), path); }
+      catch (error) {
+        return {
+          strategyId: basename(name, '.json'), name: basename(name, '.json'), version: 0,
+          purpose: String(error), status: 'invalid', executor: '', grades: [], targetCount: 0,
+          sourceCsv: '', updatedAt: statSync(path).mtime.toISOString(),
+        };
+      }
+    })
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+function historyStamp(): string {
+  return new Date().toISOString().replace(/[-:]/g, '').replace('T', '_').replace('Z', '').replace('.', '_');
+}
+
+function writeGenerationStrategySnapshot(strategy: GenerationStrategy, reason: string, stableName = false): void {
+  const id = String(strategy.meta?.strategy_id || '');
+  const version = Number(strategy.meta?.version || 1);
+  const dir = join(GENERATION_HISTORY_DIR, id);
+  mkdirSync(dir, { recursive: true });
+  const suffix = stableName ? 'baseline' : historyStamp();
+  const path = join(dir, `v${version}_${suffix}.json`);
+  if (stableName && existsSync(path)) return;
+  writeJsonAtomic(path, { recordedAt: new Date().toISOString(), reason, strategy });
+}
+
+function listGenerationStrategyHistory(strategyId: string) {
+  generationStrategyPath(strategyId);
+  const dir = join(GENERATION_HISTORY_DIR, strategyId);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter(name => name.endsWith('.json'))
+    .map(name => {
+      const value = readJsonFile<any>(join(dir, name));
+      const strategy = value.strategy || value;
+      return {
+        file: name,
+        recordedAt: value.recordedAt || statSync(join(dir, name)).mtime.toISOString(),
+        reason: value.reason || 'history',
+        version: Number(strategy.meta?.version || 0),
+        name: String(strategy.meta?.name || ''),
+        status: String(strategy.meta?.status || ''),
+        strategy,
+      };
+    })
+    .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
+}
+
+function validateGenerationStrategy(strategy: GenerationStrategy): Promise<{ ok: boolean; errors: string[]; warnings: string[] }> {
+  return new Promise(resolve => {
+    const hash = createHash('sha1').update(JSON.stringify(strategy)).digest('hex').slice(0, 12);
+    const temp = join(tmpdir(), `reversegen-strategy-${Date.now()}-${hash}.json`);
+    writeFileSync(temp, `${JSON.stringify(strategy, null, 2)}\n`, 'utf-8');
+    const python = existsSync(BUNDLED_PYTHON) ? BUNDLED_PYTHON : 'python3';
+    execFile(python, [MANAGE_GENERATION_FEATURE, 'validate', '--strategy', temp], { cwd: PROJECT_ROOT }, (_error, stdout, stderr) => {
+      try { unlinkSync(temp); } catch { /* ignore */ }
+      try {
+        const result = JSON.parse(stdout || '{}');
+        resolve({ ok: Boolean(result.ok), errors: result.errors || [], warnings: result.warnings || [] });
+      } catch {
+        resolve({ ok: false, errors: [stderr || '策略校验器未返回有效结果'], warnings: [] });
+      }
+    });
+  });
+}
+
+function refreshGenerationStrategyIndex(): void {
+  const python = existsSync(BUNDLED_PYTHON) ? BUNDLED_PYTHON : 'python3';
+  execFile(python, [MANAGE_GENERATION_FEATURE, 'list-strategies', '--json'], { cwd: PROJECT_ROOT }, () => {});
+}
+
+function listGenerationRuns() {
+  const latest = new Map<string, any>();
+  if (existsSync(GENERATION_RUNS_LOG)) {
+    for (const line of readFileSync(GENERATION_RUNS_LOG, 'utf-8').split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      try {
+        const event = JSON.parse(line);
+        const current = latest.get(event.run_id) || {};
+        latest.set(event.run_id, { ...current, ...event });
+      } catch { /* ignore malformed history line */ }
+    }
+  }
+  if (!existsSync(GENERATION_RUNS_DIR)) return [];
+  return readdirSync(GENERATION_RUNS_DIR)
+    .map(runId => {
+      const configPath = join(GENERATION_RUNS_DIR, runId, 'run_config.json');
+      if (!existsSync(configPath)) return null;
+      try {
+        const config = readJsonFile<any>(configPath);
+        const event = latest.get(runId) || {};
+        return {
+          runId,
+          strategyId: config.strategy?.meta?.strategy_id || event.strategy_id || '',
+          strategyName: config.strategy?.meta?.name || '',
+          strategyVersion: config.strategy?.meta?.version || '',
+          status: event.status || 'planned',
+          createdAt: config.created_at || event.created_at || statSync(configPath).mtime.toISOString(),
+          updatedAt: event.updated_at || config.updated_at || '',
+          artifacts: config.artifacts || {},
+          strategySnapshot: config.strategy || {},
+        };
+      } catch { return null; }
+    })
+    .filter(Boolean)
+    .sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt)));
 }
 
 /** Resolve terrain: levelId takes priority; falls back to terrainPath. */
@@ -225,7 +426,7 @@ function buildGameFromReplay(
   replayCode: string,
   levelId?: string,
   levelsDir?: string,
-): OfflineGame {
+): { game: OfflineGame; totalTiles: number } {
   const replayData = decodeFromString(replayCode);
   if (!replayData) throw new Error('ReplayCode 解码失败');
 
@@ -262,7 +463,7 @@ function buildGameFromReplay(
     offlineTiles.push(ot);
   }
 
-  return new OfflineGame(offlineTiles);
+  return { game: new OfflineGame(offlineTiles), totalTiles: offlineTiles.length };
 }
 
 // ── Grade Config ──
@@ -316,6 +517,106 @@ function getGradeStrategy1Config(): GradeStrategy1Config {
 // ── Server ──
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://localhost:${port}`);
+
+  // ── API: generation strategy metadata ──
+  if (url.pathname === '/api/generation-strategies/meta' && req.method === 'GET') {
+    try {
+      const catalog = readGenerationCatalog();
+      const layerClosure = catalog.generators?.['layer-closure'] || {};
+      json(res, {
+        ok: true,
+        schema: readJsonFile(GENERATION_SCHEMA_PATH),
+        catalog,
+        options: {
+          executors: Object.entries(catalog.workflows || {}).map(([value, item]: [string, any]) => [value, item.label]),
+          closureModes: layerClosure.policyModes?.closure || [],
+          colorModes: layerClosure.policyModes?.color || [],
+          scalarModes: layerClosure.policyModes?.spread || [],
+          statuses: ['draft', 'active', 'deprecated', 'archived'],
+          fillPolicies: ['all', 'missing_only', 'replace_filtered', 'probe_only', 'cap_only', 'none'],
+          fallbackPolicies: ['none', 'downward_only', 'lowest_available', 'allow_any'],
+        },
+      });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 500); }
+    return;
+  }
+
+  // ── API: list/create/validate generation strategies ──
+  if (url.pathname === '/api/generation-strategies' && req.method === 'GET') {
+    try { json(res, { ok: true, strategies: listGenerationStrategies() }); }
+    catch (err) { json(res, { ok: false, error: String(err) }, 500); }
+    return;
+  }
+  if (url.pathname === '/api/generation-strategies/validate' && req.method === 'POST') {
+    const body = await parseBody(req);
+    const strategy = body.strategy as GenerationStrategy;
+    if (!strategy || typeof strategy !== 'object') { json(res, { ok: false, errors: ['缺少 strategy 对象'], warnings: [] }, 400); return; }
+    json(res, await validateGenerationStrategy(strategy));
+    return;
+  }
+  if (url.pathname === '/api/generation-strategies' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const strategy = JSON.parse(JSON.stringify(body.strategy || {})) as GenerationStrategy;
+      const strategyId = String(strategy.meta?.strategy_id || '');
+      const path = generationStrategyPath(strategyId);
+      if (existsSync(path)) { json(res, { ok: false, error: `策略 ${strategyId} 已存在，请使用复制后的新 ID` }, 409); return; }
+      strategy.meta.version = 1;
+      const validation = await validateGenerationStrategy(strategy);
+      if (!validation.ok) { json(res, validation, 422); return; }
+      writeJsonAtomic(path, strategy);
+      writeGenerationStrategySnapshot(strategy, 'created');
+      refreshGenerationStrategyIndex();
+      json(res, { ok: true, strategy, validation, summary: strategySummary(strategy, path) }, 201);
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
+  if (url.pathname === '/api/generation-runs' && req.method === 'GET') {
+    try { json(res, { ok: true, runs: listGenerationRuns() }); }
+    catch (err) { json(res, { ok: false, error: String(err) }, 500); }
+    return;
+  }
+
+  const strategyHistoryMatch = url.pathname.match(/^\/api\/generation-strategies\/([^/]+)\/history$/);
+  if (strategyHistoryMatch && req.method === 'GET') {
+    try {
+      const strategyId = decodeURIComponent(strategyHistoryMatch[1]);
+      json(res, { ok: true, history: listGenerationStrategyHistory(strategyId) });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
+  const strategyItemMatch = url.pathname.match(/^\/api\/generation-strategies\/([^/]+)$/);
+  if (strategyItemMatch && req.method === 'GET') {
+    try {
+      const strategyId = decodeURIComponent(strategyItemMatch[1]);
+      const path = generationStrategyPath(strategyId);
+      if (!existsSync(path)) { json(res, { ok: false, error: '策略不存在' }, 404); return; }
+      json(res, { ok: true, strategy: readJsonFile(path), summary: strategySummary(readJsonFile(path), path) });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+  if (strategyItemMatch && req.method === 'PUT') {
+    const body = await parseBody(req);
+    try {
+      const strategyId = decodeURIComponent(strategyItemMatch[1]);
+      const path = generationStrategyPath(strategyId);
+      if (!existsSync(path)) { json(res, { ok: false, error: '策略不存在' }, 404); return; }
+      const previous = readJsonFile<GenerationStrategy>(path);
+      const strategy = JSON.parse(JSON.stringify(body.strategy || {})) as GenerationStrategy;
+      if (String(strategy.meta?.strategy_id || '') !== strategyId) throw new Error('更新时不能修改策略 ID，请使用复制策略');
+      writeGenerationStrategySnapshot(previous, 'baseline before first visual edit', true);
+      strategy.meta.version = Number(previous.meta?.version || 0) + 1;
+      const validation = await validateGenerationStrategy(strategy);
+      if (!validation.ok) { json(res, validation, 422); return; }
+      writeJsonAtomic(path, strategy);
+      writeGenerationStrategySnapshot(strategy, 'updated');
+      refreshGenerationStrategyIndex();
+      json(res, { ok: true, strategy, validation, summary: strategySummary(strategy, path) });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
 
   // ── API: list levels ──
   if (url.pathname === '/api/levels' && req.method === 'GET') {
@@ -1055,10 +1356,11 @@ const server = createServer(async (req, res) => {
       const allTiles = getAllTiles(terrain);
       const freeTiles = allTiles.filter(t => !t.isConst);
 
-      const plan = buildEliminationPlan(freeTiles);
+      const allDeps = computeAllDependencies(freeTiles);
+      const plan = buildEliminationPlan(freeTiles, allDeps);
       json(res, {
         ok: true,
-        steps: plan.steps.map(s => ({ tileIds: s.tileIds, layer: s.layer })),
+        steps: plan.steps.map(s => ({ tileIds: s.triple.tileIds, layer: s.step })),
         totalSteps: plan.steps.length,
         complete: plan.steps.length * 3 >= freeTiles.length,
         terrainInfo: { totalTiles: allTiles.length, freeTiles: freeTiles.length, layers: terrain.layers.length },
@@ -1164,7 +1466,7 @@ const server = createServer(async (req, res) => {
       };
       if (!replayCode) throw new Error('缺少 replayCode');
 
-      const game = buildGameFromReplay(replayCode, levelId, levelsDir);
+      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir);
       const simRuns = runs ?? 100;
       const baseSeed = Date.now() & 0x7fffffff;
 
@@ -1191,6 +1493,73 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // ── API: player simulation (short-sighted optimal) ──
+  if (url.pathname === '/api/player-sim-shortest' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const { replayCode, levelId, levelsDir, runs } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string;
+        runs?: number;
+      };
+      if (!replayCode) throw new Error('缺少 replayCode');
+
+      const { game, totalTiles } = buildGameFromReplay(replayCode, levelId, levelsDir);
+      const simRuns = runs ?? 100;
+      const baseSeed = Date.now() & 0x7fffffff;
+      const result = solvePlayerShortestBatch(game, simRuns, baseSeed);
+      const remainingTilesOnLoss = result.losses > 0
+        ? Math.max(0, totalTiles - result.stepsOnLoss)
+        : null;
+      const remainingRatioOnLoss = remainingTilesOnLoss == null || totalTiles <= 0
+        ? null
+        : remainingTilesOnLoss / totalTiles;
+      const optimalMetrics = {
+        runs: simRuns,
+        wins: result.wins,
+        losses: result.losses,
+        winRate: result.winRate,
+        avgStepsOnWin: result.avgStepsOnWin,
+        forcedPickOnWin: result.forcedPickOnWin,
+        starvationOnWin: result.starvationOnWin,
+        starvationPerTileOnWin: totalTiles > 0 ? result.starvationOnWin / totalTiles : 0,
+        avgStepsOnLoss: result.stepsOnLoss,
+        forcedPickOnLoss: result.forcedPickOnLoss,
+        starvationOnLoss: result.starvationOnLoss,
+        remainingTilesOnLoss,
+        remainingRatioOnLoss,
+        totalTiles,
+      };
+
+      json(res, {
+        ok: true,
+        mode: 'shortest',
+        runs: simRuns,
+        wins: result.wins,
+        losses: result.losses,
+        winRate: result.winRate,
+        avgStepsOnWin: result.avgStepsOnWin,
+        avgStepsOnLoss: result.avgStepsOnLoss,
+        elapsedMs: Math.round(result.elapsedMs),
+        forcedPickOnWin: result.forcedPickOnWin,
+        starvationOnWin: result.starvationOnWin,
+        stepsOnLoss: result.stepsOnLoss,
+        forcedPickOnLoss: result.forcedPickOnLoss,
+        starvationOnLoss: result.starvationOnLoss,
+        totalTiles: totalTiles,
+        remainingTilesOnLoss,
+        remainingRatioOnLoss,
+        optimalMetrics,
+        sampleResults: result.results.slice(0, 10).map(r => ({
+          win: r.win,
+          failReason: r.failReason,
+          stepCount: r.stepCount,
+          seed: r.seed,
+        })),
+      });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return;
+  }
+
   // ── API: player simulation (risky) ──
   if (url.pathname === '/api/player-sim-risky' && req.method === 'POST') {
     const body = await parseBody(req);
@@ -1201,7 +1570,7 @@ const server = createServer(async (req, res) => {
       };
       if (!replayCode) throw new Error('缺少 replayCode');
 
-      const game = buildGameFromReplay(replayCode, levelId, levelsDir);
+      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir);
       const simRuns = runs ?? 100;
       const baseSeed = Date.now() & 0x7fffffff;
 
@@ -1240,7 +1609,7 @@ const server = createServer(async (req, res) => {
       if (!replayCode) throw new Error('缺少 replayCode');
       if (maxCost == null || maxCost < 1) throw new Error('请提供有效的成本上限 (maxCost ≥ 1)');
 
-      const game = buildGameFromReplay(replayCode, levelId, levelsDir);
+      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir);
       const simRuns = runs ?? 100;
       const baseSeed = Date.now() & 0x7fffffff;
 
@@ -1281,7 +1650,7 @@ const server = createServer(async (req, res) => {
         throw new Error('失误率需在 0.0 ~ 1.0 之间');
       }
 
-      const game = buildGameFromReplay(replayCode, levelId, levelsDir);
+      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir);
       const simRuns = runs ?? 100;
       const baseSeed = Date.now() & 0x7fffffff;
 
@@ -1340,7 +1709,7 @@ const server = createServer(async (req, res) => {
       };
       if (!replayCode) throw new Error('缺少 replayCode');
 
-      const gam = buildGameFromReplay(replayCode, levelId, levelsDir);
+      const { game: gam } = buildGameFromReplay(replayCode, levelId, levelsDir);
       const useStrategy1 = strategy === 'strategy1';
       const useStrategy2 = strategy === 'strategy2';
       const cfg = (useStrategy1 || useStrategy2) ? getGradeStrategy1Config() : getGradeConfig();
@@ -1419,7 +1788,7 @@ const server = createServer(async (req, res) => {
         throw new Error(`targetGrade 需为 0-${maxGrade} 的整数`);
       }
 
-      const gam = buildGameFromReplay(replayCode, levelId, levelsDir);
+      const { game: gam } = buildGameFromReplay(replayCode, levelId, levelsDir);
       const cfg = (useStrategy1 || useStrategy2) ? getGradeStrategy1Config() : getGradeConfig();
       const simRuns = runs ?? cfg.defaultRuns;
 
@@ -1525,6 +1894,7 @@ const server = createServer(async (req, res) => {
       config.simRuns = config.simRuns || 200;
       config.targetPerTier = config.targetPerTier || 10;
       config.maxAttempts = config.maxAttempts || 500;
+      config.concurrency = Math.max(1, Math.min(config.terrainPaths.length, Math.floor(Number(config.concurrency || 1))));
 
       const jobId = `batch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
       console.log('[batch] step5: jobId:', jobId);
@@ -1548,14 +1918,14 @@ const server = createServer(async (req, res) => {
       batchJobs.set(jobId, jobEntry);
 
       console.log('[batch] step8: firing runBatchGeneration (deferred)');
-      let lastWritten = 0;
       // async 函数内部无 await，会同步阻塞 → setTimeout 推迟
       setTimeout(() => {
         runBatchGeneration(config, (prog) => {
         jobEntry.progress = prog;
         for (const tp of prog.terrains) {
-          while (lastWritten < tp.rows.length) {
-            appendFileSync(csvPath, serializeBatchRow(tp.rows[lastWritten++]) + '\n', 'utf-8');
+          while (tp.rows.length > 0) {
+            const row = tp.rows.shift()!;
+            appendFileSync(csvPath, serializeBatchRow(row) + '\n', 'utf-8');
           }
         }
         jobEntry.rows = [];
@@ -1684,6 +2054,10 @@ const server = createServer(async (req, res) => {
   }
   if (url.pathname === '/batch-generate.html' || url.pathname === '/batch-generate') {
     serveStatic(res, join(GUI_DIR, 'batch-generate.html'));
+    return;
+  }
+  if (url.pathname === '/generation-strategies.html' || url.pathname === '/generation-strategies') {
+    serveStatic(res, join(GUI_DIR, 'generation-strategies.html'));
     return;
   }
   serveStatic(res, join(GUI_DIR, url.pathname));

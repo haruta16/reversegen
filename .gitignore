@@ -4,3 +4,9 @@ dist/
 .reversegen-cache/
 .DS_Store
 *.zip
+
+# Generated runtime and analysis artifacts
+output/
+replays/generated/
+__pycache__/
+*.pyc

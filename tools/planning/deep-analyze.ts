@@ -651,7 +651,7 @@ function computeCrossColorRatio(tdag: BoardDAG): number {
 
 function printResult(r: DeepAnalysisResult): void {
   console.log(`\n  Solutions: ${r.totalSolutions} | States: ${r.totalStates} | Dead: ${r.totalDeadStates}`);
-  console.log(`  Path length: ${r.minPathLen} ~ ${r.maxPathLen}`);
+  console.log(`  Path length: ${r.minPathLength} ~ ${r.maxPathLength}`);
   console.log(`\n  Color DAG: ${r.colorDAG.nodes} nodes, ${r.colorDAG.edges} edges`);
   console.log(`    Max chain: ${r.colorDAG.maxChainLength}, Parallel sources: ${r.colorDAG.parallelSources}, Sinks: ${r.colorDAG.sinks}`);
   if (r.colorDAG.chains.length > 0) {

@@ -18,7 +18,7 @@ import {
   generateBoardLayerClosure,
   computeDependencyDepth,
 } from './index.js';
-import { solvePlayerMistakeBatch } from './solver/index.js';
+import { solvePlayerMistakeBatch } from './solver/solver-player-mistake-new.js';
 import { OfflineTile } from './solver/types.js';
 import { OfflineGame } from './solver/offline-game.js';
 import { gradeStrategy2 } from './grader.js';
@@ -73,10 +73,7 @@ export interface BatchRow {
   levelTags?: string;
   simRuns: number; sim1WinRate: number; sim1Wins: number;
   sim5WinRate: number; sim5Wins: number; sim15WinRate: number; sim15Wins: number;
-  optimalRuns?: number; optimalWins?: number; optimalLosses?: number; optimalWinRate?: number;
-  optimalForcedPickOnWin?: number; optimalStarvationOnWin?: number;
-  optimalStepsOnLoss?: number; optimalForcedPickOnLoss?: number; optimalStarvationOnLoss?: number;
-  optimalRemainingTilesOnLoss?: number; optimalRemainingRatioOnLoss?: number;
+  avgRemainingOnFail: number; avgForcedPickCount: number; avgColorStarvationCount: number;
   elapsedMs: number; success: boolean; error?: string;
 }
 
@@ -269,7 +266,9 @@ function mkEmptyRow(idx: number, path: string, p: GenerationParams, attempt: num
     suitSpreadNorm: 0, isDoomed: false, actualCloseRates: [], weightedDebtRetentionRate: 0,
     replayCode: '', grade: -1, passrate: 0, label: ok ? '' : '失败',
     simRuns: 0, sim1WinRate: 0, sim1Wins: 0, sim5WinRate: 0, sim5Wins: 0,
-    sim15WinRate: 0, sim15Wins: 0, elapsedMs: 0, success: ok, error: err,
+    sim15WinRate: 0, sim15Wins: 0,
+    avgRemainingOnFail: 0, avgForcedPickCount: 0, avgColorStarvationCount: 0,
+    elapsedMs: 0, success: ok, error: err,
   };
 }
 
@@ -299,7 +298,17 @@ export function generateAndEvaluateOne(
     function sim(rate: number, s: number) {
       const g = new OfflineGame(offlineTiles);
       const r = solvePlayerMistakeBatch(g, simRuns, seed + s, { mistakeRate: rate });
-      return { winRate: r.winRate, wins: r.wins, losses: r.losses, elapsedMs: Math.round(r.elapsedMs) };
+      const avgRemainingOnFail = r.losses > 0
+        ? r.results.filter(item => !item.win).reduce((sum, item) => sum + item.remainingTilesOnFail, 0) / r.losses
+        : 0;
+      const avgForcedPickCount = simRuns > 0
+        ? (r.forcedPickOnWin * r.wins + r.forcedPickOnLoss * r.losses) / simRuns
+        : 0;
+      const avgColorStarvationCount = simRuns > 0
+        ? (r.starvationOnWin * r.wins + r.starvationOnLoss * r.losses) / simRuns
+        : 0;
+      return { winRate: r.winRate, wins: r.wins, losses: r.losses, elapsedMs: Math.round(r.elapsedMs),
+        avgRemainingOnFail, avgForcedPickCount, avgColorStarvationCount };
     }
     const s1 = sim(0.01, 1), s5 = sim(0.05, 2), s15 = sim(0.15, 3);
 
@@ -322,6 +331,9 @@ export function generateAndEvaluateOne(
       simRuns, sim1WinRate: s1.winRate, sim1Wins: s1.wins,
       sim5WinRate: s5.winRate, sim5Wins: s5.wins,
       sim15WinRate: s15.winRate, sim15Wins: s15.wins,
+      avgRemainingOnFail: s5.avgRemainingOnFail,
+      avgForcedPickCount: s5.avgForcedPickCount,
+      avgColorStarvationCount: s5.avgColorStarvationCount,
       elapsedMs: Math.round(performance.now() - t0), success: true,
     };
   } catch (err) {
@@ -422,11 +434,8 @@ export const BATCH_CSV_HEADERS = [
   'highWinRate', 'MiddleWinRate', 'LowWinRate',
   // 后 12 列：生成参数 + sim 详情 + 实际闭合率 + 元信息
   'colorCount', 'closeRates', 'spreadParam', 'debtPersistenceWeight',
-  'simRuns', 'sim1Wins', 'sim5Wins', 'sim15Wins', 'totalTiles',
-  'optimalRuns', 'optimalWins', 'optimalLosses', 'optimalWinRate',
-  'optimalForcedPickOnWin', 'optimalStarvationOnWin',
-  'optimalStepsOnLoss', 'optimalForcedPickOnLoss', 'optimalStarvationOnLoss',
-  'optimalRemainingTilesOnLoss', 'optimalRemainingRatioOnLoss',
+  'simRuns', 'sim1Wins', 'sim5Wins', 'sim15Wins',
+  'avgRemainingOnFail', 'avgForcedPickCount', 'avgColorStarvationCount',
   'actualCloseRates',
   'attemptIndex', 'isMaxGradeProbe', 'terrainPath',
 ];
@@ -452,11 +461,8 @@ export function serializeBatchRow(row: BatchRow): string {
     row.sim1WinRate, row.sim5WinRate, row.sim15WinRate,
     // 后 12
     row.colorCount, row.closeRates.join(','), row.spreadParam, row.debtPersistenceWeight,
-    row.simRuns, row.sim1Wins, row.sim5Wins, row.sim15Wins, row.totalTiles,
-    row.optimalRuns ?? '', row.optimalWins ?? '', row.optimalLosses ?? '', row.optimalWinRate ?? '',
-    row.optimalForcedPickOnWin ?? '', row.optimalStarvationOnWin ?? '',
-    row.optimalStepsOnLoss ?? '', row.optimalForcedPickOnLoss ?? '', row.optimalStarvationOnLoss ?? '',
-    row.optimalRemainingTilesOnLoss ?? '', row.optimalRemainingRatioOnLoss ?? '',
+    row.simRuns, row.sim1Wins, row.sim5Wins, row.sim15Wins,
+    row.avgRemainingOnFail, row.avgForcedPickCount, row.avgColorStarvationCount,
     row.actualCloseRates.join(','),
     row.attemptIndex, row.isMaxGradeProbe ? 1 : 0, row.terrainPath,
   ].map(csvEscape).join(',');

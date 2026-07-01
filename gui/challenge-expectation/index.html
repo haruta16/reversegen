@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>关卡挑战次数期望 · ReverseGen</title>
+<script src="/reversegen-theme.js"></script>
+<link rel="stylesheet" href="/reversegen-theme.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" onerror="this.onerror=null;this.src='https://unpkg.com/chart.js@4.4.0/dist/chart.umd.min.js'"></script>
 <style>
 /* ── 沿用项目视觉体系 ── */
@@ -22,13 +24,13 @@ body{
   font-family:var(--sans);background:var(--ink);color:var(--text);
   font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;
   min-height:100vh;
-  background-image:radial-gradient(ellipse at 50% 0%,#1a1914 0%,var(--ink) 70%);
+  background-image:var(--page-gradient);
 }
 
 .topbar{
   position:sticky;top:0;z-index:100;background:var(--ink);border-bottom:1px solid var(--line);
   padding:12px 20px;display:flex;align-items:center;gap:14px;
-  backdrop-filter:blur(8px);box-shadow:0 4px 20px rgba(0,0,0,.5);
+  backdrop-filter:blur(8px);box-shadow:var(--topbar-shadow);
 }
 .topbar .brand{font-weight:700;font-size:15px;letter-spacing:-.2px}
 .topbar .brand span{color:var(--gold);margin-right:5px;font-size:16px}
@@ -70,7 +72,7 @@ input{
   width:100%;background:var(--ink);border:1px solid var(--line);border-radius:6px;
   color:var(--text);padding:8px 10px;font-size:13px;outline:none;transition:all .2s;
 }
-input:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,168,83,.08)}
+input:focus{border-color:var(--gold);box-shadow:0 0 0 3px var(--accent-focus)}
 input[type="number"]{font-family:var(--mono)}
 
 .btn{
@@ -79,8 +81,8 @@ input[type="number"]{font-family:var(--mono)}
   font-size:12px;font-weight:600;transition:all .2s;
 }
 .btn:disabled{opacity:.4;cursor:not-allowed}
-.btn-primary{background:var(--gold);color:#1a1810;width:100%;padding:11px;font-size:13px}
-.btn-primary:hover:not(:disabled){background:#e0b860}
+.btn-primary{background:var(--gold);color:var(--accent-contrast);width:100%;padding:11px;font-size:13px}
+.btn-primary:hover:not(:disabled){background:var(--accent-hover)}
 
 .prob-tag{
   display:flex;align-items:center;gap:8px;padding:6px 10px;
@@ -102,14 +104,14 @@ input[type="number"]{font-family:var(--mono)}
 .stat .lbl{font-size:9px;color:var(--dim);margin-top:3px;text-transform:uppercase;letter-spacing:.4px}
 .stat .gold{color:var(--gold)}.stat .ok{color:var(--ok)}.stat .copper{color:var(--copper)}
 .stat .info{color:var(--info)}.stat .bad{color:var(--bad)}
-.stat.highlight{border-color:var(--gold-dim);background:linear-gradient(135deg,rgba(212,168,83,.08),rgba(0,0,0,0))}
+.stat.highlight{border-color:var(--gold-dim);background:linear-gradient(135deg,var(--accent-soft),rgba(0,0,0,0))}
 .stat.highlight .val{color:var(--gold);font-size:1.5rem}
 
 /* ── Step table (right column) ── */
 .step-table{width:100%;border-collapse:collapse;font-size:11px}
 .step-table th{text-align:left;color:var(--dim);font-weight:500;font-size:9px;text-transform:uppercase;letter-spacing:.4px;padding:7px 8px;border-bottom:1px solid var(--line)}
 .step-table td{padding:6px 8px;border-bottom:1px solid var(--line2);font-size:11px}
-.step-table tr:hover{background:rgba(212,168,83,.03)}
+.step-table tr:hover{background:color-mix(in srgb,var(--gold) 3%,transparent)}
 .step-table .exhaust td{color:var(--copper)}
 .step-table .mono{font-family:var(--mono);font-size:11px}
 
@@ -133,7 +135,7 @@ input[type="number"]{font-family:var(--mono)}
   font-family:var(--mono);transition:all .2s;
 }
 .preset:hover{border-color:var(--gold);color:var(--gold)}
-.preset.active{border-color:var(--gold);color:var(--gold);background:rgba(212,168,83,.08)}
+.preset.active{border-color:var(--gold);color:var(--gold);background:var(--accent-soft)}
 </style>
 </head>
 <body>
@@ -146,6 +148,7 @@ input[type="number"]{font-family:var(--mono)}
   <a href="/">主页</a>
   <a href="/analysis.html">分析</a>
   <a href="/batch-generate.html">批量产关</a>
+  <a href="/generation-strategies.html">产出策略</a>
 </div>
 
 <div class="main">

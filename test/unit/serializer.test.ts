@@ -145,7 +145,7 @@ describe('ReplaySerializer', () => {
 
     assert.ok(decoded !== null);
     for (let i = 0; i < decoded!.instanceArray.length; i++) {
-      const state = (decoded!.instanceArray[i] >> 6) & 0x3;
+      const state: number = (decoded!.instanceArray[i] >> 6) & 0x3;
       assert.equal(state, TileState.OnField);
     }
   });
@@ -243,8 +243,8 @@ describe('Round-trip', () => {
     // Verify each tile's element value round-trips correctly
     const ordered = getCanonicalTileOrder(tiles);
     for (let i = 0; i < ordered.length; i++) {
-      const elemIdx = decoded!.instanceArray[i] & 0x3F;
-      const normValue = elemIdx + 1;
+      const elemIdx: number = decoded!.instanceArray[i] & 0x3F;
+      const normValue: number = elemIdx + 1;
       const expected = elementValues.get(ordered[i].id)!;
       // Normalize expected: the serializer normalizes element values to 1..N
       // We know elementValues maps to 1..8, so expected === normValue
@@ -257,7 +257,7 @@ describe('Round-trip', () => {
     // 64 distinct element values × 3 tiles each = 192 tiles
     const tiles: TerrainTile[] = [];
     for (let i = 1; i <= 192; i++) {
-      tiles.push({ id: i, layer: 0, dependencies: [], isConst: false, constElementValue: 0 });
+      tiles.push({ id: i, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0 });
     }
     const elementValues = new Map<number, number>();
     for (let i = 1; i <= 192; i++) {

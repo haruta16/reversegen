@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>产出策略 · ReverseGen</title>
+<script>
+try{document.documentElement.dataset.theme=localStorage.getItem('reversegen-theme')||localStorage.getItem('reversegen-strategy-theme')||'amber'}catch(e){}
+</script>
+<style>
+:root{
+  --ink:#0d0d0c;--paper:#181814;--paper2:#141412;--line:#2a2820;--line2:#1f1e1a;
+  --gold:#d4a853;--gold-dim:#8a7040;--sage:#7a9a7e;--copper:#c2784b;--blue:#7a9aae;
+  --text:#e8e4dd;--dim:#8a867c;--faint:#5c5950;--ok:#7ec99c;--warn:#d4a853;--bad:#d9706a;
+  --topbar-bg:rgba(13,13,12,.97);--input-disabled:#11110f;--code-bg:#0a0a09;--code-text:#b8b3a8;
+  --accent-soft:rgba(212,168,83,.08);--accent-focus:rgba(212,168,83,.08);--accent-outline:rgba(212,168,83,.28);--accent-contrast:#1a1810;--accent-hover:#e0b860;
+  --sans:"PingFang SC","Noto Sans SC","Microsoft YaHei",-apple-system,sans-serif;
+  --mono:"SF Mono","Cascadia Code","JetBrains Mono",monospace;
+}
+html[data-theme="graphite"]{
+  --ink:#151716;--paper:#202321;--paper2:#191c1b;--line:#343836;--line2:#292d2b;
+  --gold:#77b98b;--gold-dim:#4f8060;--sage:#8fb59a;--copper:#d28a64;--blue:#8eabc2;
+  --text:#edf0ee;--dim:#a2aaa5;--faint:#6f7872;--ok:#77c994;--warn:#d6ad62;--bad:#df7d78;
+  --topbar-bg:rgba(21,23,22,.97);--input-disabled:#151816;--code-bg:#111312;--code-text:#bcc5bf;
+  --accent-soft:rgba(119,185,139,.11);--accent-focus:rgba(119,185,139,.11);--accent-outline:rgba(119,185,139,.3);--accent-contrast:#101712;--accent-hover:#89c99c;
+}
+html[data-theme="light"]{
+  --ink:#f6f8fa;--paper:#ffffff;--paper2:#eef1f4;--line:#d0d7de;--line2:#e1e5e9;
+  --gold:#2563eb;--gold-dim:#8aacee;--sage:#43875a;--copper:#b85c32;--blue:#44789f;
+  --text:#1f2328;--dim:#57606a;--faint:#7d8590;--ok:#1a7f37;--warn:#9a6700;--bad:#cf222e;
+  --topbar-bg:rgba(255,255,255,.97);--input-disabled:#eaeef2;--code-bg:#f6f8fa;--code-text:#47515c;
+  --accent-soft:rgba(37,99,235,.09);--accent-focus:rgba(37,99,235,.11);--accent-outline:rgba(37,99,235,.28);--accent-contrast:#ffffff;--accent-hover:#1d4ed8;
+}
+html[data-theme="midnight"]{
+  --ink:#101419;--paper:#1b222a;--paper2:#151b21;--line:#303944;--line2:#252d36;
+  --gold:#72a7d8;--gold-dim:#4d7192;--sage:#78a989;--copper:#d28b62;--blue:#8faed0;
+  --text:#e9edf1;--dim:#9aa6b2;--faint:#697681;--ok:#71c18d;--warn:#d5aa5d;--bad:#dc7772;
+  --topbar-bg:rgba(16,20,25,.97);--input-disabled:#11171c;--code-bg:#0c1014;--code-text:#b1bcc7;
+  --accent-soft:rgba(114,167,216,.1);--accent-focus:rgba(114,167,216,.1);--accent-outline:rgba(114,167,216,.3);--accent-contrast:#101820;--accent-hover:#8bb9e1;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none!important}
+body{font-family:var(--sans);background:var(--ink);color:var(--text);font-size:13px;line-height:1.5;min-height:100vh}
+button,input,textarea,select{font:inherit}
+.topbar{height:58px;position:sticky;top:0;z-index:50;background:var(--topbar-bg);border-bottom:1px solid var(--line);padding:0 22px;display:flex;align-items:center;gap:16px}
+.brand{font-weight:700;font-size:16px;white-space:nowrap}.brand span{color:var(--gold);font-size:18px;margin-right:6px}.sep{width:1px;height:28px;background:var(--line)}
+.topbar a{color:var(--dim);text-decoration:none;font-size:12px;padding:6px 9px;border-radius:5px}.topbar a:hover{color:var(--gold)}.topbar a.active{color:var(--gold);background:var(--accent-soft)}
+.spacer{flex:1}.save-state{font-size:10px;color:var(--faint);font-family:var(--mono)}
+.theme-picker{position:relative;flex:none}.theme-trigger{height:32px;display:flex;align-items:center;gap:7px;padding:0 9px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--dim);cursor:pointer;font-size:10px;white-space:nowrap}.theme-trigger:hover,.theme-trigger[aria-expanded="true"]{border-color:var(--gold);color:var(--text)}.theme-swatch{width:12px;height:12px;border-radius:3px;border:1px solid rgba(127,127,127,.35);background:linear-gradient(135deg,var(--swatch-bg) 0 48%,var(--swatch-accent) 50% 100%);flex:none}.theme-caret{font-size:8px;color:var(--faint)}
+.theme-menu{position:absolute;right:0;top:38px;width:210px;padding:6px;background:var(--paper);border:1px solid var(--line);border-radius:7px;box-shadow:0 12px 32px rgba(0,0,0,.24);z-index:80}.theme-option{width:100%;min-height:38px;border:0;border-radius:5px;padding:6px 8px;background:transparent;color:var(--text);display:grid;grid-template-columns:18px 1fr 14px;gap:8px;align-items:center;text-align:left;cursor:pointer}.theme-option:hover{background:var(--accent-soft)}.theme-option[aria-pressed="true"]{background:var(--accent-soft);color:var(--gold)}.theme-option-copy strong{display:block;font-size:10px}.theme-option-copy span{display:block;color:var(--faint);font-size:8px;margin-top:1px}.theme-check{color:var(--gold);font-size:11px;text-align:center}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px;border:1px solid var(--line);border-radius:6px;padding:6px 11px;background:var(--paper);color:var(--text);cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap}
+.btn:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}.btn:disabled{opacity:.35;cursor:not-allowed}.btn.primary{background:var(--gold);border-color:var(--gold);color:var(--accent-contrast)}.btn.primary:hover:not(:disabled){background:var(--accent-hover);color:var(--accent-contrast)}.btn.icon{width:32px;padding:0;font-size:16px}.btn.danger:hover{border-color:var(--bad);color:var(--bad)}
+.workspace{display:grid;grid-template-columns:270px minmax(560px,1fr) 330px;min-height:calc(100vh - 58px)}
+.sidebar{border-right:1px solid var(--line);background:var(--paper2);display:flex;flex-direction:column;min-width:0}.side-head{padding:14px;border-bottom:1px solid var(--line)}
+.side-actions{display:flex;gap:7px;margin-bottom:10px}.side-actions .btn:first-child{flex:1}.search{position:relative}.search input{padding-left:29px}.search-mark{position:absolute;left:10px;top:8px;color:var(--faint);font-size:11px}
+.filters{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:7px}.strategy-list{overflow:auto;flex:1;padding:7px}.strategy-item{width:100%;text-align:left;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--text);padding:9px 10px;cursor:pointer;margin-bottom:3px}
+.strategy-item:hover{background:var(--paper);border-color:var(--line)}.strategy-item.active{background:var(--accent-soft);border-color:var(--gold-dim)}.strategy-name{font-size:12px;font-weight:650;display:flex;align-items:center;gap:6px}.strategy-meta{display:flex;gap:7px;margin-top:4px;font-size:9px;color:var(--faint);font-family:var(--mono)}.strategy-purpose{font-size:10px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
+.status-dot{width:6px;height:6px;border-radius:50%;background:var(--faint);flex:none}.status-dot.active{background:var(--ok)}.status-dot.draft{background:var(--warn)}.status-dot.deprecated,.status-dot.archived{background:var(--bad)}
+.center{min-width:0;background:var(--ink)}.editor-head{height:58px;border-bottom:1px solid var(--line);padding:0 16px;display:flex;align-items:center;gap:8px;position:sticky;top:58px;z-index:30;background:var(--topbar-bg)}
+.editor-title{min-width:0;margin-right:auto}.editor-title h1{font-size:14px;letter-spacing:0}.editor-title p{font-size:9px;color:var(--faint);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tabs{display:flex;border-bottom:1px solid var(--line);padding:0 16px;height:40px;align-items:end;gap:18px;background:var(--paper2);position:sticky;top:116px;z-index:25}.tab{height:40px;border:0;background:transparent;color:var(--dim);font-size:11px;cursor:pointer;border-bottom:2px solid transparent;padding:0 2px}.tab.active{color:var(--gold);border-bottom-color:var(--gold)}
+.tab-page{display:none}.tab-page.active{display:block}.form{max-width:920px;margin:0 auto;padding:14px 18px 40px}.section{padding:16px 0 19px;border-bottom:1px solid var(--line)}.section:last-child{border-bottom:0}.section-head{display:flex;align-items:baseline;gap:8px;margin-bottom:12px}.section-head h2{font-size:12px;color:var(--text)}.section-head span{font-size:9px;color:var(--faint);font-family:var(--mono)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px}.grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}.wide{grid-column:1/-1}.field label{display:flex;align-items:center;gap:5px;font-size:9px;color:var(--dim);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}.field label small{font-weight:400;color:var(--faint);text-transform:none;letter-spacing:0}
+.help-btn{width:16px;height:16px;min-height:16px;padding:0;border:1px solid var(--line);border-radius:50%;background:transparent;color:var(--faint);font:700 9px var(--mono);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;text-transform:none;letter-spacing:0}.help-btn:hover,.help-btn.active{border-color:var(--gold);color:var(--gold);background:var(--accent-soft)}
+.help-target{outline:1px solid var(--accent-outline);outline-offset:3px;border-radius:4px}
+input,textarea,select{width:100%;background:var(--paper2);border:1px solid var(--line);border-radius:5px;color:var(--text);padding:7px 9px;font-size:11px;outline:none;min-height:34px}textarea{resize:vertical;min-height:64px}input:focus,textarea:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 2px var(--accent-focus)}input:disabled{color:var(--faint);background:var(--input-disabled)}
+select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a867c' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;padding-right:26px}
+.grade-picks{display:grid;grid-template-columns:repeat(6,1fr);gap:5px}.grade-pick input{display:none}.grade-pick label{height:34px;border:1px solid var(--line);border-radius:5px;background:var(--paper2);display:flex;align-items:center;justify-content:center;color:var(--dim);cursor:pointer;font-family:var(--mono);font-size:11px}.grade-pick input:checked+label{border-color:var(--gold);color:var(--gold);background:var(--accent-soft)}
+.toggle-line{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:34px;padding:5px 8px;border:1px solid var(--line);border-radius:5px;background:var(--paper2)}.toggle-line span{font-size:10px;color:var(--dim)}.switch{appearance:none;width:30px;height:16px;min-height:16px;padding:0;border:0;border-radius:8px;background:var(--line);position:relative;cursor:pointer;flex:none}.switch:after{content:"";position:absolute;width:12px;height:12px;border-radius:50%;left:2px;top:2px;background:#fff;transition:.18s}.switch:checked{background:var(--gold)}.switch:checked:after{left:16px}
+.policy-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.policy{border-left:2px solid var(--line);padding:2px 0 2px 11px}.policy-title{display:flex;align-items:center;gap:7px;margin-bottom:7px}.policy-title b{font-size:11px}.policy-title span{font-size:9px;color:var(--faint)}.policy-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:7px}.policy-fields .full{grid-column:1/-1}.policy-field.hide{display:none}
+.constraint-wrap{overflow:auto;border:1px solid var(--line);border-radius:6px}.constraint-table{width:100%;border-collapse:collapse;font-size:9px;min-width:780px}.constraint-table th,.constraint-table td{padding:5px 6px;border-bottom:1px solid var(--line2);text-align:left}.constraint-table th{color:var(--dim);background:var(--paper2);font-weight:700;position:sticky;top:0}.constraint-table input,.constraint-table select{min-height:28px;padding:4px 6px;font-size:9px}.constraint-table tr:last-child td{border-bottom:0}.constraint-table .use{width:28px}.constraint-table .grade{color:var(--gold);font-family:var(--mono);font-weight:700}
+.rightbar{border-left:1px solid var(--line);background:var(--paper2);min-width:0;display:flex;flex-direction:column}.right-head{height:58px;border-bottom:1px solid var(--line);padding:0 14px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:58px;background:var(--paper2);z-index:30}.right-head h2{font-size:11px}.right-scroll{padding:13px;overflow:auto;position:sticky;top:116px;max-height:calc(100vh - 116px)}
+.summary-block{padding:0 0 13px;margin-bottom:13px;border-bottom:1px solid var(--line)}.summary-block h3{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px;margin-bottom:7px}.summary-line{display:flex;justify-content:space-between;gap:10px;font-size:10px;padding:3px 0}.summary-line span:first-child{color:var(--dim)}.summary-line strong{font-weight:600;text-align:right;word-break:break-word}.plan-copy{font-size:10px;color:var(--dim);line-height:1.75}.plan-copy b{color:var(--text);font-weight:600}.validation-list{list-style:none;font-size:10px}.validation-list li{padding:4px 0 4px 12px;position:relative;color:var(--dim)}.validation-list li:before{content:"";width:5px;height:5px;border-radius:50%;position:absolute;left:0;top:10px;background:var(--warn)}.validation-list.errors li:before{background:var(--bad)}.valid-ok{color:var(--ok);font-size:10px}.json-preview{font-family:var(--mono);font-size:9px;line-height:1.55;color:var(--code-text);background:var(--code-bg);border:1px solid var(--line);border-radius:5px;padding:9px;white-space:pre-wrap;word-break:break-word;max-height:340px;overflow:auto}
+.field-help-title{font-size:12px;font-weight:700;color:var(--text);margin-bottom:5px}.field-help-key{font:9px var(--mono);color:var(--gold);margin-bottom:8px}.field-help-copy{font-size:10px;color:var(--dim);line-height:1.7;margin-bottom:8px}.field-help-row{border-top:1px solid var(--line2);padding-top:7px;margin-top:7px}.field-help-row b{display:block;font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}.field-help-example{font:9px var(--mono);color:var(--text);background:var(--code-bg);border:1px solid var(--line);border-radius:4px;padding:6px 7px;word-break:break-word}.field-help-options{display:grid;gap:5px}.field-help-option{display:grid;grid-template-columns:100px 1fr;gap:7px;font-size:9px}.field-help-option code{color:var(--gold);font-family:var(--mono)}.field-help-option span{color:var(--dim)}
+.history,.runs{padding:16px 18px 40px;max-width:980px;margin:0 auto}.history-row,.run-row{display:grid;grid-template-columns:95px 1fr 110px 90px;gap:12px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--line);font-size:10px}.history-row strong,.run-row strong{font-size:11px}.history-row .mono,.run-row .mono{font-family:var(--mono);color:var(--dim)}.history-row button{justify-self:end}.run-row{grid-template-columns:145px 1fr 90px 130px}.empty{padding:45px 20px;text-align:center;color:var(--faint);font-size:11px}
+.badge{font-family:var(--mono);font-size:9px;border:1px solid var(--line);border-radius:4px;padding:2px 5px;color:var(--dim)}.badge.ok{color:var(--ok);border-color:rgba(126,201,156,.3)}.badge.warn{color:var(--warn);border-color:rgba(212,168,83,.3)}
+#toast{position:fixed;bottom:18px;left:50%;transform:translate(-50%,18px);opacity:0;pointer-events:none;background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:9px 18px;font-size:11px;z-index:100;transition:.2s}#toast.show{opacity:1;transform:translate(-50%,0)}#toast.ok{border-color:var(--ok)}#toast.err{border-color:var(--bad)}
+@media(max-width:1220px){.workspace{grid-template-columns:250px 1fr}.rightbar{grid-column:2;border-left:0;border-top:1px solid var(--line)}.right-head{position:static}.right-scroll{position:static;max-height:none;display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.right-scroll .summary-block{margin:0}}
+@media(max-width:850px){.topbar{overflow-x:auto}.theme-trigger{width:32px;padding:0;justify-content:center}.theme-label,.theme-caret{display:none}.workspace{display:block}.sidebar{height:340px;border-right:0;border-bottom:1px solid var(--line)}.editor-head,.tabs{position:static}.grid,.grid.three,.policy-grid{grid-template-columns:1fr}.rightbar{border-left:0}.right-scroll{display:block}.history-row,.run-row{grid-template-columns:1fr}.history-row button{justify-self:start}}
+</style>
+</head>
+<body>
+<nav class="topbar">
+  <div class="brand"><span>◈</span>ReverseGen</div><div class="sep"></div>
+  <a href="/">主页</a><a href="/challenge-expectation">挑战期望</a><a href="/analysis.html">分析</a><a href="/batch-generate.html">批量产关</a><a class="active" href="/generation-strategies.html">产出策略</a>
+  <div class="spacer"></div>
+  <div class="theme-picker" id="themePicker">
+    <button type="button" class="theme-trigger" id="themeTrigger" aria-haspopup="menu" aria-expanded="false" onclick="toggleThemeMenu(event)" title="切换界面主题"><span class="theme-swatch" id="themeCurrentSwatch"></span><span class="theme-label" id="themeCurrentLabel">琥珀暗色</span><span class="theme-caret">⌄</span></button>
+    <div class="theme-menu" id="themeMenu" role="menu" hidden>
+      <button type="button" class="theme-option" data-theme="amber" aria-pressed="false" onclick="selectTheme('amber')"><span class="theme-swatch" style="--swatch-bg:#0d0d0c;--swatch-accent:#d4a853"></span><span class="theme-option-copy"><strong>琥珀暗色</strong><span>当前经典配色</span></span><span class="theme-check"></span></button>
+      <button type="button" class="theme-option" data-theme="graphite" aria-pressed="false" onclick="selectTheme('graphite')"><span class="theme-swatch" style="--swatch-bg:#202321;--swatch-accent:#77b98b"></span><span class="theme-option-copy"><strong>石墨暗色</strong><span>Codex 风格，中性低饱和</span></span><span class="theme-check"></span></button>
+      <button type="button" class="theme-option" data-theme="light" aria-pressed="false" onclick="selectTheme('light')"><span class="theme-swatch" style="--swatch-bg:#ffffff;--swatch-accent:#2563eb"></span><span class="theme-option-copy"><strong>浅色工作台</strong><span>经典编辑器浅色界面</span></span><span class="theme-check"></span></button>
+      <button type="button" class="theme-option" data-theme="midnight" aria-pressed="false" onclick="selectTheme('midnight')"><span class="theme-swatch" style="--swatch-bg:#101419;--swatch-accent:#72a7d8"></span><span class="theme-option-copy"><strong>午夜蓝</strong><span>冷色深色，高信息对比</span></span><span class="theme-check"></span></button>
+    </div>
+  </div>
+  <span class="save-state" id="saveState">未加载</span>
+</nav>
+
+<div class="workspace">
+  <aside class="sidebar">
+    <div class="side-head">
+      <div class="side-actions"><button class="btn primary" onclick="newStrategy()"><span>+</span>新建策略</button><button class="btn icon" title="复制当前策略" onclick="duplicateStrategy()">⧉</button></div>
+      <div class="search"><span class="search-mark">⌕</span><input id="searchInput" placeholder="搜索名称或 ID" oninput="renderStrategyList()"></div>
+      <div class="filters"><select id="statusFilter" onchange="renderStrategyList()"><option value="">全部状态</option><option value="active">启用</option><option value="draft">草稿</option><option value="deprecated">废弃</option><option value="archived">归档</option></select><select id="executorFilter" onchange="renderStrategyList()"><option value="">全部任务</option></select></div>
+    </div>
+    <div class="strategy-list" id="strategyList"></div>
+  </aside>
+
+  <main class="center">
+    <div class="editor-head">
+      <div class="editor-title"><h1 id="editorName">产出策略</h1><p id="editorId">选择一个策略或新建</p></div>
+      <button class="btn" onclick="validateDraft()"><span>✓</span>校验</button>
+      <button class="btn" onclick="exportDraft()"><span>↓</span>导出 JSON</button>
+      <button class="btn primary" id="saveBtn" onclick="saveDraft()"><span>■</span>保存</button>
+    </div>
+    <div class="tabs"><button class="tab active" data-tab="config" onclick="switchTab('config')">策略配置</button><button class="tab" data-tab="history" onclick="switchTab('history')">版本历史</button><button class="tab" data-tab="runs" onclick="switchTab('runs')">运行记录</button></div>
+
+    <section class="tab-page active" id="tab-config">
+      <form class="form" id="strategyForm" onsubmit="return false">
+        <div class="section" id="section-meta">
+          <div class="section-head"><h2>基本信息</h2><span>meta</span></div>
+          <div class="grid three">
+            <div class="field"><label>策略 ID <small>保存后不可修改</small></label><input id="metaId" placeholder="strategy_id"></div>
+            <div class="field"><label>名称</label><input id="metaName"></div>
+            <div class="field"><label>状态</label><select id="metaStatus"></select></div>
+            <div class="field"><label>版本 <small>保存时自动递增</small></label><input id="metaVersion" type="number" disabled></div>
+            <div class="field"><label>任务方式</label><select id="executor"></select></div>
+            <div class="field wide"><label>设计目的</label><input id="metaPurpose"></div>
+            <div class="field wide"><label>备注</label><textarea id="metaNotes"></textarea></div>
+          </div>
+        </div>
+
+        <div class="section" id="section-scope">
+          <div class="section-head"><h2>地形与数据范围</h2><span>scope</span></div>
+          <div class="grid">
+            <div class="field"><label>地形来源</label><select id="terrainSource"><option value="level_json">关卡 JSON</option><option value="csv_existing_grade_support">CSV 已有难度覆盖</option><option value="calibration_workbook">校准工作簿</option></select></div>
+            <div class="field"><label>连续范围</label><input id="levelRange" placeholder="100003-100180"></div>
+            <div class="field"><label>明确包含 <small>逗号或换行</small></label><textarea id="includeLevels" rows="2"></textarea></div>
+            <div class="field"><label>明确排除 <small>逗号或换行</small></label><textarea id="excludeLevels" rows="2"></textarea></div>
+            <div class="field wide"><label>地形目录</label><input id="levelsDir" class="mono"></div>
+            <div class="field wide"><label>源牌局 CSV</label><input id="sourceCsv" class="mono"></div>
+            <div class="field"><label>第一次补缺 CSV <small>缺档探测</small></label><input id="firstBackfillCsv" class="mono"></div>
+            <div class="field"><label>最新补缺 CSV <small>缺档探测</small></label><input id="latestBackfillCsv" class="mono"></div>
+            <div class="field"><label>工作簿</label><input id="workbook" class="mono"></div>
+            <div class="field"><label>模板工作簿</label><input id="templateWorkbook" class="mono"></div>
+          </div>
+        </div>
+
+        <div class="section" id="section-target">
+          <div class="section-head"><h2>目标难度与库存</h2><span>target</span></div>
+          <div class="grid three">
+            <div class="field wide"><label>目标档位</label><div class="grade-picks" id="gradePicks"></div></div>
+            <div class="field"><label>每档目标数</label><input id="targetCount" type="number" min="0"></div>
+            <div class="field"><label>生成策略</label><select id="fillPolicy"></select></div>
+            <div class="field"><label>回退策略</label><select id="fallbackPolicy"></select></div>
+            <div class="field"><label>支持档位最低已有数</label><input id="minExistingCount" type="number" min="0"></div>
+          </div>
+        </div>
+
+        <div class="section" id="section-generation">
+          <div class="section-head"><h2>牌局生成参数</h2><span>generation</span></div>
+          <div class="grid" style="margin-bottom:12px"><div class="field"><label>颜色落位方式</label><select id="placementMode"><option value="layer-closure">层闭合生成</option><option value="random-color">纯随机颜色落位</option></select></div></div>
+          <div class="policy-grid" id="policyGrid"></div>
+        </div>
+
+        <div class="section" id="section-evaluation">
+          <div class="section-head"><h2>分档与质量验收</h2><span>evaluation</span></div>
+          <div class="grid three">
+            <div class="field"><label>分档策略</label><input id="gradeStrategy"></div>
+            <div class="field"><label>每个机器人模拟次数</label><input id="simRuns" type="number" min="0"></div>
+            <div class="field"><label>阈值 Profile</label><input id="thresholdProfile"></div>
+            <div class="field"><label>sim1 最少胜局</label><input id="minSim1Wins" type="number" min="0" placeholder="不限制"></div>
+            <div class="field"><label>sim5 最少胜局</label><input id="minSim5Wins" type="number" min="0" placeholder="不限制"></div>
+            <div class="field"><label>sim15 最少胜局</label><input id="minSim15Wins" type="number" min="0" placeholder="不限制"></div>
+            <div class="field"><label>最低 passrate</label><input id="minPassrate" type="number" min="0" max="1" step="0.01" placeholder="不限制"></div>
+            <div class="field"><label>Optimal 额外验收</label><div class="toggle-line"><span>按档位约束体验指标</span><input class="switch" id="optimalEnabled" type="checkbox" onchange="toggleOptimal()"></div></div>
+            <div class="field"><label>Optimal 模拟次数</label><input id="optimalRuns" type="number" min="1" value="100"></div>
+          </div>
+          <div class="constraint-wrap" id="optimalWrap" style="margin-top:12px"><table class="constraint-table"><thead><tr><th>启用</th><th>档</th><th>约束类型</th><th>胜率下限</th><th>胜率上限</th><th>断色下限/tile</th><th>断色上限/tile</th><th>败局剩余率上限</th></tr></thead><tbody id="optimalBody"></tbody></table></div>
+        </div>
+
+        <div class="section" id="section-search">
+          <div class="section-head"><h2>搜索与执行</h2><span>search</span></div>
+          <div class="grid three">
+            <div class="field"><label>每地形尝试次数</label><input id="attemptsPerLevel" type="number" min="0"></div>
+            <div class="field"><label>每缺档尝试次数</label><input id="attemptsPerMissing" type="number" min="0"></div>
+            <div class="field"><label>单缺档最大尝试</label><input id="maxAttemptsMissing" type="number" min="0"></div>
+            <div class="field"><label>模板尝试次数</label><input id="templateAttempts" type="number" min="0"></div>
+            <div class="field"><label>并发数</label><input id="concurrency" type="number" min="1" max="32"></div>
+            <div class="field"><label>探索比例</label><input id="adaptiveExplore" type="number" min="0" max="1" step="0.01"></div>
+            <div class="field"><label>参数池大小</label><input id="adaptivePool" type="number" min="1"></div>
+            <div class="field"><label>启发式最少样本</label><input id="adaptiveSamples" type="number" min="1"></div>
+            <div class="field"><label>连续参数步长</label><input id="adaptiveStep" type="number" min="0.01" max="0.5" step="0.01"></div>
+            <div class="field"><label>任务顺序</label><div class="toggle-line"><span>随机地形顺序</span><input class="switch" id="shuffle" type="checkbox"></div></div>
+            <div class="field"><label>断点续跑</label><div class="toggle-line"><span>复用已有状态</span><input class="switch" id="resume" type="checkbox"></div></div>
+            <div class="field"><label>模板复用</label><div class="toggle-line"><span>复用成功参数</span><input class="switch" id="reuseTemplates" type="checkbox"></div></div>
+            <div class="field"><label>目标计数口径</label><div class="toggle-line"><span>只统计本次输出</span><input class="switch" id="outputOnly" type="checkbox"></div></div>
+            <div class="field"><label>自适应搜索</label><div class="toggle-line"><span>按偏差调整参数</span><input class="switch" id="adaptiveSearch" type="checkbox" onchange="toggleAdaptiveSearch()"></div></div>
+            <div class="field"><label>验收顺序</label><div class="toggle-line"><span>Optimal 优先</span><input class="switch" id="optimalFirst" type="checkbox"></div></div>
+          </div>
+        </div>
+
+        <div class="section" id="section-outputs">
+          <div class="section-head"><h2>产物与高级执行</h2><span>outputs / adapter</span></div>
+          <div class="grid three">
+            <div class="field"><label>启用最低库存</label><input id="minPerLevelGrade" type="number" min="0"></div>
+            <div class="field"><label>每档保留上限 <small>0=不限</small></label><input id="capPerLevelGrade" type="number" min="0"></div>
+            <div class="field"><label>执行模式</label><select id="adapterMode"><option value="plan_command">只生成计划命令</option><option value="execute_command">生成并执行</option></select></div>
+            <div class="field"><label>CSV</label><div class="toggle-line"><span>输出牌局表</span><input class="switch" id="writeCsv" type="checkbox"></div></div>
+            <div class="field"><label>Replay JSON</label><div class="toggle-line"><span>输出运行时资源</span><input class="switch" id="writeReplay" type="checkbox"></div></div>
+            <div class="field"><label>校准工具</label><div class="toggle-line"><span>输出 XLSX</span><input class="switch" id="writeCalibration" type="checkbox"></div></div>
+            <div class="field"><label>配置 JSON</label><div class="toggle-line"><span>输出关卡配置</span><input class="switch" id="writeConfig" type="checkbox"></div></div>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <section class="tab-page" id="tab-history"><div class="history" id="historyList"></div></section>
+    <section class="tab-page" id="tab-runs"><div class="runs" id="runList"></div></section>
+  </main>
+
+  <aside class="rightbar">
+    <div class="right-head"><h2>计划检查</h2><span class="badge" id="validationBadge">未校验</span></div>
+    <div class="right-scroll">
+      <div class="summary-block" id="fieldHelpBlock"><h3>字段说明</h3><div id="fieldHelp"><div class="field-help-title">选择一个配置项</div><div class="field-help-copy">点击字段旁的 ?，或将焦点移入输入框，查看填写方式和选项影响。</div></div></div>
+      <div class="summary-block"><h3>执行摘要</h3><div id="summaryLines"></div></div>
+      <div class="summary-block"><h3>策划描述</h3><div class="plan-copy" id="planCopy"></div></div>
+      <div class="summary-block"><h3>校验结果</h3><div id="validationResult" class="valid-ok">等待校验</div></div>
+      <div class="summary-block"><h3>JSON 预览</h3><pre class="json-preview" id="jsonPreview"></pre></div>
+    </div>
+  </aside>
+</div>
+<div id="toast"></div>
+
+<script>
+var S={meta:null,strategies:[],draft:null,selectedId:'',isNew:false,dirty:false,validation:null,runs:[],history:[]};
+var DEFAULT_CATALOG={workflows:{'run-batch-generation':{label:'全量批量生成',description:'对明确指定的地形搜索目标难度牌局。',sections:['scope','target','generation','evaluation','search','outputs'],fields:{scope:['terrainSource','levelRange','includeLevels','excludeLevels','levelsDir'],target:['gradePicks','targetCount','fillPolicy','fallbackPolicy'],evaluation:['gradeStrategy','simRuns','thresholdProfile'],search:['attemptsPerLevel','concurrency'],outputs:['capPerLevelGrade','writeCsv','writeReplay','writeCalibration','writeConfig','adapterMode']},supportedGenerators:['layer-closure','random-color']},'backfill-missing-grades':{label:'按缺档补齐',description:'以已有牌局 CSV 为库存口径，补齐或替换指定档位。',sections:['scope','target','generation','evaluation','search','outputs'],fields:{scope:['terrainSource','excludeLevels','levelsDir','sourceCsv'],target:['gradePicks','targetCount','fillPolicy','fallbackPolicy','minExistingCount'],evaluation:['gradeStrategy','simRuns','thresholdProfile','minSim1Wins','minSim5Wins','minSim15Wins','minPassrate','optimalRuns','optimalEnabled','optimalWrap'],search:['attemptsPerLevel','maxAttemptsMissing','templateAttempts','concurrency','shuffle','resume','reuseTemplates','outputOnly','adaptiveSearch','adaptiveExplore','adaptivePool','adaptiveSamples','adaptiveStep','optimalFirst'],outputs:['minPerLevelGrade','capPerLevelGrade','writeCsv','writeReplay','writeCalibration','writeConfig','adapterMode']},supportedGenerators:['layer-closure','random-color']},'search-missing-grade-samples':{label:'缺档样本探测',description:'合并多轮结果后，只为仍缺失的档位寻找参考样本。',sections:['scope','generation','evaluation','search','outputs'],fields:{scope:['terrainSource','excludeLevels','sourceCsv','firstBackfillCsv','latestBackfillCsv'],evaluation:['gradeStrategy','simRuns','thresholdProfile'],search:['attemptsPerMissing','concurrency','resume'],outputs:['writeCsv','adapterMode']},supportedGenerators:['layer-closure']},'build-calibration-variant':{label:'校准工具构建',description:'整理牌局并生成固定版式校准工具。',sections:['scope','outputs'],fields:{scope:['terrainSource','sourceCsv','templateWorkbook'],outputs:['minPerLevelGrade','capPerLevelGrade','writeCsv','writeCalibration','adapterMode']},supportedGenerators:[]},'refresh-endless-simulation':{label:'无尽池模拟刷新',description:'读取校准工作簿，只刷新无尽池模拟结果。',sections:['scope','outputs'],fields:{scope:['terrainSource','workbook'],outputs:['writeCalibration','adapterMode']},supportedGenerators:[]}},generators:{'layer-closure':{label:'Tile 层闭合生成',policies:['closure','color','spread','debt'],policyModes:{closure:['random','random_range','fixed_points','full_layer_max','per_layer_list'],color:['ratio','ratio_jitter','fixed_count','range'],spread:['fixed','random','random_range'],debt:['fixed','random','random_range']}},'random-color':{label:'Tile 纯随机颜色落位',policies:['color'],policyModes:{color:['ratio','ratio_jitter','fixed_count','range']}}},policyModes:{random:{label:'项目随机',fields:[]},random_range:{label:'随机范围',fields:['min','max']},fixed_points:{label:'固定点',fields:['points']},full_layer_max:{label:'每层最高',fields:[]},per_layer_list:{label:'逐层列表',fields:['points']},ratio:{label:'固定比例',fields:['ratio']},ratio_jitter:{label:'比例浮动',fields:['ratio','jitter']},fixed_count:{label:'固定花色数',fields:['value']},range:{label:'比例范围',fields:['min','max','jitter']},fixed:{label:'固定值',fields:['value']}},fieldGroups:{scope:['terrainSource','levelRange','includeLevels','excludeLevels','levelsDir','sourceCsv','firstBackfillCsv','latestBackfillCsv','workbook','templateWorkbook'],target:['gradePicks','targetCount','fillPolicy','fallbackPolicy','minExistingCount'],evaluation:['gradeStrategy','simRuns','thresholdProfile','minSim1Wins','minSim5Wins','minSim15Wins','minPassrate','optimalRuns','optimalEnabled','optimalWrap'],search:['attemptsPerLevel','attemptsPerMissing','maxAttemptsMissing','templateAttempts','concurrency','adaptiveExplore','adaptivePool','adaptiveSamples','adaptiveStep','shuffle','resume','reuseTemplates','outputOnly','adaptiveSearch','optimalFirst'],outputs:['minPerLevelGrade','capPerLevelGrade','writeCsv','writeReplay','writeCalibration','writeConfig','adapterMode']}};
+var OFFLINE_META={catalog:DEFAULT_CATALOG,options:{executors:Object.keys(DEFAULT_CATALOG.workflows).map(function(k){return[k,DEFAULT_CATALOG.workflows[k].label]}),closureModes:DEFAULT_CATALOG.generators['layer-closure'].policyModes.closure,colorModes:DEFAULT_CATALOG.generators['layer-closure'].policyModes.color,scalarModes:DEFAULT_CATALOG.generators['layer-closure'].policyModes.spread,statuses:['draft','active','deprecated','archived'],fillPolicies:['all','missing_only','replace_filtered','probe_only','cap_only','none'],fallbackPolicies:['none','downward_only','lowest_available','allow_any']}};
+var labels={
+  executors:{'run-batch-generation':'全量批量生成','backfill-missing-grades':'按缺档补齐','search-missing-grade-samples':'缺档样本探测','build-calibration-variant':'校准工具构建','refresh-endless-simulation':'无尽池模拟刷新'},
+  fill:{all:'全量生成',missing_only:'仅补缺',replace_filtered:'替换筛除项',probe_only:'只探测',cap_only:'只截断',none:'不生成'},
+  fallback:{none:'不回退',downward_only:'仅向低难',lowest_available:'最低可用',allow_any:'任意可用'},
+  policy:{random:'项目随机',random_range:'随机范围',fixed_points:'固定点',full_layer_max:'每层最高',per_layer_list:'逐层列表',ratio:'固定比例',ratio_jitter:'比例浮动',fixed_count:'固定花色数',range:'比例范围',fixed:'固定值'}
+};
+var FIELD_HELP={
+  metaId:{title:'策略 ID',key:'meta.strategy_id',meaning:'策略的唯一机器标识，同时决定 strategies 目录中的 JSON 文件名。保存已有策略后不能修改；需要新 ID 时使用复制策略。',format:'小写字母、数字、下划线或连字符，长度 3～80。建议包含目的和版本。',example:'optimal_experience_backfill_v2',placeholder:'low_grade_backfill_v2'},
+  metaName:{title:'策略名称',key:'meta.name',meaning:'给策划和运行记录阅读的中文名称，不参与执行逻辑。',format:'写清任务对象和核心限制。',example:'低难度缺档补全策略',placeholder:'例如：G5 可过样本重刷'},
+  metaStatus:{title:'策略状态',key:'meta.status',meaning:'控制策略在列表中的生命周期状态。状态本身不改变执行参数。',options:[['draft','仍在设计，不建议正式运行'],['active','当前可用策略'],['deprecated','已被新策略替代，但保留追溯'],['archived','历史归档，不再使用']]},
+  metaVersion:{title:'策略版本',key:'meta.version',meaning:'保存已有策略时由服务端自动加 1，并写入不可变历史快照。',format:'无需手动填写。新策略从 1 开始。'},
+  metaPurpose:{title:'设计目的',key:'meta.purpose',meaning:'说明策略要解决的关卡设计问题。运行历史和 JSON 导出都会保留该信息。',example:'为已有 G1～G5 地形补齐通过 Optimal 体验筛选的牌局。',placeholder:'说明这套策略解决什么问题'},
+  metaNotes:{title:'使用备注',key:'meta.notes',meaning:'记录使用边界、已知风险和参数选择原因，不参与执行。',example:'只用于无尽池；100001、100002 不参与。',placeholder:'边界、风险或参数依据'},
+  terrainSource:{title:'地形来源',key:'scope.terrain_source',meaning:'描述本次任务如何确定待处理地形。它是策略语义标签，具体文件仍由下方路径字段提供。',options:[['level_json','直接按关卡 JSON 或关卡 ID 生成'],['csv_existing_grade_support','从已有牌局 CSV 推导地形和应有档位'],['calibration_workbook','以校准工作簿中的地形池为口径']]},
+  levelRange:{title:'连续地形范围',key:'scope.level_range',meaning:'用一个连续编号范围补充 include_levels。全量生成执行器会展开这个范围。',format:'起点-终点；可留空。',example:'100003-100180',placeholder:'100003-100180'},
+  includeLevels:{title:'明确包含地形',key:'scope.include_levels',meaning:'显式指定要处理的地形。它比口头备注更可靠，并会写入策略快照。',format:'逗号、中文逗号或换行分隔。',example:'100075, 100074',placeholder:'100075,100074'},
+  excludeLevels:{title:'明确排除地形',key:'scope.exclude_levels',meaning:'从范围或数据源中排除异常、不投放或无需处理的地形。',format:'逗号、中文逗号或换行分隔。',example:'100001,100002',placeholder:'100001,100002'},
+  levelsDir:{title:'地形 JSON 目录',key:'scope.levels_dir',meaning:'运行时读取地形结构的目录。每个地形通常对应一个 <LevelResID>.json。',format:'项目相对路径或本机绝对路径。团队共享策略优先使用相对路径。',example:'../TileMatchShell/Tools/Config/Json/Levels',placeholder:'../TileMatchShell/Tools/Config/Json/Levels'},
+  sourceCsv:{title:'源牌局 CSV',key:'scope.source_csv',meaning:'补缺、重刷和校准任务用它判断已有牌局、已有档位和待补数量。选错口径会直接改变任务目标。',format:'项目相对路径；必须是执行器可读取的 CSV。',example:'output/replay导出_G5替换/selection_optimal.csv',placeholder:'output/.../selection.csv'},
+  firstBackfillCsv:{title:'第一次补缺 CSV',key:'scope.first_backfill_csv',meaning:'仅缺档样本探测使用。用于合并第一次补缺结果，避免把已有命中再次当成缺口。',format:'选择当时第一次有效补缺输出；其他执行器可留空。',example:'output/第一次补缺.csv',placeholder:'缺档探测时必填'},
+  latestBackfillCsv:{title:'最新补缺 CSV',key:'scope.latest_backfill_csv',meaning:'仅缺档样本探测使用。表示当前最新一轮补缺结果，和源 CSV、第一次补缺共同计算剩余缺口。',format:'选择准备继续搜索的最新输出；其他执行器可留空。',example:'output/最新补缺.csv',placeholder:'缺档探测时必填'},
+  workbook:{title:'工作簿',key:'scope.workbook',meaning:'无尽池模拟刷新直接读取的校准工具。该任务会复制并更新模拟结果，不应指向无关工作簿。',format:'XLSX 项目相对路径。',example:'output/无尽关校准工具.xlsx',placeholder:'output/无尽关校准工具.xlsx'},
+  templateWorkbook:{title:'模板工作簿',key:'scope.template_workbook',meaning:'构建校准变体时使用的固定版式模板。输入牌局数据会被回填到它的对应页签。',format:'XLSX 项目相对路径。',example:'output/无尽关校准工具.xlsx',placeholder:'output/无尽关校准工具.xlsx'},
+  gradePicks:{title:'目标档位',key:'target.grades',meaning:'本策略允许生成、补齐或检查的难度档。实际最终档位仍由评价策略计算。',format:'可多选 G0～G5。补缺任务通常只选择真正希望补齐的档位。',example:'G1、G2、G3、G4、G5'},
+  targetCount:{title:'每档目标数',key:'target.target_count_per_grade',meaning:'每个地形、每个目标 Grade 希望达到的牌局数量。补缺任务会用它减去已有合格数量。',format:'非负整数。模板发现常用 1，正式资源常用 5、8 或 10。',example:'8',placeholder:'例如 8'},
+  fillPolicy:{title:'生成策略',key:'target.fill_policy',meaning:'决定已有牌局如何计数，以及哪些地形档位需要继续生成。',options:[['all','不考虑已有库存，对范围内档位全量生成'],['missing_only','已有数量不足目标时才补齐'],['replace_filtered','原档位中被体验条件筛掉多少，就补多少'],['probe_only','只寻找是否存在样本，不做库存补齐'],['cap_only','不生成，只按上限整理数据'],['none','不生成牌局，适合模拟刷新']]},
+  fallbackPolicy:{title:'回退策略',key:'target.fallback_policy',meaning:'目标难度不存在时允许使用哪个方向的可用档位。生成任务通常设为 none；无尽选择可使用最低可用。',options:[['none','不回退，缺失即视为缺口'],['downward_only','只允许向更简单档位回退'],['lowest_available','直接使用当前地形最低可用档'],['allow_any','任意可用档位，控制最宽松']]},
+  minExistingCount:{title:'支持档位最低已有数',key:'target.min_existing_count',meaning:'判断一个地形是否原本“支持某档位”的最低库存门槛。它影响应补档位集合，不等于最终启用库存。',format:'非负整数。1 表示只要历史上存在一局就认为支持。',example:'1',placeholder:'通常为 1'},
+  placementMode:{title:'颜色落位方式',key:'generation.placement_mode',meaning:'选择牌局生成算法。纯随机颜色落位只控制花色数量，闭合率、分布和债务不会塑造牌面。',options:[['layer-closure','使用闭合率、同色分布和债务参数控制牌面结构'],['random-color','构建颜色袋后完全随机落位，用于扩大搜索空间']]},
+  gradeStrategy:{title:'分档策略',key:'evaluation.grade_strategy',meaning:'把机器人模拟结果映射为 Grade 的评价方法。当前正式批量流程使用 strategy2。',format:'填写项目已实现的策略名。',example:'strategy2',placeholder:'strategy2'},
+  simRuns:{title:'机器人模拟次数',key:'evaluation.sim_runs',meaning:'Strategy2 中每类机器人对一个候选牌局的挑战次数。次数越高结果越稳定，但搜索速度越慢。',format:'非负整数。快速搜索可用 20～100，正式验证常用 100～200。',example:'100',placeholder:'100'},
+  thresholdProfile:{title:'阈值 Profile',key:'evaluation.threshold_profile',meaning:'记录分档阈值版本。current 表示使用项目当前 Strategy2 阈值。',example:'current',placeholder:'current'},
+  minSim1Wins:{title:'sim1 最少胜局',key:'evaluation.acceptance.min_sim1_wins',meaning:'候选在 sim1 机器人下至少赢多少局才允许保留。常用于排除高难档中的模拟必死牌局。',format:'留空表示不限制；上限不应超过 simRuns。',example:'1'},
+  minSim5Wins:{title:'sim5 最少胜局',key:'evaluation.acceptance.min_sim5_wins',meaning:'对 sim5 机器人的最低胜局要求。设置后会缩小可接受样本范围。',format:'留空表示不限制。',example:'1'},
+  minSim15Wins:{title:'sim15 最少胜局',key:'evaluation.acceptance.min_sim15_wins',meaning:'对高失误机器人 sim15 的最低胜局要求。低难档使用时要注意可能显著降低命中率。',format:'留空表示不限制。',example:'1'},
+  minPassrate:{title:'最低 passrate',key:'evaluation.acceptance.min_passrate',meaning:'对 Strategy2 综合 passrate 的额外下限。它是在分档之外再加一道验收。',format:'0～1；留空表示不限制。',example:'0.35'},
+  optimalRuns:{title:'Optimal 模拟次数',key:'evaluation.acceptance.optimal.runs',meaning:'全优机器人对每个候选的模拟次数，用于判断可赢性、断色和败局剩余程度。',format:'正整数。当前正式体验筛选使用 100。',example:'100',placeholder:'100'},
+  optimalEnabled:{title:'Optimal 额外验收',key:'evaluation.acceptance.optimal',meaning:'开启后，候选不仅要符合 Strategy2 档位，还要满足下方对应 Grade 的 Optimal 指标区间。',format:'只启用真正有明确体验标准的 Grade 行。'},
+  attemptsPerLevel:{title:'每地形尝试次数',key:'search.attempts_per_level',meaning:'每个地形共享的候选生成预算。缺多个档位时，具体是否共享取决于执行器。',format:'非负整数。增加会提高命中机会，也会线性增加耗时。',example:'100',placeholder:'100'},
+  attemptsPerMissing:{title:'每缺档尝试次数',key:'search.attempts_per_missing_grade',meaning:'缺档探测执行器为每个“地形 × 缺失 Grade”分配的预算。',format:'其他执行器可留空。',example:'100'},
+  maxAttemptsMissing:{title:'单缺档最大尝试',key:'search.max_attempts_per_missing',meaning:'补缺执行器对单个缺失档位设置的硬上限，防止极难命中的任务长期占用。',format:'留空时由每地形预算控制。',example:'300'},
+  templateAttempts:{title:'模板尝试次数',key:'search.template_attempts',meaning:'发现或复用一组参数后，允许围绕该模板继续生成的尝试预算。',format:'非负整数。',example:'100',placeholder:'100'},
+  concurrency:{title:'并发数',key:'search.concurrency',meaning:'同时处理的地形任务数量。提高并发可加速，但会增加 CPU、内存和热量。',format:'至少 1。当前机器常用 5～10。',example:'5',placeholder:'5'},
+  adaptiveExplore:{title:'随机探索比例',key:'search.adaptive_explore_rate',meaning:'自适应搜索中仍保持完全随机的尝试比例，避免参数搜索卡在局部区域。',format:'0～1；0.2 表示 20% 完全随机。',example:'0.2'},
+  adaptivePool:{title:'参数池大小',key:'search.adaptive_pool_size',meaning:'每个地形档位保留多少组最接近目标的参数，供后续变异。',format:'正整数。池越大越多样，但管理成本更高。',example:'5'},
+  adaptiveSamples:{title:'启发式最少样本',key:'search.adaptive_min_samples',meaning:'累计多少个随机结果后才允许按趋势调整参数，避免早期噪声误导。',format:'正整数。',example:'3'},
+  adaptiveStep:{title:'连续参数步长',key:'search.adaptive_continuous_step',meaning:'同色分布、债务等连续参数每次向难或向易方向调整的幅度。',format:'大于 0 且不超过 0.5。',example:'0.08'},
+  shuffle:{title:'随机任务顺序',key:'search.shuffle',meaning:'随机地形处理顺序，避免每次中断都只跑到编号靠前的关卡。'},
+  resume:{title:'断点续跑',key:'search.resume',meaning:'读取现有状态和输出，跳过已经完成或已有足够库存的任务。输出路径必须和上一轮一致。'},
+  reuseTemplates:{title:'复用成功参数',key:'search.reuse_template_params',meaning:'从历史输出读取同地形同档位的成功生成参数，再生成新的 ReplayCode 并重新验收。'},
+  outputOnly:{title:'只统计本次输出',key:'search.target_from_output_only',meaning:'历史输入只决定应有档位，不计入目标数量。适合先为每个档位寻找一条新模板。'},
+  adaptiveSearch:{title:'自适应搜索',key:'search.adaptive_search',meaning:'根据候选比目标偏难或偏易的方向调整生成参数，同时保留一定随机探索。'},
+  optimalFirst:{title:'Optimal 优先',key:'search.optimal_first',meaning:'先运行一组 Optimal 指标，至少匹配一个目标档位后再运行 Strategy2，减少无效的多机器人模拟。'},
+  minPerLevelGrade:{title:'启用最低库存',key:'outputs.min_per_level_grade',meaning:'地形某档牌局数量达到该值才进入最终可用资源。它是输出筛选门槛，不是生成目标。',format:'0 表示不设最低门槛。',example:'8'},
+  capPerLevelGrade:{title:'每档保留上限',key:'outputs.cap_per_level_grade',meaning:'最终每个地形、每个 Grade 最多保留多少局。达到最低门槛后，0 表示全部保留。',format:'必须为 0，或不小于启用最低库存。',example:'10'},
+  writeCsv:{title:'输出 CSV',key:'outputs.write_csv',meaning:'保存牌局和评价结果，是后续合并、分析和 Replay 导出的主要中间产物。'},
+  writeReplay:{title:'输出 Replay JSON',key:'outputs.write_replay_json',meaning:'把最终 selection 转为运行时按地形拆分的牌局 JSON。搜索阶段通常关闭。'},
+  writeCalibration:{title:'输出校准工具',key:'outputs.write_calibration_xlsx',meaning:'生成或刷新包含难度覆盖、主线检查和无尽模拟的 XLSX 工具表。'},
+  writeConfig:{title:'输出关卡配置',key:'outputs.write_config_json',meaning:'根据确认后的校准结果导出 LevelPool、Zones 等投放配置。普通搜索阶段不要开启。'},
+  executor:{title:'任务方式',key:'adapter.executor',meaning:'选择本次工作流。它会决定页面显示哪些参数模块，并在计划阶段映射到对应项目工具。',options:[['run-batch-generation','指定地形全量搜索各档位'],['backfill-missing-grades','基于已有 CSV 补库存或替换筛除项'],['search-missing-grade-samples','只为缺失档位寻找参考样本'],['build-calibration-variant','不造牌，构建校准 CSV/XLSX'],['refresh-endless-simulation','不造牌，只刷新无尽池模拟']]},
+  adapterMode:{title:'执行模式',key:'adapter.mode',meaning:'决定 Feature 计划是只生成可审查命令，还是在创建计划后直接执行。',options:[['plan_command','只生成 run 目录和 command.sh，检查后手动执行'],['execute_command','生成计划后立即执行；长任务使用前确认参数和输出路径']]}
+};
+var POLICY_HELP={
+  closure:{title:'层闭合率',key:'generation.closure',meaning:'控制推进到每个依赖层时，累计已经闭合的三连组数量。整体越高通常越容易及时消除。',unit:'比例使用 0～1；固定点或逐层列表用逗号分隔。'},
+  color:{title:'花色数量',key:'generation.color',meaning:'控制可用花色数。比例通常按 ratio × floor(自由牌数÷3) 换算；花色更多通常更容易断色。',unit:'比例使用 0～1；jitter 是最终花色数的整数浮动。'},
+  spread:{title:'同色分布',key:'generation.spread',meaning:'控制同色牌在结构中的集中或分散程度。0 更紧密，1 更分散。',unit:'0～1。'},
+  debt:{title:'债务持续权重',key:'generation.debt',meaning:'控制未闭合花色债务在后续层继续保留的倾向。0 更倾向清旧债，1 更倾向延续旧债。',unit:'0～1。'}
+};
+Object.keys(POLICY_HELP).forEach(function(k){
+  var p=POLICY_HELP[k],isClosure=k==='closure',isColor=k==='color',isScalar=k==='spread'||k==='debt';
+  FIELD_HELP[k+'Mode']={title:p.title+'模式',key:p.key+'.mode',meaning:p.meaning,format:p.unit,options:isClosure?[['random','复用项目整数 target 随机逻辑'],['random_range','在指定闭合率范围内搜索'],['fixed_points','使用一组固定闭合率点'],['full_layer_max','每层尽量取最高闭合，常用于规则低难'],['per_layer_list','按顺序明确指定每层闭合率']]:isColor?[['ratio','固定花色比例'],['ratio_jitter','固定比例换算后再上下浮动花色数'],['fixed_count','所有地形直接使用固定花色数'],['range','每次在比例上下限内随机']]:[['fixed','始终使用一个固定值'],['random','使用执行器默认全范围随机'],['random_range','只在指定上下限内随机']]};
+  FIELD_HELP[k+'Value']={title:p.title+'固定值',key:p.key+'.value',meaning:isColor?'直接指定花色数量，不再根据地形牌数换算。':p.meaning,format:isColor?'正整数。':p.unit,example:isColor?'14':'0.5'};
+  FIELD_HELP[k+'Ratio']={title:p.title+'比例',key:p.key+'.ratio',meaning:isColor?'按地形可组成的三连组数换算花色数量。':'该模式使用的固定比例。',format:'0～1。',example:'0.6'};
+  FIELD_HELP[k+'Jitter']={title:p.title+'浮动',key:p.key+'.jitter',meaning:'在比例换算结果上允许的整数上下浮动，用于扩大相邻花色数量的搜索空间。',format:'非负整数；1 表示 -1、0、+1。',example:'1'};
+  FIELD_HELP[k+'Min']={title:p.title+'下限',key:p.key+'.min',meaning:'随机范围允许使用的最小值。',format:p.unit,example:isScalar?'0.5':'0.4'};
+  FIELD_HELP[k+'Max']={title:p.title+'上限',key:p.key+'.max',meaning:'随机范围允许使用的最大值，必须不小于下限。',format:p.unit,example:'1.0'};
+  FIELD_HELP[k+'Points']={title:p.title+'参数列表',key:p.key+(isClosure?'.points / .values':'.values'),meaning:isClosure?'固定点模式表示可选闭合率点；逐层列表表示按层顺序使用的明确值。':'按顺序填写参数值。',format:'逗号、中文逗号或空格分隔。',example:'0.3,0.6,0.8'};
+});
+[0,1,2,3,4,5].forEach(function(g){
+  FIELD_HELP['optUse'+g]={title:'启用 G'+g+' Optimal 约束',key:'evaluation.acceptance.optimal.grade_constraints.'+g,meaning:'只有开启后，该 Grade 的 Optimal 参数才写入 JSON 并参与候选验收。'};
+  FIELD_HELP['optType'+g]={title:'G'+g+' 约束类型',key:'evaluation.acceptance.optimal.grade_constraints.'+g,meaning:'简单档强调 Optimal 高胜率和断色区间；挑战档强调 Optimal 会输，但败局不能剩余过多障碍。',options:[['simple','填写胜率下限、胜局断色率上下限'],['challenge','填写胜率开区间和败局剩余率上限']]};
+  FIELD_HELP['optWinMin'+g]={title:'G'+g+' Optimal 胜率下限',key:'min_win_rate / min_win_rate_exclusive',meaning:'简单档为包含下限；挑战档为开区间下限。',format:'0～1。',example:g<4?'0.9':'0'};
+  FIELD_HELP['optWinMax'+g]={title:'G'+g+' Optimal 胜率上限',key:'max_win_rate_exclusive',meaning:'挑战档使用的开区间上限，限制 Optimal 不能过于容易获胜。简单档不使用。',format:'0～1。',example:'0.8'};
+  FIELD_HELP['optStarveMin'+g]={title:'G'+g+' 胜局断色率下限',key:'min_win_starvation_per_tile',meaning:'简单档中，Optimal 获胜时平均断色次数除以地形 tile 数的下限。用于维持 G1～G3 的线性体验差异。',format:'非负小数。',example:'0.08'};
+  FIELD_HELP['optStarveMax'+g]={title:'G'+g+' 胜局断色率上限',key:'max_win_starvation_per_tile',meaning:'简单档中胜局断色强度的上限，防止低档虽然能赢但过程过于卡顿。',format:'非负小数，且不小于断色率下限。',example:'0.25'};
+  FIELD_HELP['optRemain'+g]={title:'G'+g+' 败局剩余率上限',key:'max_loss_remaining_ratio',meaning:'挑战档中允许的平均失败剩余牌比例上限，计算为 1 - 败局平均已走步数 ÷ tile 数。',format:'0～1；越低表示输局前推进越充分。',example:'0.4'};
+});
+function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]})}
+function toast(msg,type){var e=document.getElementById('toast');e.textContent=msg;e.className=type||'';requestAnimationFrame(function(){e.classList.add('show')});clearTimeout(e._t);e._t=setTimeout(function(){e.classList.remove('show')},2200)}
+function clone(v){return JSON.parse(JSON.stringify(v))}
+function setOptions(id,items,selected){var e=document.getElementById(id);e.innerHTML=items.map(function(x){var v=Array.isArray(x)?x[0]:x,l=Array.isArray(x)?x[1]:(labels.policy[x]||x);return '<option value="'+esc(v)+'">'+esc(l)+'</option>'}).join('');if(selected!=null)e.value=selected}
+function parseIds(v){return String(v||'').split(/[\s,，]+/).map(function(x){return x.trim()}).filter(Boolean).map(function(x){return /^\d+$/.test(x)?Number(x):x})}
+function numberOrBlank(id){var v=document.getElementById(id).value;return v===''?null:Number(v)}
+function setNum(id,v){document.getElementById(id).value=v==null?'':v}
+function setText(id,v){document.getElementById(id).value=v==null?'':v}
+function putOptional(obj,key,value){if(value==null||value==='')delete obj[key];else obj[key]=value}
+var THEMES={amber:{label:'琥珀暗色',background:'#0d0d0c',accent:'#d4a853'},graphite:{label:'石墨暗色',background:'#202321',accent:'#77b98b'},light:{label:'浅色工作台',background:'#ffffff',accent:'#2563eb'},midnight:{label:'午夜蓝',background:'#101419',accent:'#72a7d8'}};
+function currentTheme(){var key=document.documentElement.dataset.theme;return THEMES[key]?key:'amber'}
+function renderThemePicker(){var key=currentTheme(),theme=THEMES[key],swatch=document.getElementById('themeCurrentSwatch');document.getElementById('themeCurrentLabel').textContent=theme.label;swatch.style.setProperty('--swatch-bg',theme.background);swatch.style.setProperty('--swatch-accent',theme.accent);document.querySelectorAll('.theme-option').forEach(function(option){var active=option.dataset.theme===key;option.setAttribute('aria-pressed',String(active));option.querySelector('.theme-check').textContent=active?'✓':''})}
+function selectTheme(key){if(!THEMES[key])return;document.documentElement.dataset.theme=key;try{localStorage.setItem('reversegen-theme',key)}catch(e){}renderThemePicker();closeThemeMenu()}
+function toggleThemeMenu(event){event.stopPropagation();var menu=document.getElementById('themeMenu'),open=menu.hidden;menu.hidden=!open;document.getElementById('themeTrigger').setAttribute('aria-expanded',String(open))}
+function closeThemeMenu(){document.getElementById('themeMenu').hidden=true;document.getElementById('themeTrigger').setAttribute('aria-expanded','false')}
+function initTheme(){renderThemePicker();document.addEventListener('click',function(event){if(!document.getElementById('themePicker').contains(event.target))closeThemeMenu()});document.addEventListener('keydown',function(event){if(event.key==='Escape')closeThemeMenu()})}
+function featureCatalog(){return S.meta&&S.meta.catalog||DEFAULT_CATALOG}
+function workflowConfig(executor){var c=featureCatalog(),key=executor||document.getElementById('executor').value;return c.workflows[key]||c.workflows['run-batch-generation']}
+function generatorConfig(mode){var c=featureCatalog(),key=mode||document.getElementById('placementMode').value;return c.generators[key]||null}
+function fieldHost(id){var el=document.getElementById(id);if(!el)return null;if(id==='optimalWrap')return el;return el.closest('.field')||el}
+function setFieldVisible(id,visible){var host=fieldHost(id);if(host)host.hidden=!visible}
+function catalogOptions(entries){return Object.keys(entries||{}).map(function(key){return[key,entries[key].label||key]})}
+
+function showFieldHelp(id){
+  var h=FIELD_HELP[id],el=document.getElementById(id);if(!h||!el)return;
+  document.querySelectorAll('.help-target').forEach(function(x){x.classList.remove('help-target')});
+  document.querySelectorAll('.help-btn.active').forEach(function(x){x.classList.remove('active')});
+  var host=el.closest('.policy-field,.field,.policy,td');if(host)host.classList.add('help-target');
+  var btn=document.querySelector('.help-btn[data-help-id="'+id+'"]');if(btn)btn.classList.add('active');
+  var html='<div class="field-help-title">'+esc(h.title)+'</div><div class="field-help-key">'+esc(h.key)+'</div><div class="field-help-copy">'+esc(h.meaning)+'</div>';
+  if(h.format)html+='<div class="field-help-row"><b>怎么填</b><div class="field-help-copy">'+esc(h.format)+'</div></div>';
+  if(h.example)html+='<div class="field-help-row"><b>示例</b><div class="field-help-example">'+esc(h.example)+'</div></div>';
+  if(h.options&&h.options.length)html+='<div class="field-help-row"><b>选项作用</b><div class="field-help-options">'+h.options.map(function(o){return'<div class="field-help-option"><code>'+esc(o[0])+'</code><span>'+esc(o[1])+'</span></div>'}).join('')+'</div></div>';
+  document.getElementById('fieldHelp').innerHTML=html;
+}
+function installFieldHelp(){
+  Object.keys(FIELD_HELP).forEach(function(id){
+    var el=document.getElementById(id),h=FIELD_HELP[id];if(!el)return;
+    if(h.placeholder&&'placeholder' in el&&!el.getAttribute('placeholder'))el.setAttribute('placeholder',h.placeholder);
+    el.setAttribute('title',h.meaning);
+    el.addEventListener('focus',function(){showFieldHelp(id)});
+    var host=el.closest('.policy-field,.field,.policy');
+    var label=host&&(id.endsWith('Mode')&&host.classList.contains('policy')?host.querySelector('.policy-title'):host.querySelector('label'));
+    if(label&&!label.querySelector('.help-btn')){
+      var b=document.createElement('button');b.type='button';b.className='help-btn';b.textContent='?';b.dataset.helpId=id;b.title='查看字段说明';b.addEventListener('click',function(ev){ev.preventDefault();ev.stopPropagation();showFieldHelp(id)});label.appendChild(b);
+    }
+  });
+  showFieldHelp('metaId');
+}
+
+function initControls(){
+  var catalog=featureCatalog(),executorOptions=catalogOptions(catalog.workflows);
+  labels.executors={};executorOptions.forEach(function(x){labels.executors[x[0]]=x[1]});
+  setOptions('metaStatus',S.meta.options.statuses.map(function(v){return[v,{draft:'草稿',active:'启用',deprecated:'废弃',archived:'归档'}[v]]}));
+  setOptions('fillPolicy',S.meta.options.fillPolicies.map(function(v){return[v,labels.fill[v]]}));
+  setOptions('fallbackPolicy',S.meta.options.fallbackPolicies.map(function(v){return[v,labels.fallback[v]]}));
+  setOptions('executor',executorOptions);
+  setOptions('executorFilter',[['','全部任务']].concat(executorOptions));
+  setOptions('placementMode',catalogOptions(catalog.generators));
+  document.getElementById('gradePicks').innerHTML=[0,1,2,3,4,5].map(function(g){return'<div class="grade-pick"><input type="checkbox" id="grade'+g+'"><label for="grade'+g+'">G'+g+'</label></div>'}).join('');
+  document.getElementById('policyGrid').innerHTML=policyHtml('closure','层闭合率',S.meta.options.closureModes)+policyHtml('color','花色数量',S.meta.options.colorModes)+policyHtml('spread','同色分布',S.meta.options.scalarModes)+policyHtml('debt','债务持续',S.meta.options.scalarModes);
+  document.getElementById('optimalBody').innerHTML=[0,1,2,3,4,5].map(optimalRow).join('');
+  document.getElementById('strategyForm').addEventListener('input',formChanged);
+  document.getElementById('strategyForm').addEventListener('change',formChanged);
+  installFieldHelp();
+}
+function policyHtml(key,title,modes){return '<div class="policy" data-policy="'+key+'"><div class="policy-title"><b>'+title+'</b><span>'+key+'</span></div><select id="'+key+'Mode" onchange="updatePolicyFields(\''+key+'\')">'+modes.map(function(v){return'<option value="'+v+'">'+(labels.policy[v]||v)+'</option>'}).join('')+'</select><div class="policy-fields"><div class="policy-field" data-for="value"><label>固定值</label><input id="'+key+'Value" type="number" step="0.01"></div><div class="policy-field" data-for="ratio"><label>比例</label><input id="'+key+'Ratio" type="number" step="0.01"></div><div class="policy-field" data-for="jitter"><label>浮动</label><input id="'+key+'Jitter" type="number" step="1"></div><div class="policy-field" data-for="min"><label>下限</label><input id="'+key+'Min" type="number" step="0.01"></div><div class="policy-field" data-for="max"><label>上限</label><input id="'+key+'Max" type="number" step="0.01"></div><div class="policy-field full" data-for="points"><label>参数列表</label><input id="'+key+'Points" placeholder="0.3,0.6,0.8"></div></div></div>'}
+function updatePolicyFields(key){var mode=document.getElementById(key+'Mode').value,definition=featureCatalog().policyModes[mode]||{fields:[]},fields=definition.fields||[];document.querySelectorAll('[data-policy="'+key+'"] .policy-field').forEach(function(e){e.classList.toggle('hide',fields.indexOf(e.dataset.for)<0)});schedulePreview()}
+function optimalRow(g){return '<tr><td class="use"><input class="switch" type="checkbox" id="optUse'+g+'"></td><td class="grade">G'+g+'</td><td><select id="optType'+g+'"><option value="simple">简单档</option><option value="challenge">挑战档</option></select></td><td><input id="optWinMin'+g+'" type="number" step="0.01"></td><td><input id="optWinMax'+g+'" type="number" step="0.01"></td><td><input id="optStarveMin'+g+'" type="number" step="0.01"></td><td><input id="optStarveMax'+g+'" type="number" step="0.01"></td><td><input id="optRemain'+g+'" type="number" step="0.01"></td></tr>'}
+function toggleOptimal(){var fields=(workflowConfig().fields||{}).evaluation||[],enabled=document.getElementById('optimalEnabled').checked,allowed=fields.indexOf('optimalEnabled')>=0;setFieldVisible('optimalRuns',allowed&&enabled&&fields.indexOf('optimalRuns')>=0);document.getElementById('optimalWrap').hidden=!(allowed&&enabled&&fields.indexOf('optimalWrap')>=0);schedulePreview()}
+function toggleAdaptiveSearch(){var fields=(workflowConfig().fields||{}).search||[],enabled=document.getElementById('adaptiveSearch').checked&&fields.indexOf('adaptiveSearch')>=0;['adaptiveExplore','adaptivePool','adaptiveSamples','adaptiveStep'].forEach(function(id){setFieldVisible(id,enabled&&fields.indexOf(id)>=0)});schedulePreview()}
+
+function applyFrameworkVisibility(){
+  var catalog=featureCatalog(),workflow=workflowConfig(),sections=workflow.sections||[],fields=workflow.fields||{};
+  ['scope','target','generation','evaluation','search','outputs'].forEach(function(group){document.getElementById('section-'+group).hidden=sections.indexOf(group)<0});
+  Object.keys(catalog.fieldGroups||{}).forEach(function(group){var allowed=fields[group]||[];(catalog.fieldGroups[group]||[]).forEach(function(id){setFieldVisible(id,allowed.indexOf(id)>=0)})});
+  var supported=workflow.supportedGenerators||[],placement=document.getElementById('placementMode'),current=placement.value;
+  setOptions('placementMode',supported.map(function(key){var g=catalog.generators[key]||{};return[key,g.label||key]}),supported.indexOf(current)>=0?current:supported[0]);
+  placement.disabled=supported.length<=1;
+  setFieldVisible('placementMode',supported.length>0);
+  if(!supported.length){document.getElementById('section-generation').hidden=true;return}
+  var generator=generatorConfig(),policies=generator&&generator.policies||[];
+  ['closure','color','spread','debt'].forEach(function(key){
+    var policy=document.querySelector('[data-policy="'+key+'"]'),visible=policies.indexOf(key)>=0;if(policy)policy.hidden=!visible;if(!visible)return;
+    var modes=generator.policyModes&&generator.policyModes[key]||[],select=document.getElementById(key+'Mode'),selected=select.value;
+    setOptions(key+'Mode',modes.map(function(mode){var def=catalog.policyModes[mode]||{};return[mode,def.label||mode]}),modes.indexOf(selected)>=0?selected:modes[0]);
+    updatePolicyFields(key);
+  });
+  toggleOptimal();toggleAdaptiveSearch();
+}
+
+async function api(url,opts){var r=await fetch(url,opts);var d=await r.json();if(!r.ok||d.ok===false&&d.error)throw new Error(d.error||((d.errors||[]).join('；'))||'请求失败');return d}
+async function boot(){try{var pair=await Promise.all([api('/api/generation-strategies/meta'),api('/api/generation-strategies')]);S.meta=pair[0];S.strategies=pair[1].strategies;initControls();renderStrategyList();if(S.strategies.length)await loadStrategy(S.strategies[0].strategyId);else newStrategy()}catch(e){S.meta=OFFLINE_META;S.strategies=[];initControls();renderStrategyList();newStrategy();toast('策略服务未连接，当前为本地草稿模式','err')}}
+function renderStrategyList(){var q=document.getElementById('searchInput').value.trim().toLowerCase(),status=document.getElementById('statusFilter').value,executor=document.getElementById('executorFilter').value;var rows=S.strategies.filter(function(s){return(!q||(s.name+' '+s.strategyId+' '+s.purpose).toLowerCase().includes(q))&&(!status||s.status===status)&&(!executor||s.executor===executor)});document.getElementById('strategyList').innerHTML=rows.length?rows.map(function(s){return'<button class="strategy-item '+(S.selectedId===s.strategyId?'active':'')+'" onclick="loadStrategy(\''+esc(s.strategyId)+'\')"><div class="strategy-name"><span class="status-dot '+esc(s.status)+'"></span>'+esc(s.name)+'</div><div class="strategy-meta"><span>'+esc(s.strategyId)+'</span><span>v'+s.version+'</span><span>'+esc(labels.executors[s.executor]||s.executor)+'</span></div><div class="strategy-purpose">'+esc(s.purpose)+'</div></button>'}).join(''):'<div class="empty">没有匹配的策略</div>'}
+async function loadStrategy(id){if(S.dirty&&!confirm('当前修改尚未保存，确定切换吗？'))return;try{var d=await api('/api/generation-strategies/'+encodeURIComponent(id));S.draft=clone(d.strategy);S.selectedId=id;S.isNew=false;S.dirty=false;S.validation=null;writeForm(S.draft);renderStrategyList();updateHeader();schedulePreview();if(document.querySelector('.tab.active').dataset.tab==='history')loadHistory()}catch(e){toast(e.message,'err')}}
+function defaultStrategy(){return{meta:{strategy_id:'',name:'新产出策略',version:1,purpose:'',status:'draft',notes:''},scope:{terrain_source:'level_json',level_range:'',include_levels:[],exclude_levels:[],levels_dir:'../TileMatchShell/Tools/Config/Json/Levels'},target:{grades:[1,2,3,4,5],target_count_per_grade:5,fill_policy:'all',fallback_policy:'none',min_existing_count:1},generation:{placement_mode:'layer-closure',closure:{mode:'random'},color:{mode:'ratio',ratio:.6},spread:{mode:'random'},debt:{mode:'random'}},evaluation:{grade_strategy:'strategy2',sim_runs:100,threshold_profile:'current'},search:{attempts_per_level:100,template_attempts:100,concurrency:5,shuffle:true,resume:false,reuse_template_params:false,optimal_first:false},outputs:{min_per_level_grade:0,cap_per_level_grade:5,write_csv:true,write_replay_json:false,write_calibration_xlsx:false,write_config_json:false},adapter:{executor:'run-batch-generation',mode:'plan_command'}}}
+function newStrategy(){if(S.dirty&&!confirm('当前修改尚未保存，确定新建吗？'))return;S.draft=defaultStrategy();S.selectedId='';S.isNew=true;S.dirty=true;S.validation=null;writeForm(S.draft);renderStrategyList();switchTab('config');updateHeader();schedulePreview()}
+function duplicateStrategy(){if(!S.draft)return;var x=readForm();x.meta.strategy_id=(x.meta.strategy_id||'strategy')+'_copy';x.meta.name=(x.meta.name||'策略')+' 副本';x.meta.version=1;x.meta.status='draft';S.draft=x;S.selectedId='';S.isNew=true;S.dirty=true;S.validation=null;writeForm(x);renderStrategyList();switchTab('config');updateHeader();schedulePreview()}
+
+function writeForm(x){var m=x.meta||{},sc=x.scope||{},t=x.target||{},g=x.generation||{},e=x.evaluation||{},se=x.search||{},o=x.outputs||{},a=x.adapter||{},ac=e.acceptance||{};setText('metaId',m.strategy_id);document.getElementById('metaId').disabled=!S.isNew;setText('metaName',m.name);setText('metaStatus',m.status||'draft');setNum('metaVersion',m.version||1);setText('metaPurpose',m.purpose);setText('metaNotes',m.notes);setText('terrainSource',sc.terrain_source||'level_json');setText('levelRange',sc.level_range);setText('includeLevels',(sc.include_levels||[]).join(','));setText('excludeLevels',(sc.exclude_levels||[]).join(','));setText('levelsDir',sc.levels_dir);setText('sourceCsv',sc.source_csv);setText('firstBackfillCsv',sc.first_backfill_csv);setText('latestBackfillCsv',sc.latest_backfill_csv);setText('workbook',sc.workbook);setText('templateWorkbook',sc.template_workbook);[0,1,2,3,4,5].forEach(function(n){document.getElementById('grade'+n).checked=(t.grades||[]).includes(n)});setNum('targetCount',t.target_count_per_grade);setText('fillPolicy',t.fill_policy||'all');setText('fallbackPolicy',t.fallback_policy||'none');setNum('minExistingCount',t.min_existing_count);setText('placementMode',g.placement_mode||'layer-closure');['closure','color','spread','debt'].forEach(function(k){writePolicy(k,g[k]||{mode:'random'})});setText('gradeStrategy',e.grade_strategy||'strategy2');setNum('simRuns',e.sim_runs);setText('thresholdProfile',e.threshold_profile||'current');setNum('minSim1Wins',ac.min_sim1_wins);setNum('minSim5Wins',ac.min_sim5_wins);setNum('minSim15Wins',ac.min_sim15_wins);setNum('minPassrate',ac.min_passrate);var opt=ac.optimal;document.getElementById('optimalEnabled').checked=!!opt;setNum('optimalRuns',opt&&opt.runs||100);writeOptimal(opt&&opt.grade_constraints||{});setNum('attemptsPerLevel',se.attempts_per_level);setNum('attemptsPerMissing',se.attempts_per_missing_grade);setNum('maxAttemptsMissing',se.max_attempts_per_missing);setNum('templateAttempts',se.template_attempts);setNum('concurrency',se.concurrency);setNum('adaptiveExplore',se.adaptive_explore_rate);setNum('adaptivePool',se.adaptive_pool_size);setNum('adaptiveSamples',se.adaptive_min_samples);setNum('adaptiveStep',se.adaptive_continuous_step);document.getElementById('shuffle').checked=se.shuffle!==false;document.getElementById('resume').checked=!!se.resume;document.getElementById('reuseTemplates').checked=!!se.reuse_template_params;document.getElementById('outputOnly').checked=!!se.target_from_output_only;document.getElementById('adaptiveSearch').checked=!!se.adaptive_search;document.getElementById('optimalFirst').checked=!!se.optimal_first;setNum('minPerLevelGrade',o.min_per_level_grade);setNum('capPerLevelGrade',o.cap_per_level_grade);document.getElementById('writeCsv').checked=!!o.write_csv;document.getElementById('writeReplay').checked=!!o.write_replay_json;document.getElementById('writeCalibration').checked=!!o.write_calibration_xlsx;document.getElementById('writeConfig').checked=!!o.write_config_json;setText('executor',a.executor||'run-batch-generation');setText('adapterMode',a.mode||'plan_command');applyFrameworkVisibility();updateHeader()}
+function writePolicy(k,p){setText(k+'Mode',p.mode||'random');setNum(k+'Value',p.value!=null?p.value:p.count);setNum(k+'Ratio',p.ratio);setNum(k+'Jitter',p.jitter);setNum(k+'Min',p.min);setNum(k+'Max',p.max);setText(k+'Points',(p.points||p.values||[]).join(','));updatePolicyFields(k)}
+function writeOptimal(c){[0,1,2,3,4,5].forEach(function(g){var x=c[String(g)];document.getElementById('optUse'+g).checked=!!x;var simple=x&&x.min_win_rate!=null;setText('optType'+g,simple?'simple':'challenge');setNum('optWinMin'+g,simple?x.min_win_rate:x&&x.min_win_rate_exclusive);setNum('optWinMax'+g,x&&x.max_win_rate_exclusive);setNum('optStarveMin'+g,x&&x.min_win_starvation_per_tile);setNum('optStarveMax'+g,x&&x.max_win_starvation_per_tile);setNum('optRemain'+g,x&&x.max_loss_remaining_ratio)})}
+
+function readForm(){var previous=clone(S.draft||defaultStrategy()),x=clone(previous);x.meta={strategy_id:document.getElementById('metaId').value.trim(),name:document.getElementById('metaName').value.trim(),version:Number(document.getElementById('metaVersion').value||1),purpose:document.getElementById('metaPurpose').value.trim(),status:document.getElementById('metaStatus').value,notes:document.getElementById('metaNotes').value.trim()};x.scope=x.scope||{};x.scope.terrain_source=document.getElementById('terrainSource').value;x.scope.level_range=document.getElementById('levelRange').value.trim();x.scope.include_levels=parseIds(document.getElementById('includeLevels').value);x.scope.exclude_levels=parseIds(document.getElementById('excludeLevels').value);[['levels_dir','levelsDir'],['source_csv','sourceCsv'],['first_backfill_csv','firstBackfillCsv'],['latest_backfill_csv','latestBackfillCsv'],['workbook','workbook'],['template_workbook','templateWorkbook']].forEach(function(p){putOptional(x.scope,p[0],document.getElementById(p[1]).value.trim())});x.target=x.target||{};x.target.grades=[0,1,2,3,4,5].filter(function(n){return document.getElementById('grade'+n).checked});x.target.target_count_per_grade=Number(document.getElementById('targetCount').value||0);x.target.fill_policy=document.getElementById('fillPolicy').value;x.target.fallback_policy=document.getElementById('fallbackPolicy').value;putOptional(x.target,'min_existing_count',numberOrBlank('minExistingCount'));x.generation={placement_mode:document.getElementById('placementMode').value,closure:readPolicy('closure'),color:readPolicy('color'),spread:readPolicy('spread'),debt:readPolicy('debt')};x.evaluation={grade_strategy:document.getElementById('gradeStrategy').value.trim(),sim_runs:Number(document.getElementById('simRuns').value||0),threshold_profile:document.getElementById('thresholdProfile').value.trim()};var ac={};putOptional(ac,'min_sim1_wins',numberOrBlank('minSim1Wins'));putOptional(ac,'min_sim5_wins',numberOrBlank('minSim5Wins'));putOptional(ac,'min_sim15_wins',numberOrBlank('minSim15Wins'));putOptional(ac,'min_passrate',numberOrBlank('minPassrate'));if(document.getElementById('optimalEnabled').checked)ac.optimal={runs:Number(document.getElementById('optimalRuns').value||100),grade_constraints:readOptimal()};if(Object.keys(ac).length)x.evaluation.acceptance=ac;x.search={};[['attempts_per_level','attemptsPerLevel'],['attempts_per_missing_grade','attemptsPerMissing'],['max_attempts_per_missing','maxAttemptsMissing'],['template_attempts','templateAttempts'],['concurrency','concurrency']].forEach(function(p){putOptional(x.search,p[0],numberOrBlank(p[1]))});x.search.shuffle=document.getElementById('shuffle').checked;x.search.resume=document.getElementById('resume').checked;x.search.reuse_template_params=document.getElementById('reuseTemplates').checked;x.search.target_from_output_only=document.getElementById('outputOnly').checked;x.search.adaptive_search=document.getElementById('adaptiveSearch').checked;if(x.search.adaptive_search)[['adaptive_explore_rate','adaptiveExplore'],['adaptive_pool_size','adaptivePool'],['adaptive_min_samples','adaptiveSamples'],['adaptive_continuous_step','adaptiveStep']].forEach(function(p){putOptional(x.search,p[0],numberOrBlank(p[1]))});x.search.optimal_first=document.getElementById('optimalFirst').checked;x.outputs={};putOptional(x.outputs,'min_per_level_grade',numberOrBlank('minPerLevelGrade'));putOptional(x.outputs,'cap_per_level_grade',numberOrBlank('capPerLevelGrade'));x.outputs.write_csv=document.getElementById('writeCsv').checked;x.outputs.write_replay_json=document.getElementById('writeReplay').checked;x.outputs.write_calibration_xlsx=document.getElementById('writeCalibration').checked;x.outputs.write_config_json=document.getElementById('writeConfig').checked;x.adapter={executor:document.getElementById('executor').value,mode:document.getElementById('adapterMode').value};return pruneForFramework(x,previous)}
+
+function pruneForFramework(x,previous){
+  var catalog=featureCatalog(),workflow=catalog.workflows[x.adapter.executor]||workflowConfig(),sections=workflow.sections||[],fields=workflow.fields||{};
+  var maps={
+    scope:{terrainSource:'terrain_source',levelRange:'level_range',includeLevels:'include_levels',excludeLevels:'exclude_levels',levelsDir:'levels_dir',sourceCsv:'source_csv',firstBackfillCsv:'first_backfill_csv',latestBackfillCsv:'latest_backfill_csv',workbook:'workbook',templateWorkbook:'template_workbook'},
+    target:{gradePicks:'grades',targetCount:'target_count_per_grade',fillPolicy:'fill_policy',fallbackPolicy:'fallback_policy',minExistingCount:'min_existing_count'},
+    search:{attemptsPerLevel:'attempts_per_level',attemptsPerMissing:'attempts_per_missing_grade',maxAttemptsMissing:'max_attempts_per_missing',templateAttempts:'template_attempts',concurrency:'concurrency',adaptiveExplore:'adaptive_explore_rate',adaptivePool:'adaptive_pool_size',adaptiveSamples:'adaptive_min_samples',adaptiveStep:'adaptive_continuous_step',shuffle:'shuffle',resume:'resume',reuseTemplates:'reuse_template_params',outputOnly:'target_from_output_only',adaptiveSearch:'adaptive_search',optimalFirst:'optimal_first'},
+    outputs:{minPerLevelGrade:'min_per_level_grade',capPerLevelGrade:'cap_per_level_grade',writeCsv:'write_csv',writeReplay:'write_replay_json',writeCalibration:'write_calibration_xlsx',writeConfig:'write_config_json'}
+  };
+  ['scope','search','outputs'].forEach(function(group){var allowed=fields[group]||[],object=x[group]||{},before=previous[group]||{};Object.keys(maps[group]).forEach(function(id){var key=maps[group][id];if(allowed.indexOf(id)<0){if(Object.prototype.hasOwnProperty.call(before,key))object[key]=clone(before[key]);else delete object[key]}});x[group]=object});
+  if(sections.indexOf('target')<0)x.target=clone(previous.target||defaultStrategy().target);else if((fields.target||[]).indexOf('minExistingCount')<0){if(previous.target&&Object.prototype.hasOwnProperty.call(previous.target,'min_existing_count'))x.target.min_existing_count=previous.target.min_existing_count;else delete x.target.min_existing_count}
+  if(sections.indexOf('generation')<0)x.generation=clone(previous.generation||defaultStrategy().generation);
+  if(sections.indexOf('evaluation')<0)x.evaluation=clone(previous.evaluation||defaultStrategy().evaluation);else{
+    var allowedEvaluation=fields.evaluation||[],acceptance=x.evaluation.acceptance||{},acceptanceMap={minSim1Wins:'min_sim1_wins',minSim5Wins:'min_sim5_wins',minSim15Wins:'min_sim15_wins',minPassrate:'min_passrate'};
+    var previousAcceptance=previous.evaluation&&previous.evaluation.acceptance||{};Object.keys(acceptanceMap).forEach(function(id){var key=acceptanceMap[id];if(allowedEvaluation.indexOf(id)<0){if(Object.prototype.hasOwnProperty.call(previousAcceptance,key))acceptance[key]=clone(previousAcceptance[key]);else delete acceptance[key]}});if(allowedEvaluation.indexOf('optimalEnabled')<0){if(previousAcceptance.optimal)acceptance.optimal=clone(previousAcceptance.optimal);else delete acceptance.optimal}
+    if(Object.keys(acceptance).length)x.evaluation.acceptance=acceptance;else delete x.evaluation.acceptance;
+  }
+  if((fields.outputs||[]).indexOf('adapterMode')<0)x.adapter.mode=previous.adapter&&previous.adapter.mode||'plan_command';
+  return x;
+}
+function readPolicy(k){var mode=document.getElementById(k+'Mode').value,p={mode:mode};if(mode==='fixed'||mode==='fixed_count')p.value=Number(document.getElementById(k+'Value').value||0);if(mode==='ratio'||mode==='ratio_jitter')p.ratio=Number(document.getElementById(k+'Ratio').value||0);if(mode==='ratio_jitter'||mode==='range'){var j=numberOrBlank(k+'Jitter');if(j!=null)p.jitter=j}if(mode==='random_range'||mode==='range'){p.min=Number(document.getElementById(k+'Min').value||0);p.max=Number(document.getElementById(k+'Max').value||0)}if(mode==='fixed_points')p.points=String(document.getElementById(k+'Points').value).split(/[,，\s]+/).filter(Boolean).map(Number);if(mode==='per_layer_list')p.values=String(document.getElementById(k+'Points').value).split(/[,，\s]+/).filter(Boolean).map(Number);return p}
+function readOptimal(){var out={};[0,1,2,3,4,5].forEach(function(g){if(!document.getElementById('optUse'+g).checked)return;var simple=document.getElementById('optType'+g).value==='simple',x={};if(simple){x.min_win_rate=Number(document.getElementById('optWinMin'+g).value||0);x.min_win_starvation_per_tile=Number(document.getElementById('optStarveMin'+g).value||0);x.max_win_starvation_per_tile=Number(document.getElementById('optStarveMax'+g).value||0)}else{x.min_win_rate_exclusive=Number(document.getElementById('optWinMin'+g).value||0);x.max_win_rate_exclusive=Number(document.getElementById('optWinMax'+g).value||0);x.max_loss_remaining_ratio=Number(document.getElementById('optRemain'+g).value||0)}out[String(g)]=x});return out}
+
+var previewTimer;function formChanged(event){if(event&&(event.target.id==='executor'||event.target.id==='placementMode'))applyFrameworkVisibility();S.dirty=true;S.validation=null;document.getElementById('saveState').textContent='有未保存修改';schedulePreview()}function schedulePreview(){clearTimeout(previewTimer);previewTimer=setTimeout(renderPreview,80)}
+function updateHeader(){var m=(S.draft&&S.draft.meta)||{};document.getElementById('editorName').textContent=m.name||'新产出策略';document.getElementById('editorId').textContent=(m.strategy_id||'未命名')+' · v'+(m.version||1);document.getElementById('saveState').textContent=S.dirty?'有未保存修改':(S.draft?'已同步':'未加载')}
+function renderPreview(){if(!S.draft)return;var x=readForm();S.draft=x;updateHeader();var t=x.target||{},g=x.generation||{},e=x.evaluation||{},se=x.search||{},o=x.outputs||{},a=x.adapter||{},workflow=workflowConfig(a.executor),sections=workflow.sections||[],generator=generatorConfig(g.placement_mode);var lines=[['任务方式',workflow.label||labels.executors[a.executor]||a.executor]];
+  if(sections.indexOf('target')>=0){lines.push(['目标档位',(t.grades||[]).map(function(n){return'G'+n}).join('、')||'未选择']);lines.push(['每档目标',t.target_count_per_grade+' 局'])}
+  if(sections.indexOf('generation')>=0)lines.push(['生成方式',generator&&generator.label||g.placement_mode]);
+  if(sections.indexOf('evaluation')>=0)lines.push(['评估',(e.grade_strategy||'未设置')+' × '+(e.sim_runs||0)]);
+  if(sections.indexOf('search')>=0){lines.push(['搜索预算',(se.attempts_per_level||se.attempts_per_missing_grade||0)+' 次 / 地形或缺档']);lines.push(['并发',se.concurrency||1])}
+  if(sections.indexOf('outputs')>=0)lines.push(['输出',[o.write_csv&&'CSV',o.write_replay_json&&'Replay',o.write_calibration_xlsx&&'校准表',o.write_config_json&&'配置'].filter(Boolean).join('、')||'无']);
+  document.getElementById('summaryLines').innerHTML=lines.map(function(p){return'<div class="summary-line"><span>'+esc(p[0])+'</span><strong>'+esc(p[1])+'</strong></div>'}).join('');
+  var copy=esc(workflow.description||'');if(sections.indexOf('target')>=0)copy+=' 目标为 <b>'+esc((t.grades||[]).map(function(n){return'G'+n}).join('、')||'未选档位')+'</b>，库存策略使用 <b>'+esc(labels.fill[t.fill_policy]||t.fill_policy)+'</b>。';if(sections.indexOf('generation')>=0){var policies=generator&&generator.policies||[],parts=policies.map(function(key){var policy=g[key]||{};return POLICY_HELP[key].title+'为 '+(labels.policy[policy.mode]||policy.mode)});copy+=' 生成参数：<b>'+esc(parts.join('，'))+'</b>。'}if(sections.indexOf('evaluation')>=0)copy+=' 由 <b>'+esc(e.grade_strategy||'未设置')+'</b> 分档'+(e.acceptance&&e.acceptance.optimal?'，并通过 Optimal 体验约束二次验收':'')+'。';document.getElementById('planCopy').innerHTML=copy;document.getElementById('jsonPreview').textContent=JSON.stringify(x,null,2);renderValidation()}
+function renderValidation(){var b=document.getElementById('validationBadge'),r=document.getElementById('validationResult');if(!S.validation){b.className='badge';b.textContent='未校验';r.className='valid-ok';r.textContent='等待校验';return}if(S.validation.ok){b.className='badge ok';b.textContent='可导出';r.innerHTML='<div class="valid-ok">配置校验通过</div>'+(S.validation.warnings.length?'<ul class="validation-list">'+S.validation.warnings.map(function(x){return'<li>'+esc(x)+'</li>'}).join('')+'</ul>':'')}else{b.className='badge warn';b.textContent=S.validation.errors.length+' 项错误';r.innerHTML='<ul class="validation-list errors">'+S.validation.errors.map(function(x){return'<li>'+esc(x)+'</li>'}).join('')+'</ul>'}}
+async function validateDraft(silent){try{S.draft=readForm();var d=await api('/api/generation-strategies/validate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({strategy:S.draft})});S.validation=d;renderValidation();if(!silent)toast(d.ok?'配置校验通过':'配置仍有错误',d.ok?'ok':'err');return d.ok}catch(e){S.validation={ok:false,errors:[e.message],warnings:[]};renderValidation();if(!silent)toast(e.message,'err');return false}}
+async function saveDraft(){if(!S.draft)return;S.draft=readForm();if(!await validateDraft(true)){toast('请先修正校验错误','err');return}var id=S.draft.meta.strategy_id;if(!id){toast('请填写策略 ID','err');return}try{var url=S.isNew?'/api/generation-strategies':'/api/generation-strategies/'+encodeURIComponent(S.selectedId),method=S.isNew?'POST':'PUT';var d=await api(url,{method:method,headers:{'Content-Type':'application/json'},body:JSON.stringify({strategy:S.draft})});S.draft=clone(d.strategy);S.selectedId=d.strategy.meta.strategy_id;S.isNew=false;S.dirty=false;writeForm(S.draft);var list=await api('/api/generation-strategies');S.strategies=list.strategies;renderStrategyList();updateHeader();renderPreview();toast('策略已保存为 v'+S.draft.meta.version,'ok')}catch(e){toast(e.message,'err')}}
+async function exportDraft(){S.draft=readForm();if(!await validateDraft(true)){toast('配置未通过校验，不能导出','err');return}var blob=new Blob([JSON.stringify(S.draft,null,2)+'\n'],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(S.draft.meta.strategy_id||'generation_strategy')+'.json';a.click();setTimeout(function(){URL.revokeObjectURL(a.href)},1000);toast('JSON 已导出','ok')}
+
+function switchTab(name){document.querySelectorAll('.tab').forEach(function(e){e.classList.toggle('active',e.dataset.tab===name)});document.querySelectorAll('.tab-page').forEach(function(e){e.classList.toggle('active',e.id==='tab-'+name)});if(name==='history')loadHistory();if(name==='runs')loadRuns()}
+async function loadHistory(){var e=document.getElementById('historyList');if(!S.selectedId){e.innerHTML='<div class="empty">新策略尚无版本历史</div>';return}e.innerHTML='<div class="empty">读取中</div>';try{var d=await api('/api/generation-strategies/'+encodeURIComponent(S.selectedId)+'/history');S.history=d.history;e.innerHTML=S.history.length?S.history.map(function(h,i){return'<div class="history-row"><span class="mono">v'+h.version+'</span><div><strong>'+esc(h.name)+'</strong><div class="mono">'+esc(h.reason)+'</div></div><span class="mono">'+new Date(h.recordedAt).toLocaleString()+'</span><button class="btn" onclick="restoreHistory('+i+')">复制此版本</button></div>'}).join(''):'<div class="empty">保存一次修改后会产生版本快照</div>'}catch(err){e.innerHTML='<div class="empty">'+esc(err.message)+'</div>'}}
+function restoreHistory(i){var h=S.history[i];if(!h)return;S.draft=clone(h.strategy);S.draft.meta.strategy_id=S.draft.meta.strategy_id+'_copy';S.draft.meta.name=S.draft.meta.name+' 历史副本';S.draft.meta.version=1;S.draft.meta.status='draft';S.selectedId='';S.isNew=true;S.dirty=true;writeForm(S.draft);switchTab('config');renderStrategyList();schedulePreview()}
+async function loadRuns(){var e=document.getElementById('runList');e.innerHTML='<div class="empty">读取中</div>';try{var d=await api('/api/generation-runs');S.runs=d.runs;e.innerHTML=S.runs.length?S.runs.map(function(r){return'<div class="run-row"><span class="mono">'+esc(r.runId)+'</span><div><strong>'+esc(r.strategyName||r.strategyId)+'</strong><div class="mono">'+esc(r.strategyId)+' · v'+esc(r.strategyVersion)+'</div></div><span class="badge '+(r.status==='adopted'||r.status==='done'?'ok':'')+'">'+esc(r.status)+'</span><span class="mono">'+new Date(r.createdAt).toLocaleString()+'</span></div>'}).join(''):'<div class="empty">暂无运行记录</div>'}catch(err){e.innerHTML='<div class="empty">'+esc(err.message)+'</div>'}}
+initTheme();
+boot();
+</script>
+</body>
+</html>

@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ReverseGen · 牌局生成器</title>
+<script src="/reversegen-theme.js"></script>
+<link rel="stylesheet" href="/reversegen-theme.css">
 <style>
 /* ═══════════════════════════════════════════════
    PRECISION CONSOLE — warm, refined, deliberate
@@ -22,7 +24,7 @@ html{scroll-behavior:smooth}
 body{
   font-family:var(--sans);background:var(--ink);color:var(--text);
   font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;
-  background-image:radial-gradient(ellipse at 50% 0%,#1a1914 0%,var(--ink) 70%);
+  background-image:var(--page-gradient);
   min-height:100vh;
 }
 
@@ -30,7 +32,7 @@ body{
 .topbar{
   position:sticky;top:0;z-index:100;background:var(--ink);border-bottom:1px solid var(--line);
   padding:14px 24px;display:flex;align-items:center;gap:18px;backdrop-filter:blur(8px);
-  box-shadow:0 4px 20px rgba(0,0,0,.5);
+  box-shadow:var(--topbar-shadow);
 }
 .topbar .brand{font-weight:700;font-size:16px;letter-spacing:-.3px;white-space:nowrap}
 .topbar .brand span{color:var(--gold);margin-right:6px;font-size:18px}
@@ -39,15 +41,15 @@ body{
   background:var(--paper);border:1px solid var(--line);border-radius:7px;color:var(--text);
   padding:10px 14px;font-size:15px;font-family:var(--mono);outline:none;transition:border-color .2s;
 }
-.topbar input:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,168,83,.08)}
+.topbar input:focus{border-color:var(--gold);box-shadow:0 0 0 3px var(--accent-focus)}
 .topbar input[type="number"]{width:160px;font-weight:600}
 .topbar .level-quick{font-size:12px;color:var(--dim);white-space:nowrap}
 .topbar .spacer{flex:1}
 .topbar a{color:var(--dim);text-decoration:none;font-size:12px;transition:color .2s}
 .topbar a:hover{color:var(--gold)}
 .topbar .btn{font-size:13px;padding:9px 18px;border-radius:7px;cursor:pointer;border:none;font-weight:600;transition:all .2s}
-.topbar .btn-gold{background:var(--gold);color:#1a1810}
-.topbar .btn-gold:hover{background:#e0b860}
+.topbar .btn-gold{background:var(--gold);color:var(--accent-contrast)}
+.topbar .btn-gold:hover{background:var(--accent-hover)}
 .topbar .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--dim)}
 .topbar .btn-ghost:hover{border-color:var(--gold);color:var(--gold)}
 
@@ -82,7 +84,7 @@ input,textarea,select{
   color:var(--text);padding:7px 10px;font-size:12px;font-family:var(--sans);
   outline:none;transition:all .2s;
 }
-input:focus,textarea:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(212,168,83,.08)}
+input:focus,textarea:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px var(--accent-focus)}
 textarea{resize:vertical;min-height:38px;font-family:var(--mono);font-size:11px}
 select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a867c' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;padding-right:28px}
 .row{display:flex;gap:8px;align-items:center}
@@ -96,11 +98,11 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
   transition:all .2s;white-space:nowrap;
 }
 .btn:disabled{opacity:.4;cursor:not-allowed;filter:grayscale(.5)}
-.btn-primary{background:var(--gold);color:#1a1810;width:100%;padding:11px;font-size:13px;letter-spacing:.3px}
-.btn-primary:hover:not(:disabled){background:#e0b860;transform:translateY(-1px);box-shadow:0 4px 12px rgba(212,168,83,.25)}
+.btn-primary{background:var(--gold);color:var(--accent-contrast);width:100%;padding:11px;font-size:13px;letter-spacing:.3px}
+.btn-primary:hover:not(:disabled){background:var(--accent-hover);transform:translateY(-1px);box-shadow:0 4px 12px color-mix(in srgb,var(--gold) 25%,transparent)}
 .btn-primary:active:not(:disabled){transform:translateY(0)}
 .btn-secondary{background:var(--line);color:var(--text)}
-.btn-secondary:hover:not(:disabled){background:#3a3830}
+.btn-secondary:hover:not(:disabled){background:var(--button-hover)}
 .btn-outline{background:transparent;border:1px solid var(--line);color:var(--dim)}
 .btn-outline:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}
 .btn-xs{padding:3px 8px;font-size:10px;border-radius:4px}
@@ -113,7 +115,7 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
   border-radius:5px;cursor:pointer;color:var(--dim);transition:all .2s;border:none;background:transparent;
   letter-spacing:.3px;font-family:var(--sans);
 }
-.tab.active{background:var(--gold);color:#1a1810;box-shadow:0 2px 6px rgba(212,168,83,.2)}
+.tab.active{background:var(--gold);color:var(--accent-contrast);box-shadow:0 2px 6px color-mix(in srgb,var(--gold) 20%,transparent)}
 
 /* ── Preset chips ── */
 .chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
@@ -123,7 +125,7 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
   font-family:var(--mono);transition:all .2s;font-weight:500;
 }
 .chip:hover{border-color:var(--gold);color:var(--gold)}
-.chip.on{background:rgba(212,168,83,.1);border-color:var(--gold);color:var(--gold)}
+.chip.on{background:color-mix(in srgb,var(--gold) 10%,transparent);border-color:var(--gold);color:var(--gold)}
 
 /* ── Info blocks ── */
 .info-block{font-size:10px;color:var(--dim);line-height:1.6;margin-top:6px;min-height:0}
@@ -180,10 +182,12 @@ canvas{width:100%;border-radius:6px;margin-top:4px;display:block}
 .sim-params{margin-top:6px}
 .sim-params .row{margin-top:4px}
 .sim-result{margin-top:6px;min-height:20px;font-size:11px}
+.optimal-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin-top:7px}.optimal-metric{min-width:0;padding:6px 7px;background:var(--ink);border:1px solid var(--line);border-radius:5px}.optimal-metric span{display:block;font-size:8px;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.optimal-metric b{display:block;margin-top:2px;color:var(--text);font:700 11px var(--mono)}
 .sim-history{margin-top:8px;max-height:180px;overflow-y:auto}
 .sim-entry{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--line2);font-size:10px}
 .sim-entry:last-child{border-bottom:0}
 .sim-entry .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+@media(max-width:700px){.optimal-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 /* ── Progress bar ── */
 .pbar{background:var(--ink);border-radius:3px;height:6px;margin-top:3px;overflow:hidden}
@@ -255,6 +259,7 @@ kbd{
   <a href="/challenge-expectation">🎮 挑战期望</a>
   <a href="/analysis.html">Triple 分析</a>
 	  <a href="/batch-generate.html">批量产关</a>
+	  <a href="/generation-strategies.html">产出策略</a>
 </nav>
 
 <div id="toast"></div>
@@ -310,13 +315,13 @@ kbd{
         <label style="margin-top:6px">同色分布 <span style="font-weight:400;font-size:9px" id="spreadLabel">— 0.50</span></label>
         <div class="slider-row">
           <span class="sl-l">紧密</span>
-          <input class="slider" type="range" id="spreadParam" min="0" max="100" value="50" step="5" oninput="updateSpreadLabel()">
+          <input class="slider" type="range" id="spreadParam" min="0" max="100" value="50" step="1" oninput="updateSpreadLabel()">
           <span class="sl-l" style="text-align:left">分散</span>
         </div>
         <label style="margin-top:6px">债务持续权重 <span style="font-weight:400;font-size:9px" id="debtLabel">— 0.00</span></label>
         <div class="slider-row">
           <span class="sl-l">清旧债</span>
-          <input class="slider" type="range" id="debtPersistence" min="0" max="100" value="0" step="5" oninput="updateDebtLabel()">
+          <input class="slider" type="range" id="debtPersistence" min="0" max="100" value="0" step="1" oninput="updateDebtLabel()">
           <span class="sl-l" style="text-align:left">延旧债</span>
         </div>
       </div>
@@ -430,6 +435,7 @@ kbd{
         <label>模拟策略</label>
         <select id="simStrategy" onchange="switchSimStrategy()">
           <option value="normal">普通 — 安全三连组随机选择</option>
+          <option value="shortest">短视最优 — 当前安全组最短路径</option>
           <option value="risky">激进 — 水位线放宽 cost</option>
           <option value="costcap">成本上限 — 忽略高 cost 候选</option>
           <option value="mistake" selected>失误率 — 模拟操作失误</option>
@@ -795,6 +801,7 @@ function showClosure(d){
   document.getElementById('stats').innerHTML=
     '<div class="stat'+(m.isDoomed?' hi':'')+'"><div class="n '+(m.isDoomed?'n-bad':'n-ok')+'">'+(m.isDoomed?'⚠是':'✓否')+'</div><div class="lbl">必输</div></div>'+
     '<div class="stat"><div class="n n-warn">'+m.peakDebt+'/'+(m.peakExpDebt||0)+'</div><div class="lbl">债务峰/暴露</div></div>'+
+    '<div class="stat"><div class="n">'+((m.weightedDebtRetentionRate||0)*100).toFixed(0)+'%</div><div class="lbl">债务保留率</div></div>'+
     '<div class="stat"><div class="n n-warn">'+(m.oi||0)+'</div><div class="lbl">OI指数</div></div>'+
     '<div class="stat"><div class="n">'+(m.colorCount||0)+'</div><div class="lbl">花色数</div></div>'+
     '<div class="stat"><div class="n">'+(m.depthCount||0)+'</div><div class="lbl">深度层</div></div>'+
@@ -1195,7 +1202,8 @@ async function runSim(){
   var endpoint,body={replayCode:d.replayCode,levelId:document.getElementById('levelId').value,runs:runs};
   var params={strategy:strategy,runs:runs};
 
-  if(strategy==='risky'){endpoint='/api/player-sim-risky';body.riskThreshold=parseInt(document.getElementById('simRiskThreshold').value)||3;params.threshold=body.riskThreshold}
+  if(strategy==='shortest'){endpoint='/api/player-sim-shortest'}
+  else if(strategy==='risky'){endpoint='/api/player-sim-risky';body.riskThreshold=parseInt(document.getElementById('simRiskThreshold').value)||3;params.threshold=body.riskThreshold}
   else if(strategy==='costcap'){endpoint='/api/player-sim-costcap';body.maxCost=parseInt(document.getElementById('simMaxCost').value)||5;params.maxCost=body.maxCost}
   else if(strategy==='mistake'){endpoint='/api/player-sim-mistake';body.mistakeRate=parseFloat(document.getElementById('simMistakeRate').value);if(isNaN(body.mistakeRate)||body.mistakeRate<0||body.mistakeRate>1){out.innerHTML='<span style="color:var(--bad)">失误率 0~1</span>';return}params.mistakeRate=body.mistakeRate}
   else{endpoint='/api/player-sim'}
@@ -1212,12 +1220,33 @@ async function runSim(){
     if(v.avgStepsOnWin>0)html+=' · 胜均'+v.avgStepsOnWin.toFixed(0)+'步';
     if(v.avgStepsOnLoss>0)html+=' · 败均'+v.avgStepsOnLoss.toFixed(0)+'步';
     html+=' · '+(v.elapsedMs/1000).toFixed(1)+'s';
+    if(v.mode==='shortest'){
+      var om=v.optimalMetrics||{
+        winRate:v.winRate,starvationOnWin:v.starvationOnWin||0,forcedPickOnWin:v.forcedPickOnWin||0,
+        starvationPerTileOnWin:v.totalTiles>0?(v.starvationOnWin||0)/v.totalTiles:0,
+        avgStepsOnLoss:v.stepsOnLoss||0,starvationOnLoss:v.starvationOnLoss||0,forcedPickOnLoss:v.forcedPickOnLoss||0,
+        remainingTilesOnLoss:v.remainingTilesOnLoss,remainingRatioOnLoss:v.remainingRatioOnLoss,totalTiles:v.totalTiles
+      };
+      var metric=function(label,value){return'<div class="optimal-metric"><span>'+label+'</span><b>'+value+'</b></div>'};
+      var hasLoss=v.losses>0;
+      html+='<div class="optimal-metrics">';
+      html+=metric('Optimal 胜率',(om.winRate*100).toFixed(1)+'%');
+      html+=metric('胜局断色',(om.starvationOnWin||0).toFixed(2));
+      html+=metric('胜局断色 / tile',((om.starvationPerTileOnWin||0)*100).toFixed(2)+'%');
+      html+=metric('胜局强选',(om.forcedPickOnWin||0).toFixed(2));
+      html+=metric('败局平均步数',hasLoss?(om.avgStepsOnLoss||0).toFixed(1):'--');
+      html+=metric('败局断色',hasLoss?(om.starvationOnLoss||0).toFixed(2):'--');
+      html+=metric('败局强选',hasLoss?(om.forcedPickOnLoss||0).toFixed(2):'--');
+      html+=metric('失败剩余率',hasLoss&&om.remainingRatioOnLoss!=null?(om.remainingRatioOnLoss*100).toFixed(1)+'%':'--');
+      html+='</div>';
+      params.optimalMetrics=om;
+    }
     html+='<div class="pbar"><div class="pbar-fill" style="width:'+pct+'%;background:var(--'+(pct>=80?'ok':pct>=40?'warn':'bad')+')"></div></div>';
     out.innerHTML=html;out.className='msg '+cls;
 
     params.winRate=v.winRate;params.wins=v.wins;params.losses=v.runs-v.wins;params.avgSteps=v.avgStepsOnWin;params.elapsedMs=v.elapsedMs;
     S.sims.unshift(params);renderSimHistory();
-    var lm={normal:'普通',risky:'激进',costcap:'成本上限',mistake:'失误'};
+    var lm={normal:'普通',shortest:'短视最优',risky:'激进',costcap:'成本上限',mistake:'失误'};
     toast(lm[strategy]+'模拟完成: '+pct+'%','ok');
   }catch(e){out.textContent=e.message;out.className='msg msg-err'}
   finally{btn.innerHTML='▶ 运行';btn.disabled=false}
@@ -1437,7 +1466,7 @@ async function buildReplaySelections(){
 
 function renderSimHistory(){
   var el=document.getElementById('simHistory');if(!S.sims.length){el.innerHTML='';return}
-  var lm={normal:'普通',risky:'激进',costcap:'成本上限',mistake:'失误'};
+  var lm={normal:'普通',shortest:'短视最优',risky:'激进',costcap:'成本上限',mistake:'失误'};
   var rows=S.sims.map(function(s){
     var cls=s.winRate>=.8?'var(--ok)':s.winRate>=.4?'var(--warn)':'var(--bad)';
     var pct=(s.winRate*100).toFixed(0),label=lm[s.strategy]||s.strategy;
@@ -1445,6 +1474,7 @@ function renderSimHistory(){
     if(s.strategy==='risky')param='水位='+s.threshold;
     else if(s.strategy==='costcap')param='≤'+s.maxCost;
     else if(s.strategy==='mistake')param='误'+(s.mistakeRate*100).toFixed(0)+'%';
+    else if(s.strategy==='shortest'&&s.optimalMetrics){var om=s.optimalMetrics;param='断色'+(om.starvationOnWin||0).toFixed(1)+(om.remainingRatioOnLoss!=null?' · 余'+(om.remainingRatioOnLoss*100).toFixed(0)+'%':'')}
     return'<div class="sim-entry"><span class="dot" style="background:'+cls+'"></span><span style="flex:1">'+label+(param?' <span style="color:var(--faint);font-size:9px">'+param+'</span>':'')+'</span><span style="font-weight:700;font-family:var(--mono);color:'+cls+'">'+pct+'%</span><span style="color:var(--faint)">'+s.wins+'/'+(s.wins+s.losses)+'</span><span style="color:var(--faint);font-size:9px">×'+s.runs+'</span></div>';
   }).join('');
   el.innerHTML='<div style="font-size:9px;color:var(--faint);margin-bottom:3px">记录 ('+S.sims.length+')</div>'+rows;

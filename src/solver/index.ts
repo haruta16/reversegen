@@ -36,3 +36,4 @@ export { solvePlayerCostCap, solvePlayerCostCapBatch } from './solver-player-cos
 export type { CostCapConfig } from './solver-player-costcap.js';
 export { solvePlayerMistake, solvePlayerMistakeBatch } from './solver-player-mistake.js';
 export type { MistakeConfig } from './solver-player-mistake.js';
+export { solvePlayerShortest, solvePlayerShortestBatch } from './solver-player-shortest.js';

@@ -54,6 +54,7 @@
   .settings-row input[type=range]{width:80px;accent-color:var(--a);margin:0 2px}
   .settings-row .fv{font-size:10px;color:var(--m);width:22px;text-align:center;font-family:monospace}
   .settings-row .sep{width:1px;height:16px;background:var(--b);margin:0 2px}
+  .settings-row .nav-link{margin-left:auto;color:var(--m);text-decoration:none;border:1px solid var(--b);border-radius:4px;padding:3px 9px;font-size:10px}.settings-row .nav-link:hover{color:var(--a);border-color:var(--a)}
   #quickTags{display:flex;flex-wrap:wrap;gap:2px;max-width:500px}
   #quickTags .qt{font-size:9px;padding:1px 6px;border-radius:6px;background:var(--bg);border:1px solid var(--b);color:var(--m);cursor:pointer;font-family:monospace}
   #quickTags .qt:hover{border-color:var(--a);color:var(--a)}
@@ -174,6 +175,7 @@
       <input type="text" id="searchTriple" placeholder="搜索 triple..." style="width:130px;font-size:10px;font-family:monospace;background:var(--bg);border:1px solid var(--b);border-radius:3px;color:var(--t);padding:3px 6px"
         onkeydown="if(event.key==='Enter')App.searchTriple()">
       <button class="btn-sm" onclick="App.searchTriple()">🔍</button>
+      <a class="nav-link" href="/generation-strategies.html">产出策略</a>
     </div>
   </div>
 </div>

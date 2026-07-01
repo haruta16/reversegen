@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "workflows": {
+    "run-batch-generation": {
+      "label": "全量批量生成",
+      "description": "对明确指定的地形搜索目标难度牌局。",
+      "sections": ["scope", "target", "generation", "evaluation", "search", "outputs"],
+      "fields": {
+        "scope": ["terrainSource", "levelRange", "includeLevels", "excludeLevels", "levelsDir"],
+        "target": ["gradePicks", "targetCount", "fillPolicy", "fallbackPolicy"],
+        "evaluation": ["gradeStrategy", "simRuns", "thresholdProfile"],
+        "search": ["attemptsPerLevel", "concurrency"],
+        "outputs": ["capPerLevelGrade", "writeCsv", "writeReplay", "writeCalibration", "writeConfig", "adapterMode"]
+      },
+      "supportedGenerators": ["layer-closure", "random-color"]
+    },
+    "backfill-missing-grades": {
+      "label": "按缺档补齐",
+      "description": "以已有牌局 CSV 为库存口径，补齐或替换指定档位。",
+      "sections": ["scope", "target", "generation", "evaluation", "search", "outputs"],
+      "fields": {
+        "scope": ["terrainSource", "excludeLevels", "levelsDir", "sourceCsv"],
+        "target": ["gradePicks", "targetCount", "fillPolicy", "fallbackPolicy", "minExistingCount"],
+        "evaluation": ["gradeStrategy", "simRuns", "thresholdProfile", "minSim1Wins", "minSim5Wins", "minSim15Wins", "minPassrate", "optimalRuns", "optimalEnabled", "optimalWrap"],
+        "search": ["attemptsPerLevel", "maxAttemptsMissing", "templateAttempts", "concurrency", "shuffle", "resume", "reuseTemplates", "outputOnly", "adaptiveSearch", "adaptiveExplore", "adaptivePool", "adaptiveSamples", "adaptiveStep", "optimalFirst"],
+        "outputs": ["minPerLevelGrade", "capPerLevelGrade", "writeCsv", "writeReplay", "writeCalibration", "writeConfig", "adapterMode"]
+      },
+      "supportedGenerators": ["layer-closure", "random-color"]
+    },
+    "search-missing-grade-samples": {
+      "label": "缺档样本探测",
+      "description": "合并多轮已有结果后，只为仍缺失的档位寻找参考样本。",
+      "sections": ["scope", "generation", "evaluation", "search", "outputs"],
+      "fields": {
+        "scope": ["terrainSource", "excludeLevels", "sourceCsv", "firstBackfillCsv", "latestBackfillCsv"],
+        "evaluation": ["gradeStrategy", "simRuns", "thresholdProfile"],
+        "search": ["attemptsPerMissing", "concurrency", "resume"],
+        "outputs": ["writeCsv", "adapterMode"]
+      },
+      "supportedGenerators": ["layer-closure"]
+    },
+    "build-calibration-variant": {
+      "label": "校准工具构建",
+      "description": "按最低库存和保留上限整理牌局，并生成固定版式校准工具。",
+      "sections": ["scope", "outputs"],
+      "fields": {
+        "scope": ["terrainSource", "sourceCsv", "templateWorkbook"],
+        "outputs": ["minPerLevelGrade", "capPerLevelGrade", "writeCsv", "writeCalibration", "adapterMode"]
+      },
+      "supportedGenerators": []
+    },
+    "refresh-endless-simulation": {
+      "label": "无尽池模拟刷新",
+      "description": "读取现有校准工作簿，只刷新无尽池模拟结果。",
+      "sections": ["scope", "outputs"],
+      "fields": {
+        "scope": ["terrainSource", "workbook"],
+        "outputs": ["writeCalibration", "adapterMode"]
+      },
+      "supportedGenerators": []
+    }
+  },
+  "generators": {
+    "layer-closure": {
+      "label": "Tile 层闭合生成",
+      "description": "使用闭合率、花色、同色分布和债务持续权重塑造牌面。",
+      "policies": ["closure", "color", "spread", "debt"],
+      "policyModes": {
+        "closure": ["random", "random_range", "fixed_points", "full_layer_max", "per_layer_list"],
+        "color": ["ratio", "ratio_jitter", "fixed_count", "range"],
+        "spread": ["fixed", "random", "random_range"],
+        "debt": ["fixed", "random", "random_range"]
+      }
+    },
+    "random-color": {
+      "label": "Tile 纯随机颜色落位",
+      "description": "只控制花色数量，颜色袋随机落位；闭合率、分布和债务不参与生成。",
+      "policies": ["color"],
+      "policyModes": {
+        "color": ["ratio", "ratio_jitter", "fixed_count", "range"]
+      }
+    }
+  },
+  "policyModes": {
+    "random": {"label": "项目随机", "fields": []},
+    "random_range": {"label": "随机范围", "fields": ["min", "max"]},
+    "fixed_points": {"label": "固定点", "fields": ["points"]},
+    "full_layer_max": {"label": "每层最高", "fields": []},
+    "per_layer_list": {"label": "逐层列表", "fields": ["points"]},
+    "ratio": {"label": "固定比例", "fields": ["ratio"]},
+    "ratio_jitter": {"label": "比例浮动", "fields": ["ratio", "jitter"]},
+    "fixed_count": {"label": "固定花色数", "fields": ["value"]},
+    "range": {"label": "比例范围", "fields": ["min", "max", "jitter"]},
+    "fixed": {"label": "固定值", "fields": ["value"]}
+  },
+  "fieldGroups": {
+    "scope": ["terrainSource", "levelRange", "includeLevels", "excludeLevels", "levelsDir", "sourceCsv", "firstBackfillCsv", "latestBackfillCsv", "workbook", "templateWorkbook"],
+    "target": ["gradePicks", "targetCount", "fillPolicy", "fallbackPolicy", "minExistingCount"],
+    "evaluation": ["gradeStrategy", "simRuns", "thresholdProfile", "minSim1Wins", "minSim5Wins", "minSim15Wins", "minPassrate", "optimalRuns", "optimalEnabled", "optimalWrap"],
+    "search": ["attemptsPerLevel", "attemptsPerMissing", "maxAttemptsMissing", "templateAttempts", "concurrency", "adaptiveExplore", "adaptivePool", "adaptiveSamples", "adaptiveStep", "shuffle", "resume", "reuseTemplates", "outputOnly", "adaptiveSearch", "optimalFirst"],
+    "outputs": ["minPerLevelGrade", "capPerLevelGrade", "writeCsv", "writeReplay", "writeCalibration", "writeConfig", "adapterMode"]
+  }
+}

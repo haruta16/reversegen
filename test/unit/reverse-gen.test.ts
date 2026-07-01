@@ -107,7 +107,7 @@ describe('ReverseGen Algorithm', () => {
     const N = 30;
     const tiles: TerrainTile[] = [];
     for (let i = 1; i <= N; i++) {
-      tiles.push({ id: i, layer: 0, dependencies: [], isConst: false, constElementValue: 0 });
+      tiles.push({ id: i, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0 });
     }
 
     const result = runReverseGen({ tiles, costArray: generateCostArray(N / 3, 1.0, SEED), colorCount: 10 });

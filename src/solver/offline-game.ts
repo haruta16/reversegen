@@ -69,6 +69,10 @@ export class OfflineGame {
     return MAX_DOCK_SLOTS - this.dockTiles.length;
   }
 
+  get maxSlotCount(): number {
+    return MAX_DOCK_SLOTS;
+  }
+
   get isWin(): boolean {
     return this.deskTiles.length === 0 && this.dockTiles.length === 0;
   }

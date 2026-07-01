@@ -11,13 +11,13 @@ import { logger } from './logger.js';
  * 从 JSON 文件加载地形数据。
  */
 export function loadTerrainFromFile(filePath: string): TerrainData {
-  const raw = readFileSync(filePath, 'utf-8');
+  const raw = readFileSync(filePath, 'utf-8').replace(/^\uFEFF/, '');
   return loadTerrainFromJson(raw);
 }
 
 /** 从 JSON 字符串解析地形。 */
 function loadTerrainFromJson(json: string): TerrainData {
-  const data = JSON.parse(json);
+  const data = JSON.parse(json.replace(/^\uFEFF/, ''));
   return normalizeTerrain(data);
 }
 
