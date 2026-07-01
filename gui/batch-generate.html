@@ -476,11 +476,18 @@ async function startBatch(){
   }
 }
 
-function stopBatch(){
+async function stopBatch(){
+  if(S.jobId){
+    try{
+      document.getElementById('progressBody').innerHTML='<span style="color:var(--warn)">正在停止...</span>';
+      await fetch('/api/batch-generate/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobId:S.jobId})});
+    }catch(e){}
+  }
   if(S.pollTimer)clearInterval(S.pollTimer);
   S.running=false;resetUI();
   document.getElementById('progressSpinner').style.display='none';
-  toast('已停止轮询');
+  document.getElementById('actionMsg').textContent='已停止';
+  document.getElementById('actionMsg').className='msg msg-warn';
 }
 
 function resetUI(){
@@ -510,13 +517,14 @@ async function pollProgress(){
       document.getElementById('actionMsg').className='msg';
       renderResults(S.allRows);
     }
-    if(d.status==='done'||d.status==='error'){
+    if(d.status==='done'||d.status==='error'||d.status==='aborted'){
       clearInterval(S.pollTimer);S.pollTimer=null;
       S.running=false;resetUI();
       document.getElementById('progressSpinner').style.display='none';
       document.getElementById('btnDownload').disabled=false;
       document.getElementById('btnDownload').textContent='⬇ 下载 CSV';
       if(d.status==='error'){document.getElementById('actionMsg').textContent=d.error||'出错';document.getElementById('actionMsg').className='msg msg-err'}
+      else if(d.status==='aborted'){document.getElementById('actionMsg').textContent='已停止 · 共 '+d.totalRows+' 条';document.getElementById('actionMsg').className='msg msg-warn'}
       else{document.getElementById('actionMsg').textContent='完成 · 共 '+d.totalRows+' 条';document.getElementById('actionMsg').className='msg msg-ok'}
       S.allRows=[];
       if(d.terrains)d.terrains.forEach(function(t){if(t.rows)S.allRows=S.allRows.concat(t.rows)});

@@ -88,7 +88,7 @@ export interface TerrainProgress {
 }
 
 export interface BatchProgress {
-  jobId: string; status: 'running' | 'done' | 'error';
+  jobId: string; status: 'running' | 'done' | 'error' | 'aborted';
   terrains: TerrainProgress[]; totalRows: number; startedAt: number; error?: string;
 }
 
@@ -361,6 +361,7 @@ export async function collectGradesForTerrain(
   terrainIndex: number, terrainPath: string,
   maxGrade: number, targetPerTier: number, maxAttempts: number,
   simRuns: number, baseSeed: number,
+  isAborted?: () => boolean,
   onProgress?: (collected: Record<number, number>, attempts: number, latestRow: BatchRow | null) => void,
 ): Promise<{ rows: BatchRow[]; collected: Record<number, number>; attempts: number }> {
   // 桶: 0..maxGrade 有 targetPerTier 要求; 超出也收但不强制
@@ -371,6 +372,7 @@ export async function collectGradesForTerrain(
   let attempts = 0;
 
   while (attempts < maxAttempts) {
+    if (isAborted?.()) break;
     // 仅检查 0..maxGrade 是否收满
     let allFull = true;
     for (let g = 0; g <= maxGrade; g++) {
@@ -404,6 +406,7 @@ export async function collectGradesForTerrain(
     }
     // 让出事件循环，允许轮询请求得到处理
     await yieldTick();
+    if (isAborted?.()) break;
   }
 
   const collected: Record<number, number> = {};
@@ -471,6 +474,7 @@ export async function runTerrainGeneration(
   unified: UnifiedParams,
   terrainIndex: number,
   terrainPath: string,
+  isAborted?: () => boolean,
   onProgress?: (terrain: TerrainProgress, rowsAdded: number) => void,
 ): Promise<TerrainProgress> {
   const tp: TerrainProgress = {
@@ -504,6 +508,7 @@ export async function runTerrainGeneration(
   const { collected, attempts } = await collectGradesForTerrain(
     terrain, unified, terrainIndex, terrainPath, maxGrade,
     config.targetPerTier, config.maxAttempts, config.simRuns, seed,
+    isAborted,
     (cts, att, latestRow) => {
       tp.collected = { ...cts };
       if (probe.success && probe.grade >= 0) {
@@ -551,6 +556,7 @@ function runTerrainWorker(
   config: BatchConfig,
   terrainIndex: number,
   terrainPath: string,
+  isAborted?: () => boolean,
   onProgress?: (terrain: TerrainProgress, rowsAdded: number) => void,
 ): Promise<TerrainProgress> {
   return new Promise((resolve, reject) => {
@@ -560,10 +566,14 @@ function runTerrainWorker(
     });
     let finalTerrain: TerrainProgress | null = null;
     let settled = false;
+    const abortTimer = setInterval(() => {
+      if (isAborted?.() && worker.connected) worker.send({ type: 'abort' });
+    }, 25);
 
     const fail = (err: Error) => {
       if (settled) return;
       settled = true;
+      clearInterval(abortTimer);
       reject(err);
     };
 
@@ -579,6 +589,7 @@ function runTerrainWorker(
     worker.on('error', fail);
     worker.on('exit', (code) => {
       if (settled) return;
+      clearInterval(abortTimer);
       if (code !== 0) {
         fail(new Error(`Worker exited with code ${code}`));
       } else if (finalTerrain) {
@@ -598,6 +609,7 @@ function runTerrainWorker(
 
 export async function runBatchGeneration(
   config: BatchConfig, onProgress?: ProgressCallback,
+  isAborted?: () => boolean,
 ): Promise<BatchProgress> {
   const jobId = `batch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const progress: BatchProgress = {
@@ -625,16 +637,22 @@ export async function runBatchGeneration(
   const concurrency = normalizeConcurrency(config);
   if (concurrency <= 1) {
     for (let i = 0; i < config.terrainPaths.length; i++) {
-      const finalTerrain = await runTerrainGeneration(config, unified, i, config.terrainPaths[i], updateTerrain);
+      if (isAborted?.()) break;
+      const finalTerrain = await runTerrainGeneration(
+        config, unified, i, config.terrainPaths[i], isAborted, updateTerrain,
+      );
       progress.terrains[i] = cloneTerrainWithoutRows(finalTerrain);
       if (onProgress) onProgress(progress);
     }
   } else {
     let nextIndex = 0;
     const runNext = async (): Promise<void> => {
+      if (isAborted?.()) return;
       const i = nextIndex++;
       if (i >= config.terrainPaths.length) return;
-      const finalTerrain = await runTerrainWorker(config, i, config.terrainPaths[i], updateTerrain);
+      const finalTerrain = await runTerrainWorker(
+        config, i, config.terrainPaths[i], isAborted, updateTerrain,
+      );
       progress.terrains[i] = cloneTerrainWithoutRows(finalTerrain);
       if (onProgress) onProgress(progress);
       await runNext();
@@ -643,7 +661,7 @@ export async function runBatchGeneration(
     await Promise.all(workers);
   }
 
-  progress.status = 'done';
+  progress.status = isAborted?.() ? 'aborted' as const : 'done';
   if (onProgress) onProgress(progress);
   return progress;
 }

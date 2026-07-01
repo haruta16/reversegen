@@ -14,6 +14,8 @@ interface BatchWorkerData {
   terrainPath: string;
 }
 
+let aborted = false;
+
 function send(message: unknown): void {
   if (process.send) process.send(message);
 }
@@ -38,6 +40,7 @@ async function run(data: BatchWorkerData): Promise<void> {
     unified,
     terrainIndex,
     terrainPath,
+    () => aborted,
     (tp, rowsAdded) => {
       send({
         type: 'progress',
@@ -55,6 +58,10 @@ async function run(data: BatchWorkerData): Promise<void> {
 }
 
 process.on('message', (message) => {
+  if ((message as { type?: string })?.type === 'abort') {
+    aborted = true;
+    return;
+  }
   run(message as BatchWorkerData)
     .then(() => process.exit(0))
     .catch((err) => {
