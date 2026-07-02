@@ -530,9 +530,10 @@ export async function collectGradesForTerrain(
       attempts + 1, false, simRuns, seed, selection?.acceptance?.optimal);
     attempts++;
     const accepted = desiredSet.has(row.grade) && acceptsBatchRow(row, selection?.acceptance);
-    if (!selection?.acceptedOnly || accepted) allRows.push(row);
+    const bucketFull = accepted && buckets[row.grade].length >= (selection?.gradeTargets?.[row.grade] ?? targetPerTier);
+    if (!selection?.acceptedOnly || (accepted && !bucketFull)) allRows.push(row);
 
-    if (accepted && buckets[row.grade].length < (selection?.gradeTargets?.[row.grade] ?? targetPerTier)) {
+    if (accepted && !bucketFull) {
       buckets[row.grade].push(row);
     }
 

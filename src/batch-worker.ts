@@ -33,6 +33,11 @@ async function run(data: BatchWorkerData): Promise<void> {
     colorCountRatio: config.colorCountRatio,
     spreadParam: config.spreadParam,
     debtPersistenceWeight: config.debtPersistenceWeight,
+    closeRateRange: config.closeRateRange,
+    colorRatioRange: config.colorRatioRange,
+    colorJitter: config.colorJitter,
+    spreadRange: config.spreadRange,
+    debtRange: config.debtRange,
   };
 
   const finalTerrain = await runTerrainGeneration(
