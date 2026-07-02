@@ -181,7 +181,18 @@ function readGenerationCatalog(): any {
   const generators = catalog.generators || {};
   const modes = catalog.policyModes || {};
   const policyFields = new Set(['value', 'ratio', 'jitter', 'min', 'max', 'points']);
+  const reachableFields = new Map<string, Set<string>>(
+    Object.keys(groups).map(group => [group, new Set<string>()]),
+  );
+  const reachableModes = new Set<string>();
   if (!catalog.workflows || !Object.keys(catalog.workflows).length) throw new Error('页面能力目录缺少 workflows');
+  for (const [group, fieldIds] of Object.entries<any>(catalog.commonFields || {})) {
+    if (!groups[group]) throw new Error(`通用配置引用了未知字段组 ${group}`);
+    for (const fieldId of fieldIds || []) {
+      if (!groups[group].includes(fieldId)) throw new Error(`通用配置引用了未知字段 ${group}.${fieldId}`);
+      reachableFields.get(group)?.add(fieldId);
+    }
+  }
   for (const [workflowId, workflow] of Object.entries<any>(catalog.workflows)) {
     for (const section of workflow.sections || []) {
       if (section !== 'generation' && !groups[section]) throw new Error(`工作流 ${workflowId} 引用了未知模块 ${section}`);
@@ -190,6 +201,7 @@ function readGenerationCatalog(): any {
       if (!groups[group]) throw new Error(`工作流 ${workflowId} 引用了未知字段组 ${group}`);
       for (const fieldId of fieldIds || []) {
         if (!groups[group].includes(fieldId)) throw new Error(`工作流 ${workflowId} 引用了未知字段 ${group}.${fieldId}`);
+        reachableFields.get(group)?.add(fieldId);
       }
     }
     for (const generatorId of workflow.supportedGenerators || []) {
@@ -201,10 +213,17 @@ function readGenerationCatalog(): any {
       if (!generator.policyModes?.[policy]) throw new Error(`生成器 ${generatorId} 缺少 ${policy} 的 mode 列表`);
       for (const mode of generator.policyModes[policy]) {
         if (!modes[mode]) throw new Error(`生成器 ${generatorId}.${policy} 引用了未知 mode ${mode}`);
+        reachableModes.add(mode);
       }
     }
   }
+  for (const [group, fieldIds] of Object.entries<any>(groups)) {
+    for (const fieldId of fieldIds || []) {
+      if (!reachableFields.get(group)?.has(fieldId)) throw new Error(`配置项 ${group}.${fieldId} 没有可选择的工作流入口`);
+    }
+  }
   for (const [mode, definition] of Object.entries<any>(modes)) {
+    if (!reachableModes.has(mode)) throw new Error(`参数 mode ${mode} 没有可选择的生成器入口`);
     for (const field of definition.fields || []) {
       if (!policyFields.has(field)) throw new Error(`参数 mode ${mode} 引用了未知输入字段 ${field}`);
     }
@@ -308,6 +327,25 @@ function validateGenerationStrategy(strategy: GenerationStrategy): Promise<{ ok:
         resolve({ ok: false, errors: [stderr || '策略校验器未返回有效结果'], warnings: [] });
       }
     });
+  });
+}
+
+function planGenerationStrategy(strategyPath: string, strategyId: string): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const python = existsSync(BUNDLED_PYTHON) ? BUNDLED_PYTHON : 'python3';
+    execFile(
+      python,
+      [MANAGE_GENERATION_FEATURE, 'plan', '--strategy', strategyPath, '--run-id', strategyId],
+      { cwd: PROJECT_ROOT },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error((stderr || stdout || error.message).trim()));
+          return;
+        }
+        try { resolve(JSON.parse(stdout || '{}')); }
+        catch { reject(new Error('运行计划生成器未返回有效结果')); }
+      },
+    );
   });
 }
 
@@ -566,8 +604,9 @@ const server = createServer(async (req, res) => {
       if (!validation.ok) { json(res, validation, 422); return; }
       writeJsonAtomic(path, strategy);
       writeGenerationStrategySnapshot(strategy, 'created');
+      const plan = await planGenerationStrategy(path, strategyId);
       refreshGenerationStrategyIndex();
-      json(res, { ok: true, strategy, validation, summary: strategySummary(strategy, path) }, 201);
+      json(res, { ok: true, strategy, validation, plan, summary: strategySummary(strategy, path) }, 201);
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
     return;
   }
@@ -612,8 +651,9 @@ const server = createServer(async (req, res) => {
       if (!validation.ok) { json(res, validation, 422); return; }
       writeJsonAtomic(path, strategy);
       writeGenerationStrategySnapshot(strategy, 'updated');
+      const plan = await planGenerationStrategy(path, strategyId);
       refreshGenerationStrategyIndex();
-      json(res, { ok: true, strategy, validation, summary: strategySummary(strategy, path) });
+      json(res, { ok: true, strategy, validation, plan, summary: strategySummary(strategy, path) });
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
     return;
   }

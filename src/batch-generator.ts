@@ -18,7 +18,7 @@ import {
   generateBoardLayerClosure,
   computeDependencyDepth,
 } from './index.js';
-import { solvePlayerMistakeBatch } from './solver/index.js';
+import { solvePlayerMistakeBatch, solvePlayerShortestBatch } from './solver/index.js';
 import { OfflineTile } from './solver/types.js';
 import { OfflineGame } from './solver/offline-game.js';
 import { gradeStrategy2 } from './grader.js';
@@ -33,12 +33,38 @@ import { mulberry32 } from './random-utils.js';
 export type ParamMode = 'random' | number;
 export type ParamModeStr = 'random' | string;
 
+export interface NumericRange { min: number; max: number }
+export interface OptimalGradeConstraint {
+  min_win_rate?: number;
+  min_win_rate_exclusive?: number;
+  max_win_rate_exclusive?: number;
+  min_win_starvation_per_tile?: number;
+  max_win_starvation_per_tile?: number;
+  max_loss_remaining_ratio?: number;
+}
+export interface OptimalAcceptanceConfig {
+  runs: number;
+  grade_constraints: Record<string, OptimalGradeConstraint>;
+}
+export interface BatchAcceptanceConfig {
+  minSim1Wins?: number;
+  minSim5Wins?: number;
+  minSim15Wins?: number;
+  minPassrate?: number;
+  optimal?: OptimalAcceptanceConfig;
+}
+
 export interface UnifiedParams {
   closeRates: ParamModeStr;
   colorCount: ParamMode;
   colorCountRatio: number;       // [0,1]，colorCount='random' 时使用
   spreadParam: ParamMode;
   debtPersistenceWeight: ParamMode;
+  closeRateRange?: NumericRange;
+  colorRatioRange?: NumericRange;
+  colorJitter?: number;
+  spreadRange?: NumericRange;
+  debtRange?: NumericRange;
 }
 
 export interface BatchConfig {
@@ -48,6 +74,14 @@ export interface BatchConfig {
   colorCountRatio: number;
   spreadParam: ParamMode;
   debtPersistenceWeight: ParamMode;
+  closeRateRange?: NumericRange;
+  colorRatioRange?: NumericRange;
+  colorJitter?: number;
+  spreadRange?: NumericRange;
+  debtRange?: NumericRange;
+  targetGrades?: number[];
+  acceptance?: BatchAcceptanceConfig;
+  acceptedOnly?: boolean;
   simRuns: number;
   targetPerTier: number;
   maxAttempts: number;
@@ -160,6 +194,41 @@ export function randomizeCloseRatesFromTiles(
   return rates;
 }
 
+function normalizedRange(range: NumericRange | undefined, fallback: NumericRange): NumericRange {
+  const min = Math.max(0, Math.min(1, Number(range?.min ?? fallback.min)));
+  const max = Math.max(0, Math.min(1, Number(range?.max ?? fallback.max)));
+  return min <= max ? { min, max } : { min: max, max: min };
+}
+
+function randomizeCloseRatesInRange(
+  allTiles: TerrainTile[], rng: () => number, range: NumericRange,
+): number[] {
+  const { min, max } = normalizedRange(range, { min: 0, max: 1 });
+  const freeTiles = allTiles.filter(t => !t.isConst);
+  const tileMap = new Map(allTiles.map(t => [t.id, t]));
+  const depthMap = computeDependencyDepth(freeTiles, tileMap);
+  const maxDepth = depthMap.size > 0 ? Math.max(...depthMap.values()) : 1;
+  const rates: number[] = [];
+  let cumulativeTiles = 0;
+  let previousTarget = 0;
+  for (let depth = 1; depth < maxDepth; depth++) {
+    cumulativeTiles += allTiles.filter(t => depthMap.get(t.id) === depth).length;
+    const possibleGroups = Math.floor(cumulativeTiles / 3);
+    const earlyFloor = depth <= 2 ? Math.min(1, possibleGroups) : 0;
+    const lower = Math.max(previousTarget, earlyFloor, Math.ceil(min * possibleGroups));
+    const upper = Math.max(lower, Math.min(possibleGroups, Math.floor(max * possibleGroups)));
+    const target = lower + Math.floor(rng() * (upper - lower + 1));
+    rates.push(possibleGroups > 0 ? target / possibleGroups : 0);
+    previousTarget = target;
+  }
+  return rates;
+}
+
+function randomInRange(rng: () => number, range: NumericRange | undefined): number {
+  const { min, max } = normalizedRange(range, { min: 0, max: 1 });
+  return min + rng() * (max - min);
+}
+
 // ═══════════════════════════════════════════════════════════
 // 参数随机化
 // ═══════════════════════════════════════════════════════════
@@ -172,16 +241,24 @@ export function randomizeParams(
   const allTiles = getAllTiles(terrain);
   const freeTiles = allTiles.filter(t => !t.isConst).length;
 
+  const colorRatio = params.colorRatioRange
+    ? randomInRange(rng, params.colorRatioRange)
+    : params.colorCountRatio;
+  const jitter = Math.max(0, Math.floor(params.colorJitter ?? 0));
+  const jitterOffset = jitter > 0 ? Math.floor(rng() * (jitter * 2 + 1)) - jitter : 0;
+
   return {
     closeRates: params.closeRates === 'random'
-      ? randomizeCloseRatesFromTiles(allTiles, rng)
+      ? (params.closeRateRange
+        ? randomizeCloseRatesInRange(allTiles, rng, params.closeRateRange)
+        : randomizeCloseRatesFromTiles(allTiles, rng))
       : params.closeRates.split(',').map(s => Math.max(0, Math.min(1, parseFloat(s.trim()) || 0))),
     colorCount: params.colorCount === 'random'
-      ? colorCountFromRatio(params.colorCountRatio, freeTiles)
+      ? Math.max(1, colorCountFromRatio(colorRatio, freeTiles) + jitterOffset)
       : params.colorCount,
-    spreadParam: params.spreadParam === 'random' ? rng() : params.spreadParam,
+    spreadParam: params.spreadParam === 'random' ? randomInRange(rng, params.spreadRange) : params.spreadParam,
     debtPersistenceWeight: params.debtPersistenceWeight === 'random'
-      ? rng() : params.debtPersistenceWeight,
+      ? randomInRange(rng, params.debtRange) : params.debtPersistenceWeight,
   };
 }
 
@@ -215,12 +292,16 @@ export function buildHardestParams(
   }
 
   return {
-    closeRates: minCloseRates,
+    closeRates: unified.closeRateRange
+      ? randomizeCloseRatesInRange(allTiles, () => 0, unified.closeRateRange)
+      : minCloseRates,
     colorCount: unified.colorCount === 'random'
-      ? colorCountFromRatio(1.0, freeTiles)
+      ? colorCountFromRatio(unified.colorRatioRange?.max ?? 1.0, freeTiles) + Math.max(0, unified.colorJitter ?? 0)
       : unified.colorCount,
-    spreadParam: unified.spreadParam === 'random' ? 1.0 : unified.spreadParam,
-    debtPersistenceWeight: unified.debtPersistenceWeight === 'random' ? 1.0 : unified.debtPersistenceWeight,
+    spreadParam: unified.spreadParam === 'random' ? (unified.spreadRange?.max ?? 1.0) : unified.spreadParam,
+    debtPersistenceWeight: unified.debtPersistenceWeight === 'random'
+      ? (unified.debtRange?.max ?? 1.0)
+      : unified.debtPersistenceWeight,
   };
 }
 
@@ -282,6 +363,7 @@ export function generateAndEvaluateOne(
   terrainIndex: number, terrainPath: string,
   attemptIndex: number, isMaxGradeProbe: boolean,
   simRuns: number, seed: number,
+  optimalAcceptance?: OptimalAcceptanceConfig,
 ): BatchRow {
   const t0 = performance.now();
   const allTiles = getAllTiles(terrain);
@@ -308,7 +390,7 @@ export function generateAndEvaluateOne(
     };
     const gd = gradeStrategy2(snap);
 
-    return {
+    let row: BatchRow = {
       terrainIndex, terrainPath, levelResId: String(terrain.levelResId ?? ''),
       attemptIndex, isMaxGradeProbe,
       colorCount: params.colorCount, closeRates: params.closeRates,
@@ -324,6 +406,30 @@ export function generateAndEvaluateOne(
       sim15WinRate: s15.winRate, sim15Wins: s15.wins,
       elapsedMs: Math.round(performance.now() - t0), success: true,
     };
+    const constraint = optimalAcceptance?.grade_constraints[String(row.grade)];
+    if (constraint && optimalAcceptance) {
+      const optimal = solvePlayerShortestBatch(
+        new OfflineGame(offlineTiles), optimalAcceptance.runs, seed + 700000,
+      );
+      const remainingTiles = optimal.losses > 0
+        ? Math.max(0, allTiles.length - optimal.stepsOnLoss)
+        : 0;
+      row = {
+        ...row,
+        optimalRuns: optimalAcceptance.runs,
+        optimalWins: optimal.wins,
+        optimalLosses: optimal.losses,
+        optimalWinRate: optimal.winRate,
+        optimalForcedPickOnWin: optimal.forcedPickOnWin,
+        optimalStarvationOnWin: optimal.starvationOnWin,
+        optimalStepsOnLoss: optimal.stepsOnLoss,
+        optimalForcedPickOnLoss: optimal.forcedPickOnLoss,
+        optimalStarvationOnLoss: optimal.starvationOnLoss,
+        optimalRemainingTilesOnLoss: remainingTiles,
+        optimalRemainingRatioOnLoss: allTiles.length > 0 ? remainingTiles / allTiles.length : 0,
+      };
+    }
+    return row;
   } catch (err) {
     return {
       ...mkEmptyRow(terrainIndex, terrainPath, params, attemptIndex, isMaxGradeProbe, false,
@@ -332,6 +438,32 @@ export function generateAndEvaluateOne(
       elapsedMs: Math.round(performance.now() - t0),
     };
   }
+}
+
+function acceptsOptimal(row: BatchRow, constraint: OptimalGradeConstraint): boolean {
+  const winRate = row.optimalWinRate;
+  const starvation = row.totalTiles > 0 && row.optimalStarvationOnWin != null
+    ? row.optimalStarvationOnWin / row.totalTiles
+    : null;
+  const remaining = row.optimalRemainingRatioOnLoss;
+  if (winRate == null || starvation == null || remaining == null) return false;
+  if (constraint.min_win_rate != null && winRate < constraint.min_win_rate) return false;
+  if (constraint.min_win_rate_exclusive != null && winRate <= constraint.min_win_rate_exclusive) return false;
+  if (constraint.max_win_rate_exclusive != null && winRate >= constraint.max_win_rate_exclusive) return false;
+  if (constraint.min_win_starvation_per_tile != null && starvation < constraint.min_win_starvation_per_tile) return false;
+  if (constraint.max_win_starvation_per_tile != null && starvation >= constraint.max_win_starvation_per_tile) return false;
+  if (constraint.max_loss_remaining_ratio != null && remaining > constraint.max_loss_remaining_ratio) return false;
+  return true;
+}
+
+function acceptsBatchRow(row: BatchRow, acceptance: BatchAcceptanceConfig | undefined): boolean {
+  if (!row.success || row.grade < 0) return false;
+  if (acceptance?.minSim1Wins != null && row.sim1Wins < acceptance.minSim1Wins) return false;
+  if (acceptance?.minSim5Wins != null && row.sim5Wins < acceptance.minSim5Wins) return false;
+  if (acceptance?.minSim15Wins != null && row.sim15Wins < acceptance.minSim15Wins) return false;
+  if (acceptance?.minPassrate != null && row.passrate < acceptance.minPassrate) return false;
+  const constraint = acceptance?.optimal?.grade_constraints[String(row.grade)];
+  return !constraint || acceptsOptimal(row, constraint);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -361,6 +493,7 @@ export async function collectGradesForTerrain(
   terrainIndex: number, terrainPath: string,
   maxGrade: number, targetPerTier: number, maxAttempts: number,
   simRuns: number, baseSeed: number,
+  selection?: Pick<BatchConfig, 'targetGrades' | 'acceptance' | 'acceptedOnly'> & { gradeTargets?: Record<number, number> },
   isAborted?: () => boolean,
   onProgress?: (collected: Record<number, number>, attempts: number, latestRow: BatchRow | null) => void,
 ): Promise<{ rows: BatchRow[]; collected: Record<number, number>; attempts: number }> {
@@ -370,13 +503,22 @@ export async function collectGradesForTerrain(
 
   const allRows: BatchRow[] = [];
   let attempts = 0;
+  const desiredGrades = [...new Set(
+    (selection?.targetGrades?.length
+      ? selection.targetGrades
+      : Array.from({ length: maxGrade + 1 }, (_, grade) => grade))
+      .filter(grade => Number.isInteger(grade) && grade >= 0),
+  )];
+  const desiredSet = new Set(desiredGrades);
+  for (const grade of desiredGrades) buckets[grade] ??= [];
 
   while (attempts < maxAttempts) {
     if (isAborted?.()) break;
     // 仅检查 0..maxGrade 是否收满
     let allFull = true;
-    for (let g = 0; g <= maxGrade; g++) {
-      if (buckets[g].length < targetPerTier) { allFull = false; break; }
+    for (const g of desiredGrades) {
+      const tgt = selection?.gradeTargets?.[g] ?? targetPerTier;
+      if (buckets[g].length < tgt) { allFull = false; break; }
     }
     if (allFull) break;
 
@@ -385,24 +527,19 @@ export async function collectGradesForTerrain(
     const params = randomizeParams(unifiedParams, terrain, rng);
 
     const row = generateAndEvaluateOne(terrain, params, terrainIndex, terrainPath,
-      attempts + 1, false, simRuns, seed);
-    allRows.push(row);
+      attempts + 1, false, simRuns, seed, selection?.acceptance?.optimal);
     attempts++;
+    const accepted = desiredSet.has(row.grade) && acceptsBatchRow(row, selection?.acceptance);
+    if (!selection?.acceptedOnly || accepted) allRows.push(row);
 
-    if (row.success && row.grade >= 0) {
-      if (row.grade <= maxGrade) {
-        // 0..maxGrade: 有 targetPerTier 要求
-        if (buckets[row.grade].length < targetPerTier) buckets[row.grade].push(row);
-      } else {
-        // 超出 maxGrade: 照收不误，但不设目标
-        buckets[row.grade].push(row);
-      }
+    if (accepted && buckets[row.grade].length < (selection?.gradeTargets?.[row.grade] ?? targetPerTier)) {
+      buckets[row.grade].push(row);
     }
 
     if (onProgress) {
       const cts: Record<number, number> = {};
       for (let g = 0; g <= Math.max(maxGrade, 5); g++) cts[g] = buckets[g].length;
-      onProgress(cts, attempts, row);
+      onProgress(cts, attempts, !selection?.acceptedOnly || accepted ? row : null);
     }
     // 让出事件循环，允许轮询请求得到处理
     await yieldTick();
@@ -497,10 +634,10 @@ export async function runTerrainGeneration(
   const seed = (Date.now() + terrainIndex * 10000) & 0x7fffffff;
   const { maxGrade, row: probe } = determineMaxGrade(terrain, unified, terrainIndex, terrainPath, config.simRuns, seed);
   tp.maxGrade = maxGrade;
-  tp.rows.push(probe);
+  if (!config.acceptedOnly) tp.rows.push(probe);
   for (let g = 0; g <= Math.max(maxGrade, 5); g++) tp.collected[g] = 0;
-  if (probe.success && probe.grade >= 0) tp.collected[probe.grade] = 1;
-  if (onProgress) onProgress(tp, 1);
+  if (!config.acceptedOnly && probe.success && probe.grade >= 0) tp.collected[probe.grade] = 1;
+  if (onProgress) onProgress(tp, config.acceptedOnly ? 0 : 1);
   await yieldTick();
 
   // Phase 2
@@ -508,10 +645,11 @@ export async function runTerrainGeneration(
   const { collected, attempts } = await collectGradesForTerrain(
     terrain, unified, terrainIndex, terrainPath, maxGrade,
     config.targetPerTier, config.maxAttempts, config.simRuns, seed,
+    { targetGrades: config.targetGrades, acceptance: config.acceptance, acceptedOnly: config.acceptedOnly },
     isAborted,
     (cts, att, latestRow) => {
       tp.collected = { ...cts };
-      if (probe.success && probe.grade >= 0) {
+      if (!config.acceptedOnly && probe.success && probe.grade >= 0) {
         tp.collected[probe.grade] = Math.max(tp.collected[probe.grade], 1);
       }
       tp.attempts = att;
@@ -520,7 +658,7 @@ export async function runTerrainGeneration(
     },
   );
   tp.attempts = attempts; tp.collected = collected;
-  if (probe.success && probe.grade >= 0) {
+  if (!config.acceptedOnly && probe.success && probe.grade >= 0) {
     tp.collected[probe.grade] = Math.max(tp.collected[probe.grade], 1);
   }
   tp.phase = 'done';
@@ -625,6 +763,11 @@ export async function runBatchGeneration(
     closeRates: config.closeRates, colorCount: config.colorCount,
     colorCountRatio: config.colorCountRatio,
     spreadParam: config.spreadParam, debtPersistenceWeight: config.debtPersistenceWeight,
+    closeRateRange: config.closeRateRange,
+    colorRatioRange: config.colorRatioRange,
+    colorJitter: config.colorJitter,
+    spreadRange: config.spreadRange,
+    debtRange: config.debtRange,
   };
 
   const updateTerrain = (terrain: TerrainProgress, rowsAdded: number) => {

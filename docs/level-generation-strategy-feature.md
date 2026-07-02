@@ -52,13 +52,14 @@ Schema 和本文档用于创建新策略。不要根据旧报告或文件名反�
 1. 策划或工具维护者人工设计生成参数和评价参数。
 2. 为不同实验目的建立独立策略或策略变体，不覆盖仍需追溯的旧版本。
 3. 对当前系统已经支持的字段使用 `validate` 校验字段和枚举值。
-4. 使用 `plan` 创建一次 run 目录。
+4. 保存策略时自动刷新 `runs/<strategy_id>/` 运行目录；命令行也可用同名 `run-id` 手动刷新。
 5. 检查 `strategy_snapshot.json` 和 `command.sh` 是否符合预期。
 6. 执行 `command.sh`。
 7. 查看 `logs/` 中的状态和进度，并人工确认评价结果。
 8. 将 `01_generation/`、`02_analysis/`、`03_config/` 中的产物用于后续校准、配置或 replay 导出。
 
-run 目录必须保留。策略文件后续可能被修改，只有 run 目录中的 `strategy_snapshot.json` 能解释历史产物。
+每个策略只维护一个同名运行目录。保存新版本会覆盖其中的运行配置、策略快照和命令，
+策略版本历史由 `strategy_history/` 负责，不再按版本复制运行目录。
 
 ## 3. 目录约定
 
@@ -74,7 +75,7 @@ output/generation_feature/
     <strategy_id>/
       v<version>_<time>.json    # 页面保存生成的不可变版本快照
   runs/
-    <run_id>/
+    <strategy_id>/
       run_config.json           # 本次运行配置
       strategy_snapshot.json    # 本次运行使用的策略快照
       command.sh                # 可执行命令
@@ -86,7 +87,7 @@ output/generation_feature/
 
 前端入口为 `/generation-strategies.html`。页面保存时由 `gui/server.ts` 调用同一套
 `validate_strategy()` 权威校验；更新已有策略会自动递增 `meta.version`，并在
-`strategy_history/` 中保存修改前基线和新版本。页面导出的 JSON 与命令行 Feature 使用同一结构，
+`strategy_history/` 中保存修改前基线和新版本，同时刷新同名运行目录。页面导出的 JSON 与命令行 Feature 使用同一结构，
 不维护第二套配置格式。页面字段旁的 `?` 和右侧“字段说明”由集中字段字典生成，包含实际意义、
 填写格式、示例和枚举选项影响；新增参数时需要同步补充该字段字典。
 
@@ -507,7 +508,7 @@ colorCount = floor(ratio * floor(freeTiles / 3))
 }
 ```
 
-补缺执行器还支持按档位设置 Optimal 验收：
+生成执行器支持按档位设置相互独立的 Optimal 验收条件。任何字段留空都表示不限制该指标：
 
 ```json
 {
@@ -525,8 +526,8 @@ colorCount = floor(ratio * floor(freeTiles / 3))
             "max_win_starvation_per_tile": 0.16
           },
           "4": {
-            "min_win_rate_exclusive": 0,
             "max_win_rate_exclusive": 0.8,
+            "min_win_starvation_per_tile": 0.25,
             "max_loss_remaining_ratio": 0.4
           }
         }
@@ -554,10 +555,12 @@ Optimal 约束字段：
 
 | 字段 | 单位与含义 |
 | --- | --- |
-| `min_win_rate` | 0-1；Optimal 最低胜率，适合 G1-G3 |
-| `min_win_rate_exclusive` / `max_win_rate_exclusive` | 0-1；挑战档 Optimal 胜率开区间 |
+| `min_win_rate` | 0-1；Optimal 最低胜率；留空不限制 |
+| `max_win_rate_exclusive` | 0-1；Optimal 胜率上限；留空不限制 |
 | `min_win_starvation_per_tile` / `max_win_starvation_per_tile` | `胜局平均断色次数 / tile总数`，0-1 |
 | `max_loss_remaining_ratio` | `1 - 败局平均已走步数 / tile总数` 的上限，0-1 |
+
+旧策略中的 `min_win_rate_exclusive` 仍可由执行器读取，但新页面统一保存为 `min_win_rate`。
 
 线上回放必须读取策略 JSON 中的 `evaluation.acceptance.optimal`，不要另抄一份阈值。当前工具：
 
@@ -581,7 +584,9 @@ python3 tools/analyze_optimal_experience_online.py \
 | `threshold_profile` | `classifier` 的版本或 Profile 引用 |
 | `min_sim1_wins` 等 | `acceptance` 条件简写 |
 
-在系统正式接入评价 Profile 前，人工策略 JSON 仍可使用当前兼容格式执行；完整结构用于设计、评审和记录参数含义，不应假定现有执行器已经全部支持。
+`run-batch-generation` 已支持目标 Grade、闭合率范围、花色比例范围与浮动、分布范围、债务范围、
+SIM 最低胜局、最低 passrate 和按 Grade 配置的 Optimal 验收。新增字段时仍需同步更新执行适配器，
+不能只让页面和 JSON 接受字段。
 
 `threshold_profile="current"` 目前只是兼容别名，不会自动冻结公式。正式产出必须依赖 run 内的
 `strategy_snapshot.json` 和代码版本追溯；当 Strategy2 公式或阈值再次变化时，应改成明确版本名，

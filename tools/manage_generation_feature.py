@@ -229,27 +229,11 @@ DEFAULT_SCHEMA: dict[str, Any] = {
                 "min_win_rate": {"type": "number", "minimum": 0, "maximum": 1},
                 "min_win_rate_exclusive": {"type": "number", "minimum": 0, "maximum": 1},
                 "max_win_rate_exclusive": {"type": "number", "minimum": 0, "maximum": 1},
-                "min_win_starvation_per_tile": {"type": "number", "minimum": 0},
-                "max_win_starvation_per_tile": {"type": "number", "minimum": 0},
+                "min_win_starvation_per_tile": {"type": "number", "minimum": 0, "maximum": 1},
+                "max_win_starvation_per_tile": {"type": "number", "minimum": 0, "maximum": 1},
                 "max_loss_remaining_ratio": {"type": "number", "minimum": 0, "maximum": 1},
             },
             "additionalProperties": False,
-            "oneOf": [
-                {
-                    "required": [
-                        "min_win_rate",
-                        "min_win_starvation_per_tile",
-                        "max_win_starvation_per_tile",
-                    ],
-                },
-                {
-                    "required": [
-                        "min_win_rate_exclusive",
-                        "max_win_rate_exclusive",
-                        "max_loss_remaining_ratio",
-                    ],
-                },
-            ],
         },
     },
 }
@@ -781,26 +765,18 @@ def validate_strategy(strategy: dict[str, Any], strategy_path: Path | None = Non
                             errors.append(f"{path}.{key}: 必须是数字")
                         elif key in ratio_keys and not 0 <= float(value) <= 1:
                             errors.append(f"{path}.{key}: 必须在0到1之间")
-                        elif key.startswith(("min_win_starvation", "max_win_starvation")) and value < 0:
-                            errors.append(f"{path}.{key}: 不能小于0")
+                        elif key.startswith(("min_win_starvation", "max_win_starvation")) and not 0 <= float(value) <= 1:
+                            errors.append(f"{path}.{key}: 必须在0到1之间")
                     min_starve = constraint.get("min_win_starvation_per_tile")
                     max_starve = constraint.get("max_win_starvation_per_tile")
                     if isinstance(min_starve, (int, float)) and isinstance(max_starve, (int, float)) and min_starve > max_starve:
                         errors.append(f"{path}: 断色下限不能大于上限")
-                    if "min_win_rate" in constraint:
-                        required = {"min_win_rate", "min_win_starvation_per_tile", "max_win_starvation_per_tile"}
-                        missing = sorted(required - constraint.keys())
-                        if missing:
-                            errors.append(f"{path}: 简单档缺少 {','.join(missing)}")
-                    else:
-                        required = {"min_win_rate_exclusive", "max_win_rate_exclusive", "max_loss_remaining_ratio"}
-                        missing = sorted(required - constraint.keys())
-                        if missing:
-                            errors.append(f"{path}: 挑战档缺少 {','.join(missing)}")
-                        low = constraint.get("min_win_rate_exclusive")
-                        high = constraint.get("max_win_rate_exclusive")
-                        if isinstance(low, (int, float)) and isinstance(high, (int, float)) and low >= high:
-                            errors.append(f"{path}: Optimal胜率开区间下限必须小于上限")
+                    low = constraint.get("min_win_rate", constraint.get("min_win_rate_exclusive"))
+                    high = constraint.get("max_win_rate_exclusive")
+                    if isinstance(low, (int, float)) and isinstance(high, (int, float)) and low >= high:
+                        errors.append(f"{path}: Optimal胜率下限必须小于上限")
+                    if constraint.get("max_loss_remaining_ratio") == 0 and isinstance(high, (int, float)) and high <= 1:
+                        warnings.append(f"{path}: 失败剩余率上限为0且胜率要求小于100%，通常几乎无法命中")
 
     for key in ["attempts_per_level", "attempts_per_missing_grade", "max_attempts_per_missing", "template_attempts"]:
         if key in search:
@@ -842,10 +818,6 @@ def validate_strategy(strategy: dict[str, Any], strategy_path: Path | None = Non
     if executor == "run-batch-generation":
         if not coerce_int_list(scope.get("include_levels")) and not str(scope.get("level_range", "")).strip():
             warnings.append("run-batch-generation 没有固定关卡范围；plan 时必须通过 --levels 覆盖。")
-        if closure.get("mode") == "random_range":
-            warnings.append("run-batch-generation 当前会把闭合率 random_range 按项目 random 执行；范围只保留在策略快照。")
-        if color.get("mode") in {"ratio_jitter", "range"}:
-            warnings.append("run-batch-generation 当前只接收单个花色比例；jitter/range 会使用 ratio/min 并保留原配置快照。")
     if executor in {"backfill-missing-grades", "search-missing-grade-samples", "build-calibration-variant"}:
         if not str(scope.get("source_csv", "")).strip():
             errors.append(f"{executor}: scope.source_csv 不能为空")
@@ -1002,6 +974,26 @@ def shell_join(parts: list[str]) -> str:
     return " ".join(shlex.quote(str(part)) for part in parts if str(part) != "")
 
 
+def format_shell_command(parts: list[str]) -> str:
+    prefix: list[str] = []
+    groups: list[list[str]] = []
+    index = 0
+    while index < len(parts) and not str(parts[index]).startswith("--"):
+        prefix.append(str(parts[index]))
+        index += 1
+    while index < len(parts):
+        group = [str(parts[index])]
+        index += 1
+        while index < len(parts) and not str(parts[index]).startswith("--"):
+            group.append(str(parts[index]))
+            index += 1
+        groups.append(group)
+    if not groups:
+        return shell_join(prefix)
+    lines = [shell_join(prefix)] + [shell_join(group) for group in groups]
+    return " \\\n  ".join(lines)
+
+
 def run_id_for(strategy_id: str) -> str:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"{stamp}_{strategy_id}"
@@ -1148,10 +1140,6 @@ def command_for(strategy: dict[str, Any], run_dir: Path, args: argparse.Namespac
         color = policy(generation, "color")
         spread = policy(generation, "spread")
         debt = policy(generation, "debt")
-        if closure.get("mode") == "random_range":
-            notes.append("run-batch-generation 当前不支持闭合率随机范围，命令会按 random 执行，完整范围保留在 run_config.json。")
-        if color.get("mode") in {"ratio_jitter", "range"}:
-            notes.append("run-batch-generation 当前只接收单个 color-ratio；jitter/range 会保留在快照中，命令使用 ratio/min。")
         cmd = [
             "npx", "tsx", "tools/run-batch-generation.ts",
             "--levels", ",".join(levels),
@@ -1164,9 +1152,20 @@ def command_for(strategy: dict[str, Any], run_dir: Path, args: argparse.Namespac
             "--debt", fixed_or_random_arg(debt),
             "--sim-runs", str(evaluation.get("sim_runs", 200)),
             "--target-per-tier", str(target.get("target_count_per_grade", 10)),
+            "--target-grades", csv_value(target.get("grades", [])),
             "--max-attempts", str(search.get("attempts_per_level", 500)),
             "--concurrency", concurrency or "2",
+            "--run",
         ]
+        if closure.get("mode") == "random_range":
+            add_range_flags(cmd, closure, "--close-min", "--close-max")
+        if color.get("mode") == "range":
+            add_range_flags(cmd, color, "--color-ratio-min", "--color-ratio-max")
+        elif color.get("mode") == "ratio_jitter":
+            cmd += ["--color-jitter", str(color.get("jitter", 0))]
+        add_range_flags(cmd, spread, "--spread-min", "--spread-max")
+        add_range_flags(cmd, debt, "--debt-min", "--debt-max")
+        add_acceptance_flags(cmd, evaluation)
         artifacts["primary_output"] = str(output)
 
     elif executor == "backfill-missing-grades":
@@ -1320,7 +1319,7 @@ def plan_run(args: argparse.Namespace) -> None:
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         f"cd {shlex.quote(str(ROOT))}\n"
-        f"{shell_join(cmd)}\n",
+        f"{format_shell_command(cmd)} \"$@\"\n",
         encoding="utf-8",
     )
     command_file.chmod(0o755)

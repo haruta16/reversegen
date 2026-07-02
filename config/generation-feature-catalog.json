@@ -1,5 +1,8 @@
 {
   "version": 1,
+  "commonFields": {
+    "evaluation": ["optimalRuns", "optimalEnabled", "optimalWrap"]
+  },
   "workflows": {
     "run-batch-generation": {
       "label": "全量批量生成",
