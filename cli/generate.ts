@@ -45,8 +45,11 @@ const { values } = parseArgs({
     // LayerClosure 算法专用参数
     'close-rates':  { type: 'string' },
         'dock':         { type: 'string', default: '7' },
-    'spread':       { type: 'string', default: '0.5' },
-    'debt-persistence': { type: 'string', default: '0' },
+    'target-suit-spread':       { type: 'string', default: '0.5' },
+    'target-debt-retention':    { type: 'string', default: '0' },
+    // 向后兼容（deprecated）
+    'spread':                   { type: 'string' },
+    'debt-persistence':         { type: 'string' },
     json:          { type: 'boolean', short: 'j', default: false },
     quiet:         { type: 'boolean', short: 'q', default: false },
     verbose:       { type: 'boolean', short: 'v', default: false },
@@ -81,10 +84,10 @@ OPTIONS:
     -c, --cost <array>     Cost 数组 (e.g. "3,3,2,2,2,1")
 
   LayerClosure 算法参数 (-a closure):
-    --close-rates <csv>   每层闭合率 (e.g. "0.3,0.6,0.8")
-    --dock <n>            Dock容量 (默认: 7)
-    --spread <n>          同色分布 [0-1] 0=紧密 0.5=随机 1=分散 (默认: 0.5)
-    --debt-persistence <n> 债务持续权重 [0-1] 0=清旧债 1=延旧债 (默认: 0)
+    --close-rates <csv>        每层闭合率 (e.g. "0.3,0.6,0.8")
+    --dock <n>                 Dock容量 (默认: 7)
+    --target-suit-spread <n>   目标归一化领土离散度 [0-1] 0=紧密 1=分散 (默认: 0.5)
+    --target-debt-retention <n> 目标旧债跨层保留率 [0-1] 0=清旧债 1=延旧债 (默认: 0)
 
 EXAMPLES:
   # CostLadder (默认)
@@ -210,10 +213,11 @@ try {
     });
 
         const dock = parseInt(values['dock']!, 10) || 7;
-    const spread = parseFloat(values['spread']!);
-    const spreadParam = isNaN(spread) ? 0.5 : Math.max(0, Math.min(1, spread));
-    const dpRaw = parseFloat(values['debt-persistence']!);
-    const debtPersistenceWeight = isNaN(dpRaw) ? 0 : Math.max(0, Math.min(1, dpRaw));
+    // 新参数名优先，fallback 到旧参数名
+    const spreadRaw = values['target-suit-spread'] ?? values['spread'] ?? '0.5';
+    const targetSuitSpread = Math.max(0, Math.min(1, parseFloat(spreadRaw) || 0.5));
+    const debtRaw = values['target-debt-retention'] ?? values['debt-persistence'] ?? '0';
+    const targetDebtRetention = Math.max(0, Math.min(1, parseFloat(debtRaw) || 0));
 
     const result = generateBoardLayerClosure({
       terrain,
@@ -221,8 +225,8 @@ try {
       colorCount,
       dock,
       levelHash: values.hash,
-      spreadParam,
-      debtPersistenceWeight,
+      targetSuitSpread,
+      targetDebtRetention,
     });
 
     const m = result.metrics;
@@ -256,13 +260,14 @@ try {
           allSuitsClosed: m.allSuitsClosed,
           isDoomed: m.isDoomed,
           suitSpread: m.suitSpread,
-          suitSpreadNorm: m.suitSpreadNorm,
+          actualSuitSpread: m.actualSuitSpread,
+          targetSuitSpreadChoiceStats: m.targetSuitSpreadChoiceStats,
+          actualDebtRetention: m.actualDebtRetention,
           configuredDebtPersistenceWeight: m.configuredDebtPersistenceWeight,
           retainedOldDebtTilesByLayer: m.retainedOldDebtTilesByLayer,
           totalRetainedOldDebtTiles: m.totalRetainedOldDebtTiles,
           debtDurationHistogram: m.debtDurationHistogram,
           debtRetentionRates: m.debtRetentionRates,
-          weightedDebtRetentionRate: m.weightedDebtRetentionRate,
           colorUsageRates: m.colorUsageRates,
         },
       }, null, 2));
@@ -278,8 +283,8 @@ try {
       console.log(`  OI: ${m.oi}  连续超载: ${m.consecutiveOI}层`);
       console.log(`  平均遮挡: ${m.averageOcclusion}  花色*3: ${m.allSuitsClosed ? '✓' : '✗'}`);
       console.log(`  必输判定: ${m.isDoomed ? '是' : '否'}`);
-      console.log(`  花色离散率: ${(m.suitSpread * 100).toFixed(1)}%  归一离散率: ${(m.suitSpreadNorm * 100).toFixed(1)}%`);
-      console.log(`  债务持续权重 p=${m.configuredDebtPersistenceWeight}  保留旧债tile: [${m.retainedOldDebtTilesByLayer.join(', ')}] 总计:${m.totalRetainedOldDebtTiles}`);
+      console.log(`  领土离散度 实际:${(m.actualSuitSpread * 100).toFixed(1)}%  非归一:${(m.suitSpread * 100).toFixed(1)}%`);
+      console.log(`  旧债保留率 实际:${(m.actualDebtRetention * 100).toFixed(1)}%  旧债tile保留:[${m.retainedOldDebtTilesByLayer.join(', ')}] 总计:${m.totalRetainedOldDebtTiles}`);
       console.log(`  债务持续长度直方图(持续k层各有几段): [${m.debtDurationHistogram.join(', ')}]`);
       console.log(`  Level hash: ${result.levelHash}`);
 

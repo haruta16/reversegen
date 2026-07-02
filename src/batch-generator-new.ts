@@ -37,8 +37,8 @@ export interface UnifiedParams {
   closeRates: ParamModeStr;
   colorCount: ParamMode;
   colorCountRatio: number;       // [0,1]，colorCount='random' 时使用
-  spreadParam: ParamMode;
-  debtPersistenceWeight: ParamMode;
+  targetSuitSpread: ParamMode;
+  targetDebtRetention: ParamMode;
 }
 
 export interface BatchConfig {
@@ -46,8 +46,8 @@ export interface BatchConfig {
   closeRates: ParamModeStr;
   colorCount: ParamMode;
   colorCountRatio: number;
-  spreadParam: ParamMode;
-  debtPersistenceWeight: ParamMode;
+  targetSuitSpread: ParamMode;
+  targetDebtRetention: ParamMode;
   simRuns: number;
   targetPerTier: number;
   maxAttempts: number;
@@ -57,18 +57,18 @@ export interface BatchConfig {
 export interface GenerationParams {
   closeRates: number[];
   colorCount: number;
-  spreadParam: number;
-  debtPersistenceWeight: number;
+  targetSuitSpread: number;
+  targetDebtRetention: number;
 }
 
 export interface BatchRow {
   terrainIndex: number; terrainPath: string; levelResId: string;
   attemptIndex: number; isMaxGradeProbe: boolean;
-  colorCount: number; closeRates: number[]; spreadParam: number; debtPersistenceWeight: number;
+  colorCount: number; closeRates: number[]; targetSuitSpread: number; targetDebtRetention: number;
   freeTiles: number; totalTiles: number; depthCount: number;
   peakDebt: number; peakExpDebt: number; oi: number; consecutiveOI: number;
-  suitSpreadNorm: number; isDoomed: boolean;
-  actualCloseRates: number[]; weightedDebtRetentionRate: number;
+  actualSuitSpread: number; isDoomed: boolean;
+  actualCloseRates: number[]; actualDebtRetention: number;
   replayCode: string; grade: number; passrate: number; label: string;
   levelTags?: string;
   simRuns: number; sim1WinRate: number; sim1Wins: number;
@@ -176,9 +176,9 @@ export function randomizeParams(
     colorCount: params.colorCount === 'random'
       ? colorCountFromRatio(params.colorCountRatio, freeTiles)
       : params.colorCount,
-    spreadParam: params.spreadParam === 'random' ? rng() : params.spreadParam,
-    debtPersistenceWeight: params.debtPersistenceWeight === 'random'
-      ? rng() : params.debtPersistenceWeight,
+    targetSuitSpread: params.targetSuitSpread === 'random' ? rng() : params.targetSuitSpread,
+    targetDebtRetention: params.targetDebtRetention === 'random'
+      ? rng() : params.targetDebtRetention,
   };
 }
 
@@ -216,8 +216,8 @@ export function buildHardestParams(
     colorCount: unified.colorCount === 'random'
       ? colorCountFromRatio(1.0, freeTiles)
       : unified.colorCount,
-    spreadParam: unified.spreadParam === 'random' ? 1.0 : unified.spreadParam,
-    debtPersistenceWeight: unified.debtPersistenceWeight === 'random' ? 1.0 : unified.debtPersistenceWeight,
+    targetSuitSpread: unified.targetSuitSpread === 'random' ? 1.0 : unified.targetSuitSpread,
+    targetDebtRetention: unified.targetDebtRetention === 'random' ? 1.0 : unified.targetDebtRetention,
   };
 }
 
@@ -260,10 +260,10 @@ function mkEmptyRow(idx: number, path: string, p: GenerationParams, attempt: num
     terrainIndex: idx, terrainPath: path, levelResId: '', attemptIndex: attempt,
     isMaxGradeProbe: isProbe,
     colorCount: p.colorCount, closeRates: p.closeRates,
-    spreadParam: p.spreadParam, debtPersistenceWeight: p.debtPersistenceWeight,
+    targetSuitSpread: p.targetSuitSpread, targetDebtRetention: p.targetDebtRetention,
     freeTiles: 0, totalTiles: 0, depthCount: 0,
     peakDebt: 0, peakExpDebt: 0, oi: 0, consecutiveOI: 0,
-    suitSpreadNorm: 0, isDoomed: false, actualCloseRates: [], weightedDebtRetentionRate: 0,
+    actualSuitSpread: 0, isDoomed: false, actualCloseRates: [], actualDebtRetention: 0,
     replayCode: '', grade: -1, passrate: 0, label: ok ? '' : '失败',
     simRuns: 0, sim1WinRate: 0, sim1Wins: 0, sim5WinRate: 0, sim5Wins: 0,
     sim15WinRate: 0, sim15Wins: 0,
@@ -289,7 +289,7 @@ export function generateAndEvaluateOne(
   try {
     const result = generateBoardLayerClosure({
       terrain, closeRates: params.closeRates, colorCount: params.colorCount,
-      dock: 7, spreadParam: params.spreadParam, debtPersistenceWeight: params.debtPersistenceWeight,
+      dock: 7, targetSuitSpread: params.targetSuitSpread, targetDebtRetention: params.targetDebtRetention,
     });
     const m = result.metrics;
     const offlineTiles = buildOfflineTiles(terrain, result.assignments);
@@ -321,11 +321,11 @@ export function generateAndEvaluateOne(
       terrainIndex, terrainPath, levelResId: String(terrain.levelResId ?? ''),
       attemptIndex, isMaxGradeProbe,
       colorCount: params.colorCount, closeRates: params.closeRates,
-      spreadParam: params.spreadParam, debtPersistenceWeight: params.debtPersistenceWeight,
+      targetSuitSpread: params.targetSuitSpread, targetDebtRetention: params.targetDebtRetention,
       freeTiles, totalTiles: allTiles.length, depthCount: m.depthCount,
       peakDebt: m.peakDebt, peakExpDebt: m.peakExpDebt, oi: m.oi, consecutiveOI: m.consecutiveOI,
-      suitSpreadNorm: m.suitSpreadNorm, isDoomed: m.isDoomed,
-      actualCloseRates: m.actualCloseRates, weightedDebtRetentionRate: m.weightedDebtRetentionRate,
+      actualSuitSpread: m.actualSuitSpread, isDoomed: m.isDoomed,
+      actualCloseRates: m.actualCloseRates, actualDebtRetention: m.actualDebtRetention,
       replayCode: result.replayCode,
       grade: gd.grade, passrate: gd.passrate, label: gd.label,
       simRuns, sim1WinRate: s1.winRate, sim1Wins: s1.wins,
@@ -433,7 +433,7 @@ export const BATCH_CSV_HEADERS = [
   'DifficultyScore', 'CompletionStatus', 'ExpectConsume', 'LevelTags', 'ReplayTags',
   'highWinRate', 'MiddleWinRate', 'LowWinRate',
   // 后 12 列：生成参数 + sim 详情 + 实际闭合率 + 元信息
-  'colorCount', 'closeRates', 'spreadParam', 'debtPersistenceWeight',
+  'colorCount', 'closeRates', 'targetSuitSpread', 'targetDebtRetention',
   'simRuns', 'sim1Wins', 'sim5Wins', 'sim15Wins',
   'avgRemainingOnFail', 'avgForcedPickCount', 'avgColorStarvationCount',
   'actualCloseRates',
@@ -452,7 +452,7 @@ export function serializeBatchRow(row: BatchRow): string {
   const grade = row.success ? row.grade : '';
   const passrate = row.success ? row.passrate : 0;
   const status = row.success ? 'Success' : `Failed: ${row.error || 'unknown'}`;
-  const tags = row.levelTags ?? `cr=${row.closeRates.map(r => r.toFixed(2)).join('|')}|sp=${row.spreadParam.toFixed(2)}|dp=${row.debtPersistenceWeight.toFixed(2)}|cc=${row.colorCount}`;
+  const tags = row.levelTags ?? `cr=${row.closeRates.map(r => r.toFixed(2)).join('|')}|sp=${row.targetSuitSpread.toFixed(2)}|dr=${row.targetDebtRetention.toFixed(2)}|cc=${row.colorCount}`;
 
   return [
     // 前 13
@@ -460,7 +460,7 @@ export function serializeBatchRow(row: BatchRow): string {
     0, status, 0, tags, '',
     row.sim1WinRate, row.sim5WinRate, row.sim15WinRate,
     // 后 12
-    row.colorCount, row.closeRates.join(','), row.spreadParam, row.debtPersistenceWeight,
+    row.colorCount, row.closeRates.join(','), row.targetSuitSpread, row.targetDebtRetention,
     row.simRuns, row.sim1Wins, row.sim5Wins, row.sim15Wins,
     row.avgRemainingOnFail, row.avgForcedPickCount, row.avgColorStarvationCount,
     row.actualCloseRates.join(','),
@@ -487,7 +487,7 @@ export async function runTerrainGeneration(
   let terrain: TerrainData;
   try { terrain = loadTerrainFromFile(terrainPath); } catch (err) {
     tp.phase = 'done';
-    const ep: GenerationParams = { closeRates: [], colorCount: 0, spreadParam: 0, debtPersistenceWeight: 0 };
+    const ep: GenerationParams = { closeRates: [], colorCount: 0, targetSuitSpread: 0, targetDebtRetention: 0 };
     tp.rows.push(mkEmptyRow(terrainIndex, terrainPath, ep, 0, false, false, err instanceof Error ? err.message : String(err)));
     if (onProgress) onProgress(tp, 1);
     return tp;
@@ -618,7 +618,7 @@ export async function runBatchGeneration(
   const unified: UnifiedParams = {
     closeRates: config.closeRates, colorCount: config.colorCount,
     colorCountRatio: config.colorCountRatio,
-    spreadParam: config.spreadParam, debtPersistenceWeight: config.debtPersistenceWeight,
+    targetSuitSpread: config.targetSuitSpread, targetDebtRetention: config.targetDebtRetention,
   };
 
   const updateTerrain = (terrain: TerrainProgress, rowsAdded: number) => {

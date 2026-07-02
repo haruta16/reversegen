@@ -748,13 +748,16 @@ const server = createServer(async (req, res) => {
       const {
         algorithm,
         costArray, colorCount, // CostLadder params
-        closeRates, dock, spreadParam, debtPersistenceWeight, // LayerClosure params
+        closeRates, dock, targetSuitSpread, targetDebtRetention, // LayerClosure params
         levelId, levelsDir, terrainPath, levelHash,
+        // 向后兼容
+        spreadParam, debtPersistenceWeight,
       } = body as {
         algorithm?: string;
         costArray?: string; colorCount?: string;           // CostLadder
-        closeRates?: string; dock?: string; spreadParam?: string; // LayerClosure
-        debtPersistenceWeight?: string;                    // LayerClosure
+        closeRates?: string; dock?: string;                // LayerClosure
+        targetSuitSpread?: string; targetDebtRetention?: string; // LayerClosure
+        spreadParam?: string; debtPersistenceWeight?: string;  // deprecated
         levelId?: string; levelsDir?: string; terrainPath?: string; levelHash?: string;
       };
 
@@ -781,15 +784,16 @@ const server = createServer(async (req, res) => {
         }
 
                 const dk = parseInt(dock || '7', 10) || 7;
-        const sp = parseFloat(spreadParam || '0.5');
-        const spread = isNaN(sp) ? 0.5 : Math.max(0, Math.min(1, sp));
-        const dpRaw = parseFloat(debtPersistenceWeight || '0');
-        const dp = isNaN(dpRaw) ? 0 : Math.max(0, Math.min(1, dpRaw));
+        // 新参数名优先，fallback 到旧参数名
+        const spRaw = targetSuitSpread ?? spreadParam ?? '0.5';
+        const tss = isNaN(parseFloat(spRaw)) ? 0.5 : Math.max(0, Math.min(1, parseFloat(spRaw)));
+        const drRaw = targetDebtRetention ?? debtPersistenceWeight ?? '0';
+        const tdr = isNaN(parseFloat(drRaw)) ? 0 : Math.max(0, Math.min(1, parseFloat(drRaw)));
 
         const result = generateBoardLayerClosure({
           terrain, closeRates: rates, colorCount: k,
-          dock: dk, levelHash, spreadParam: spread,
-          debtPersistenceWeight: dp,
+          dock: dk, levelHash, targetSuitSpread: tss,
+          targetDebtRetention: tdr,
         });
 
         const ordered = getCanonicalTileOrder(allTiles);
@@ -972,7 +976,7 @@ const server = createServer(async (req, res) => {
         dock,
         colorCount,
         layerClosureRates,
-        0,   // debtPersistenceWeight: 导入路径无配置，回显 0
+        0,   // targetDebtRetention: 导入路径无配置，回显 0
         [],  // retainedOldDebtTilesByLayer: 由 computeLayerProgressMetrics 事后统计
       );
 

@@ -203,26 +203,34 @@ export interface LayerClosureInput {
    */
   closeRates: number[];
   /**
-   * 同色方块分布参数 [0-1]，控制同一花色 tiles 在依赖图中的离散程度。
+   * 目标归一化领土离散度 [0-1]，控制同一花色 tiles 在依赖图中的离散程度。
+   * 算法贪心逼近目标值，产出 actualSuitSpread 与之直接可比。
    *
-   * - 0.0 = cluster（紧密）：同花色 tiles 的 depSet 高度重叠 → 容易收集
-   * - 0.5 = neutral（随机）：等价于当前随机分配行为
-   * - 1.0 = spread（分散）：同花色 tiles 的 depSet 尽量不重叠 → 难以收集
+   * - 0.0 = 同色 tiles depSet 高度重叠（同一依赖子树）→ 易收集
+   * - 0.5 = 随机分布
+   * - 1.0 = 同色 tiles depSet 互不重叠（不同依赖子树）→ 难收集
    *
-   * 默认 0.5（随机，不改变原有行为）。
-   * 不影响 Step 1-3（深度计算、花色总数、逐层闭合率矩阵）。
+   * 默认 0.5。不影响 Step 1-3（深度计算、花色总数、逐层闭合率矩阵）。
+   *
+   * @see DebtMetrics.actualSuitSpread — 输出中的同一对象
    */
+  targetSuitSpread?: number;
+  /** @deprecated 使用 targetSuitSpread */
   spreadParam?: number;
   /**
-   * 债务持续权重 [0-1]，控制下一层债务中有多少来自上一层的旧债务 tile。
+   * 目标旧债跨层保留率 [0-1]，控制相邻层之间旧债务 tile 有多大比例延续到下一层。
+   * 算法以 targetRetained = round(targetDebtRetention × oldDebtTiles) 为目标，
+   * 受容量和花色余量约束，实际值见 actualDebtRetention。
    *
-   * - 0 = 尽量清掉旧债务，用新花色制造下一层债务（默认，等价旧行为）
-   * - 1 = 尽量延续旧债务；无法延续的部分才换新
+   * - 0 = 旧债全部在下一层清掉（花色轮换快）
+   * - 1 = 旧债全部延续（同一批颜色长期凑不齐）
    *
-   * 目标保留旧债务 tile = round(p × min(本层旧债务 tile 数, 下一层债务 tile 数))。
-   * 受花色余量与容量约束，实际保留量不一定精确命中。
-   * 闭合率仍负责"每层有多少债务"，此参数只负责"是不是同一批债务"。
+   * 默认 0。闭合率负责"每层有多少债务"，此参数负责"是不是同一批债务"。
+   *
+   * @see DebtMetrics.actualDebtRetention — 输出中的同一对象
    */
+  targetDebtRetention?: number;
+  /** @deprecated 使用 targetDebtRetention */
   debtPersistenceWeight?: number;
 }
 
@@ -279,9 +287,14 @@ export interface DebtMetrics {
    * 若前一层没有债务 tile，则该项为 0。
    */
   debtRetentionRates: number[];
-  /** 跨所有相邻层、按旧债务 tile 数加权的债务保留率。 */
+  /**
+   * 实际旧债跨层保留率 [0-1]，与 targetDebtRetention 为同一对象。
+   * 跨所有相邻层、按旧债务 tile 数加权的债务保留率。
+   */
+  actualDebtRetention: number;
+  /** @deprecated 使用 actualDebtRetention */
   weightedDebtRetentionRate: number;
-  /** 配置的债务持续权重 p（回显输入，默认 0） */
+  /** @deprecated 使用 targetDebtRetention（输入）和 actualDebtRetention（输出） */
   configuredDebtPersistenceWeight: number;
   /** 逐层实际保留的旧债务 tile 数，长度 = depthCount - 1 */
   retainedOldDebtTilesByLayer: number[];
@@ -308,18 +321,30 @@ export interface DebtMetrics {
   /** 如果峰值债务 > Dock容量，理论上玩家必输 */
   isDoomed: boolean;
   /**
-   * 花色离散率 [0-1]。
-   * avg over colors: |U_c| / Σ|depSet_i|
-   * 值越小 = 同色牌越紧密（挤在同一子树），值越大 = 同色牌越分散。
-   * 同关卡内与 spreadParam 单调对应。
-   */
-  suitSpread: number;
-  /**
-   * 归一化花色离散率 [0-1]，跨关卡可比。
+   * 实际归一化领土离散度 [0-1]，与 targetSuitSpread 为同一对象。
    * avg over colors: (|U| - max|depSet|) / (Σ|depSet| - max|depSet|)
    * 0 = 最紧密（全部包在同一个 depSet 里），1 = 最松散（所有 depSet 互不重叠）。
    */
+  actualSuitSpread: number;
+  /** @deprecated 使用 actualSuitSpread */
   suitSpreadNorm: number;
+  /**
+   * 花色离散率（非归一化）[0-1]。
+   * avg over colors: |U_c| / Σ|depSet_i|
+   * 值越小 = 同色牌越紧密，值越大 = 同色牌越分散。
+   */
+  suitSpread: number;
+  /**
+   * 同色分布贪心选择统计。记录每次选择中增量 min/max/target/random 的命中次数。
+   * 用于诊断 targetSuitSpread 驱动下算法的实际选择行为。
+   */
+  targetSuitSpreadChoiceStats: {
+    minIncPicked: number;
+    maxIncPicked: number;
+    targetPicked: number;
+    randomPicked: number;
+    total: number;
+  };
 }
 
 /** LayerClosure 算法输出 */

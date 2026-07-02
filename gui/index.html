@@ -312,13 +312,13 @@ kbd{
           <div><label>Dock容量</label><input type="number" id="dock" value="7" min="1" max="20"></div>
           <div><label>花色数</label><input type="number" id="colorCount" value="8" min="1" max="99" oninput="syncCloseRates()"></div>
         </div>
-        <label style="margin-top:6px">同色分布 <span style="font-weight:400;font-size:9px" id="spreadLabel">— 0.50</span></label>
+        <label style="margin-top:6px">领土离散度 <span style="font-weight:400;font-size:9px" id="spreadLabel">— 0.50</span></label>
         <div class="slider-row">
           <span class="sl-l">紧密</span>
           <input class="slider" type="range" id="spreadParam" min="0" max="100" value="50" step="1" oninput="updateSpreadLabel()">
           <span class="sl-l" style="text-align:left">分散</span>
         </div>
-        <label style="margin-top:6px">债务持续权重 <span style="font-weight:400;font-size:9px" id="debtLabel">— 0.00</span></label>
+        <label style="margin-top:6px">旧债保留率 <span style="font-weight:400;font-size:9px" id="debtLabel">— 0.00</span></label>
         <div class="slider-row">
           <span class="sl-l">清旧债</span>
           <input class="slider" type="range" id="debtPersistence" min="0" max="100" value="0" step="1" oninput="updateDebtLabel()">
@@ -753,8 +753,8 @@ async function generate(){
   if(algo==='closure'){
     body.closeRates=document.getElementById('closeRates').value.trim();
     body.dock=document.getElementById('dock').value;
-    body.spreadParam=(parseInt(document.getElementById('spreadParam').value)/100).toFixed(2);
-    body.debtPersistenceWeight=(parseInt(document.getElementById('debtPersistence').value)/100).toFixed(2);
+    body.targetSuitSpread=(parseInt(document.getElementById('spreadParam').value)/100).toFixed(2);
+    body.targetDebtRetention=(parseInt(document.getElementById('debtPersistence').value)/100).toFixed(2);
   }else{body.costArray=document.getElementById('costArray').value.trim()}
 
   btn.innerHTML='<span class="spinner"></span> 生成中...';btn.disabled=true;
@@ -762,6 +762,7 @@ async function generate(){
     var r=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var d=await r.json();
     if(!d.ok){document.getElementById('genErr').textContent=d.error;return}
+    d._inputTargets={closeRates:body.closeRates||'',targetSuitSpread:body.targetSuitSpread,targetDebtRetention:body.targetDebtRetention};
     S.result=d;S.sims=[];
     resetReplaySelection();
     document.getElementById('simHistory').innerHTML='';
@@ -796,17 +797,28 @@ function showResult(d){
 
 function showClosure(d){
   var m=d.metrics||{};
-  // 判断是否有目标闭合率（生成有、导入没有）
-  var hasTargets=d.algorithm==='closure'&&!!document.getElementById('closeRates').value.trim();
+  // 判断是否有目标值（生成有、导入没有）
+  var it=d._inputTargets||{};
+  var hasTargets=!!(it.closeRates||it.targetSuitSpread!=null||it.targetDebtRetention!=null);
+  // 新字段优先，fallback 到旧字段名（兼容导入旧数据）
+  var actualSpread=m.actualSuitSpread??m.suitSpreadNorm??0;
+  var actualRetention=m.actualDebtRetention??m.weightedDebtRetentionRate??0;
+
+  var spreadHtml=it.targetSuitSpread!=null
+    ? '<div class="n" title="目标→实际">'+(actualSpread*100).toFixed(0)+'%<div class="lbl" style="font-size:7px;opacity:0.6">←目标 '+(it.targetSuitSpread*100).toFixed(0)+'%</div></div>'
+    : '<div class="n">'+(actualSpread*100).toFixed(0)+'%</div>';
+  var debtHtml=it.targetDebtRetention!=null
+    ? '<div class="n" title="目标→实际">'+(actualRetention*100).toFixed(0)+'%<div class="lbl" style="font-size:7px;opacity:0.6">←目标 '+(it.targetDebtRetention*100).toFixed(0)+'%</div></div>'
+    : '<div class="n">'+(actualRetention*100).toFixed(0)+'%</div>';
+
   document.getElementById('stats').innerHTML=
     '<div class="stat'+(m.isDoomed?' hi':'')+'"><div class="n '+(m.isDoomed?'n-bad':'n-ok')+'">'+(m.isDoomed?'⚠是':'✓否')+'</div><div class="lbl">必输</div></div>'+
     '<div class="stat"><div class="n n-warn">'+m.peakDebt+'/'+(m.peakExpDebt||0)+'</div><div class="lbl">债务峰/暴露</div></div>'+
-    '<div class="stat"><div class="n">'+((m.weightedDebtRetentionRate||0)*100).toFixed(0)+'%</div><div class="lbl">债务保留率</div></div>'+
+    '<div class="stat">'+debtHtml+'<div class="lbl">旧债保留率</div></div>'+
     '<div class="stat"><div class="n n-warn">'+(m.oi||0)+'</div><div class="lbl">OI指数</div></div>'+
     '<div class="stat"><div class="n">'+(m.colorCount||0)+'</div><div class="lbl">花色数</div></div>'+
     '<div class="stat"><div class="n">'+(m.depthCount||0)+'</div><div class="lbl">深度层</div></div>'+
-    '<div class="stat"><div class="n">'+((m.suitSpread||0)*100).toFixed(0)+'%</div><div class="lbl">离散率</div></div>'+
-    '<div class="stat"><div class="n">'+((m.suitSpreadNorm||0)*100).toFixed(0)+'%</div><div class="lbl">归一离散</div></div>'+
+    '<div class="stat">'+spreadHtml+'<div class="lbl">领土离散度</div></div>'+
     '<div class="stat"><div class="n '+(m.allSuitsClosed?'n-ok':'n-bad')+'">'+(m.allSuitsClosed?'✓':'✗')+'</div><div class="lbl">花色×3</div></div>';
   document.getElementById('stepSection').style.display='none';
   document.getElementById('chartTitle').textContent=hasTargets?'闭合率 设定 vs 实际':'闭合率';
@@ -958,7 +970,7 @@ function drawClosureChart(d,m,hasTargets){
   document.getElementById('chartLegend').innerHTML=
     '<span style="color:#d4a853">▮ 设定</span> <span style="color:#7ec99c">▮ 实际</span>'+
     ' <span style="color:#c2784b">┅ 静态债务</span> <span style="color:#e6b450">── 暴露债务</span>'+
-    ' · 峰:'+(m.peakDebt||0)+'/'+(m.peakExpDebt||0)+' OI:'+(m.oi||0)+' 离散:'+((m.suitSpread||0)*100).toFixed(0)+'%'+
+    ' · 峰:'+(m.peakDebt||0)+'/'+(m.peakExpDebt||0)+' OI:'+(m.oi||0)+' 离散:'+((m.actualSuitSpread??m.suitSpreadNorm??0)*100).toFixed(0)+'%'+' 保留:'+((m.actualDebtRetention??m.weightedDebtRetentionRate??0)*100).toFixed(0)+'%'+
     (m.debtDurationHistogram?' · 持续长度:['+((m.debtDurationHistogram||[]).join(','))+']':'');
 }
 

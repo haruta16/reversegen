@@ -55,14 +55,20 @@ export interface GenerateBoardLayerClosureInput {
   /** Level hash 覆盖 */
   levelHash?: string;
   /**
-   * 同色方块分布参数 [0-1]。
+   * 目标归一化领土离散度 [0-1]。
    * 0=cluster（紧密） / 0.5=neutral（随机，默认） / 1=spread（分散）。
+   * 输出中 actualSuitSpread 为同一对象，可直接对比。
    */
+  targetSuitSpread?: number;
+  /** @deprecated 使用 targetSuitSpread */
   spreadParam?: number;
   /**
-   * 债务持续权重 [0-1]（默认 0）。
-   * 0=尽量清旧债 / 1=尽量延旧债。闭合率负责"每层有多少债务"，此参数负责"是不是同一批债务"。
+   * 目标旧债跨层保留率 [0-1]（默认 0）。
+   * 0=旧债全部清掉 / 1=旧债全部延续。闭合率负责"每层有多少债务"，此参数负责"是不是同一批债务"。
+   * 输出中 actualDebtRetention 为同一对象，可直接对比。
    */
+  targetDebtRetention?: number;
+  /** @deprecated 使用 targetDebtRetention */
   debtPersistenceWeight?: number;
 }
 
@@ -124,9 +130,10 @@ export function generateBoardLayerClosure(
     colorCount,
     dock = 7,
     levelHash: hashOverride,
-    spreadParam,
-    debtPersistenceWeight,
   } = input;
+  // 解析参数别名：新名称优先，fallback 到旧名称
+  const targetSuitSpread = input.targetSuitSpread ?? input.spreadParam ?? 0.5;
+  const targetDebtRetention = input.targetDebtRetention ?? input.debtPersistenceWeight ?? 0;
 
   const allTiles = getAllTiles(terrain);
   const levelHash = hashOverride ?? terrain.levelHash ?? '';
@@ -140,8 +147,8 @@ export function generateBoardLayerClosure(
     colorCount,
     dock,
     closeRates,
-    spreadParam,
-    debtPersistenceWeight,
+    targetSuitSpread,
+    targetDebtRetention,
   });
 
   const m = algoResult.metrics;
@@ -149,7 +156,7 @@ export function generateBoardLayerClosure(
   logger.info(`  闭合率: [${m.actualCloseRates.map(r => (r * 100).toFixed(0) + '%').join(', ')}]`);
   logger.info(`  花色使用率: [${m.colorUsageRates.map(r => (r * 100).toFixed(0) + '%').join(', ')}]`);
   logger.info(`  债务保留率: [${m.debtRetentionRates.map(r => (r * 100).toFixed(0) + '%').join(', ')}]`);
-  logger.info(`  债务持续权重 p=${m.configuredDebtPersistenceWeight} 保留旧债tile:[${m.retainedOldDebtTilesByLayer.join(', ')}] 总计:${m.totalRetainedOldDebtTiles}`);
+  logger.info(`  旧债保留率 目标=${m.configuredDebtPersistenceWeight} 实际=${m.actualDebtRetention} 保留旧债tile:[${m.retainedOldDebtTilesByLayer.join(', ')}] 总计:${m.totalRetainedOldDebtTiles}`);
   logger.info(`  债务持续长度直方图: [${m.debtDurationHistogram.join(', ')}]`);
   logger.info(`  峰值债务:${m.peakDebt} 暴露峰值:${m.peakExpDebt} OI:${m.oi}`);
   logger.info(`  必输: ${m.isDoomed ? '是' : '否'}`);
