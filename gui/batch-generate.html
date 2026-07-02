@@ -29,8 +29,8 @@ body{
 }
 /* ── Top bar ── */
 .topbar{
-  position:sticky;top:0;z-index:100;background:var(--ink);border-bottom:1px solid var(--line);
-  padding:14px 24px;display:flex;align-items:center;gap:18px;backdrop-filter:blur(8px);
+  position:sticky;top:0;z-index:100;background:var(--topbar-bg);border-bottom:1px solid var(--line);
+  padding:14px 24px;display:flex;align-items:center;gap:18px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
   box-shadow:var(--topbar-shadow);
 }
 .topbar .brand{font-weight:700;font-size:16px;letter-spacing:-.3px;white-space:nowrap}
@@ -83,7 +83,7 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
 }
 .btn:disabled{opacity:.4;cursor:not-allowed;filter:grayscale(.5)}
 .btn-primary{background:var(--gold);color:var(--accent-contrast);width:100%;padding:11px;font-size:13px;letter-spacing:.3px}
-.btn-primary:hover:not(:disabled){background:var(--accent-hover);transform:translateY(-1px);box-shadow:0 4px 12px color-mix(in srgb,var(--gold) 25%,transparent)}
+.btn-primary:hover:not(:disabled){background:var(--accent-hover);transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.25)}
 .btn-primary:active:not(:disabled){transform:translateY(0)}
 .btn-secondary{background:var(--line);color:var(--text)}
 .btn-secondary:hover:not(:disabled){background:var(--button-hover)}
@@ -164,9 +164,10 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
 <nav class="topbar">
   <div class="brand"><span>◈</span>ReverseGen</div>
   <div class="sep"></div>
+  <div class="spacer"></div>
   <a href="/">主页</a>
   <a href="/challenge-expectation">挑战期望</a>
-  <a href="/analysis.html">分析</a>
+  <a href="/analysis.html">Triple 分析</a>
   <a href="/batch-generate.html" class="active">批量产关</a>
   <a href="/generation-strategies.html">产出策略</a>
 </nav>

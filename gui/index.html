@@ -30,8 +30,8 @@ body{
 
 /* ── Top bar ── */
 .topbar{
-  position:sticky;top:0;z-index:100;background:var(--ink);border-bottom:1px solid var(--line);
-  padding:14px 24px;display:flex;align-items:center;gap:18px;backdrop-filter:blur(8px);
+  position:sticky;top:0;z-index:100;background:var(--topbar-bg);border-bottom:1px solid var(--line);
+  padding:14px 24px;display:flex;align-items:center;gap:18px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
   box-shadow:var(--topbar-shadow);
 }
 .topbar .brand{font-weight:700;font-size:16px;letter-spacing:-.3px;white-space:nowrap}
@@ -99,7 +99,7 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
 }
 .btn:disabled{opacity:.4;cursor:not-allowed;filter:grayscale(.5)}
 .btn-primary{background:var(--gold);color:var(--accent-contrast);width:100%;padding:11px;font-size:13px;letter-spacing:.3px}
-.btn-primary:hover:not(:disabled){background:var(--accent-hover);transform:translateY(-1px);box-shadow:0 4px 12px color-mix(in srgb,var(--gold) 25%,transparent)}
+.btn-primary:hover:not(:disabled){background:var(--accent-hover);transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.25)}
 .btn-primary:active:not(:disabled){transform:translateY(0)}
 .btn-secondary{background:var(--line);color:var(--text)}
 .btn-secondary:hover:not(:disabled){background:var(--button-hover)}
@@ -115,7 +115,7 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
   border-radius:5px;cursor:pointer;color:var(--dim);transition:all .2s;border:none;background:transparent;
   letter-spacing:.3px;font-family:var(--sans);
 }
-.tab.active{background:var(--gold);color:var(--accent-contrast);box-shadow:0 2px 6px color-mix(in srgb,var(--gold) 20%,transparent)}
+.tab.active{background:var(--gold);color:var(--accent-contrast);box-shadow:0 2px 6px rgba(0,0,0,.2)}
 
 /* ── Preset chips ── */
 .chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
@@ -125,7 +125,7 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
   font-family:var(--mono);transition:all .2s;font-weight:500;
 }
 .chip:hover{border-color:var(--gold);color:var(--gold)}
-.chip.on{background:color-mix(in srgb,var(--gold) 10%,transparent);border-color:var(--gold);color:var(--gold)}
+.chip.on{background:var(--accent-soft);border-color:var(--gold);color:var(--gold)}
 
 /* ── Info blocks ── */
 .info-block{font-size:10px;color:var(--dim);line-height:1.6;margin-top:6px;min-height:0}
@@ -256,10 +256,10 @@ kbd{
   <button class="btn btn-ghost" onclick="loadLevel()">加载</button>
   <span class="level-quick" id="levelBadge"></span>
   <div class="spacer"></div>
-  <a href="/challenge-expectation">🎮 挑战期望</a>
+  <a href="/challenge-expectation">挑战期望</a>
   <a href="/analysis.html">Triple 分析</a>
-	  <a href="/batch-generate.html">批量产关</a>
-	  <a href="/generation-strategies.html">产出策略</a>
+  <a href="/batch-generate.html">批量产关</a>
+  <a href="/generation-strategies.html">产出策略</a>
 </nav>
 
 <div id="toast"></div>

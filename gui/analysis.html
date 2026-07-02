@@ -4,104 +4,164 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Triple 关系分析器 · ReverseGen</title>
+<script src="/reversegen-theme.js"></script>
+<link rel="stylesheet" href="/reversegen-theme.css">
 <style>
-  :root{--bg:#0d1117;--s:#161b22;--b:#30363d;--t:#c9d1d9;--m:#8b949e;--a:#58a6ff;--g:#3fb950;--r:#f85149;--o:#d2991d;--p:#a371f7}
+  /* ═══════════════════════════════════════════════
+     PRECISION CONSOLE — 沿用项目视觉体系
+     通过 CSS 变量别名桥接，D3 部分保留原色值
+     ═══════════════════════════════════════════════ */
+  :root{
+    --ink:#0d0d0c;--paper:#181814;--line:#2a2820;--line2:#1f1e1a;
+    --gold:#d4a853;--gold-dim:#8a7040;--text:#e8e4dd;--dim:#8a867c;--faint:#5c5950;
+    --ok:#7ec99c;--warn:#d4a853;--bad:#d9706a;--info:#7a9aae;
+    --purple:#9b8ec4;--blue-accent:#6ba4d1;
+    --sans:"PingFang SC","Noto Sans SC","Microsoft YaHei",-apple-system,sans-serif;
+    --mono:"SF Mono","Cascadia Code","JetBrains Mono",monospace;
+  }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--t);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+  body{
+    font-family:var(--sans);background:var(--ink);color:var(--text);
+    font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;
+    background-image:var(--page-gradient);
+    height:100vh;display:flex;flex-direction:column;overflow:hidden;
+  }
 
-  /* ═══ Header: 三模块 ═══ */
-  #header{background:var(--s);border-bottom:1px solid var(--b);flex-shrink:0;z-index:10}
+  /* ── Top bar (统一导航, overrides only) ── */
+  .topbar{z-index:110;flex-shrink:0}
+
+  /* ═══ Header: 三模块 (分析专属控件) ═══ */
+  #header{background:var(--paper);border-bottom:1px solid var(--line);flex-shrink:0;z-index:10}
   #header .module-row{display:flex;gap:0}
-  #header .module-row .module{flex:1;padding:6px 12px;min-width:0}
-  #header .module-row .module+.module{border-left:1px solid rgba(48,54,61,.5)}
-  #header .module-full{padding:6px 12px;border-top:1px solid rgba(48,54,61,.5)}
-  #header .m-title{font-size:10px;color:var(--m);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+  #header .module-row .module{flex:1;padding:8px 14px;min-width:0}
+  #header .module-row .module+.module{border-left:1px solid var(--line2)}
+  #header .module-full{padding:8px 14px;border-top:1px solid var(--line2)}
+  #header .m-title{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;display:flex;align-items:center;gap:6px}
   #header .m-title span{width:6px;height:6px;border-radius:50%;display:inline-block}
-  #header .m-title .dot-in{background:var(--o)}#header .m-title .dot-info{background:var(--g)}#header .m-title .dot-set{background:var(--a)}
+  #header .m-title .dot-in{background:var(--warn)}
+  #header .m-title .dot-info{background:var(--ok)}
+  #header .m-title .dot-set{background:var(--info)}
 
   /* Module 1: 输入行 */
-  .input-row{display:flex;align-items:center;gap:8px;margin-bottom:3px}
+  .input-row{display:flex;align-items:center;gap:8px;margin-bottom:4px}
   .input-row:last-child{margin-bottom:0}
-  .input-row label{font-size:11px;color:var(--m);width:70px;flex-shrink:0;text-align:right}
-  .input-row input{background:var(--bg);border:1px solid var(--b);border-radius:4px;color:var(--t);padding:4px 8px;font-family:inherit;font-size:11px;flex:1}
-  .input-row input:focus{border-color:var(--a);outline:none}
-  .input-row input.mono{font-family:monospace;font-size:10px}
-  .input-row button{cursor:pointer;border:none;border-radius:4px;padding:4px 14px;font-weight:600;font-size:11px;font-family:inherit;transition:all .15s;white-space:nowrap;flex-shrink:0}
-  .btn-terrain{background:#1a3a5c;color:#6b9fff}.btn-terrain:hover{background:#254b75}
-  .btn-replay{background:#3d1f5c;color:#a371f7}.btn-replay:hover{background:#502a75}
-  .btn-terrain.active,.btn-replay.active{outline:2px solid var(--t);outline-offset:1px}
+  .input-row label{font-size:10px;color:var(--dim);width:70px;flex-shrink:0;text-align:right;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+  .input-row input{
+    background:var(--ink);border:1px solid var(--line);border-radius:5px;color:var(--text);
+    padding:5px 8px;font-family:var(--sans);font-size:11px;flex:1;outline:none;
+  }
+  .input-row input:focus{border-color:var(--gold);box-shadow:0 0 0 2px var(--accent-focus)}
+  .input-row input.mono{font-family:var(--mono);font-size:10px}
+  .input-row button{
+    cursor:pointer;border:1px solid var(--line);border-radius:5px;padding:5px 14px;
+    font-weight:600;font-size:11px;font-family:var(--sans);transition:all .15s;
+    white-space:nowrap;flex-shrink:0;background:var(--paper);color:var(--dim);
+  }
+  .input-row button:hover:not(:disabled){border-color:var(--gold);color:var(--gold)}
+  .btn-terrain{background:rgba(107,164,209,.12)!important;color:var(--blue-accent)!important;border-color:rgba(107,164,209,.25)!important}
+  .btn-terrain:hover{border-color:var(--blue-accent)!important;background:rgba(107,164,209,.18)!important}
+  .btn-replay{background:rgba(155,142,196,.12)!important;color:var(--purple)!important;border-color:rgba(155,142,196,.25)!important}
+  .btn-replay:hover{border-color:var(--purple)!important;background:rgba(155,142,196,.18)!important}
+  .btn-terrain.active,.btn-replay.active{outline:2px solid var(--text);outline-offset:1px}
 
   /* Module 2: 信息 + 操作 */
   .info-area{display:flex;align-items:center;gap:8px;min-height:30px;flex-wrap:wrap}
   .info-area .status{flex:1;font-size:11px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
-  .info-area .status .badge{font-size:10px;padding:2px 8px;border-radius:10px;white-space:nowrap}
-  .badge-ok{color:var(--g);background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.2)}
-  .badge-err{color:var(--r);background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.2)}
-  .badge-pending{color:var(--o);background:rgba(210,153,29,.1);border:1px solid rgba(210,153,29,.2)}
-  .badge-mode{font-size:10px;padding:2px 6px;border-radius:3px}
-  .mode-terrain{background:#1a3a5c;color:#6b9fff}.mode-replay{background:#3d1f5c;color:#a371f7}
+  .info-area .status .badge{font-size:9px;padding:2px 8px;border-radius:10px;white-space:nowrap;font-weight:600}
+  .badge-ok{color:var(--ok);background:color-mix(in srgb,var(--ok) 8%,transparent);border:1px solid color-mix(in srgb,var(--ok) 15%,transparent)}
+  .badge-err{color:var(--bad);background:color-mix(in srgb,var(--bad) 8%,transparent);border:1px solid color-mix(in srgb,var(--bad) 15%,transparent)}
+  .badge-pending{color:var(--warn);background:color-mix(in srgb,var(--warn) 8%,transparent);border:1px solid color-mix(in srgb,var(--warn) 15%,transparent)}
+  .badge-mode{font-size:9px;padding:2px 6px;border-radius:3px}
+  .mode-terrain{background:rgba(107,164,209,.1);color:var(--blue-accent)}
+  .mode-replay{background:rgba(155,142,196,.1);color:var(--purple)}
 
-  .btn-go{cursor:pointer;border:none;border-radius:4px;padding:5px 18px;font-weight:700;font-size:12px;font-family:inherit;transition:all .15s;white-space:nowrap;flex-shrink:0}
-  .btn-go{background:var(--g);color:#000}.btn-go:hover{background:#2ea043}.btn-go:disabled{opacity:.3;cursor:not-allowed}
+  .btn-go{
+    cursor:pointer;border:none;border-radius:5px;padding:6px 20px;font-weight:700;
+    font-size:12px;font-family:var(--sans);transition:all .15s;white-space:nowrap;flex-shrink:0;
+    background:var(--gold);color:var(--accent-contrast);
+  }
+  .btn-go:hover{background:var(--accent-hover)}.btn-go:disabled{opacity:.35;cursor:not-allowed}
 
   /* Module 3: 图设置 */
   .settings-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   .settings-row .seg{display:flex;align-items:center;gap:4px}
-  .settings-row .seg-label{font-size:10px;color:var(--m);margin-right:2px}
-  .btn-sm{cursor:pointer;border:1px solid var(--b);border-radius:3px;padding:3px 8px;font-size:10px;font-family:inherit;background:var(--bg);color:var(--m);transition:all .15s}
-  .btn-sm:hover{border-color:var(--a);color:var(--t)}
-  .btn-sm.active{background:var(--a);color:#fff;border-color:var(--a)}
-  .settings-row input[type=range]{width:80px;accent-color:var(--a);margin:0 2px}
-  .settings-row .fv{font-size:10px;color:var(--m);width:22px;text-align:center;font-family:monospace}
-  .settings-row .sep{width:1px;height:16px;background:var(--b);margin:0 2px}
-  .settings-row .nav-link{margin-left:auto;color:var(--m);text-decoration:none;border:1px solid var(--b);border-radius:4px;padding:3px 9px;font-size:10px}.settings-row .nav-link:hover{color:var(--a);border-color:var(--a)}
-  #quickTags{display:flex;flex-wrap:wrap;gap:2px;max-width:500px}
-  #quickTags .qt{font-size:9px;padding:1px 6px;border-radius:6px;background:var(--bg);border:1px solid var(--b);color:var(--m);cursor:pointer;font-family:monospace}
-  #quickTags .qt:hover{border-color:var(--a);color:var(--a)}
+  .settings-row .seg-label{font-size:10px;color:var(--dim);margin-right:2px;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+  .btn-sm{
+    cursor:pointer;border:1px solid var(--line);border-radius:4px;padding:3px 9px;
+    font-size:10px;font-family:var(--sans);background:var(--ink);color:var(--dim);transition:all .15s;
+  }
+  .btn-sm:hover{border-color:var(--gold);color:var(--gold)}
+  .btn-sm.active{background:var(--gold);color:var(--accent-contrast);border-color:var(--gold)}
+  .settings-row input[type=range]{width:80px;accent-color:var(--gold);margin:0 2px}
+  .settings-row .fv{font-size:10px;color:var(--dim);width:22px;text-align:center;font-family:var(--mono)}
+  .settings-row .sep{width:1px;height:16px;background:var(--line);margin:0 2px}
+  .settings-row .nav-link{
+    margin-left:auto;color:var(--dim);text-decoration:none;
+    border:1px solid var(--line);border-radius:4px;padding:3px 9px;font-size:10px;
+  }
+  .settings-row .nav-link:hover{color:var(--gold);border-color:var(--gold)}
+  #quickTags{display:flex;flex-wrap:wrap;gap:3px;max-width:500px}
+  #quickTags .qt{
+    font-size:9px;padding:1px 7px;border-radius:8px;background:var(--ink);
+    border:1px solid var(--line);color:var(--dim);cursor:pointer;font-family:var(--mono);
+  }
+  #quickTags .qt:hover{border-color:var(--gold);color:var(--gold)}
 
   /* Progress overlay */
-  #progressOverlay{display:none;position:fixed;inset:0;background:rgba(13,17,23,.85);z-index:100;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+  #progressOverlay{display:none;position:fixed;inset:0;background:rgba(13,13,12,.88);z-index:200;flex-direction:column;align-items:center;justify-content:center;gap:16px}
   #progressOverlay.show{display:flex}
-  #progressOverlay .spinner{width:48px;height:48px;border:4px solid var(--b);border-top-color:var(--a);border-radius:50%;animation:spin .8s linear infinite}
+  #progressOverlay .spinner{width:48px;height:48px;border:4px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:spin .8s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
-  #progressOverlay .phase{font-size:14px;color:var(--t);font-weight:600}
-  #progressOverlay .elapsed{font-size:12px;color:var(--m);font-family:monospace}
-  #progressOverlay .hint{font-size:11px;color:var(--m);max-width:400px;text-align:center;line-height:1.5}
+  #progressOverlay .phase{font-size:14px;color:var(--text);font-weight:600}
+  #progressOverlay .elapsed{font-size:12px;color:var(--dim);font-family:var(--mono)}
+  #progressOverlay .hint{font-size:11px;color:var(--dim);max-width:400px;text-align:center;line-height:1.5}
 
   /* Main layout */
   #main{display:flex;flex:1;overflow:hidden}
-  #viz{flex:1;position:relative;overflow:hidden;background:var(--bg)}
+  #viz{flex:1;position:relative;overflow:hidden;background:var(--ink)}
   #viz svg{position:absolute;top:0;left:0;width:100%;height:100%}
-  #panel{width:320px;background:var(--s);border-left:1px solid var(--b);display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0}
+  #panel{width:320px;background:var(--paper);border-left:1px solid var(--line);display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0}
 
   /* Panel sections */
-  .psection{padding:10px 14px;border-bottom:1px solid var(--b)}
-  .psection h3{font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;cursor:pointer;user-select:none}
-  .psection h3:hover{color:var(--t)}
+  .psection{padding:10px 14px;border-bottom:1px solid var(--line2)}
+  .psection h3{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;cursor:pointer;user-select:none;font-weight:700}
+  .psection h3:hover{color:var(--text)}
   .psection .sbody{transition:max-height .2s}
-  .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
-  .stat-item{background:var(--bg);border-radius:4px;padding:5px 8px}
-  .stat-item .v{font-size:14px;font-weight:700}.stat-item .l{font-size:9px;color:var(--m)}
-  .g{color:var(--g)}.r{color:var(--r)}.o{color:var(--o)}.p{color:var(--p)}
+  .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+  .stat-item{background:var(--ink);border:1px solid var(--line);border-radius:5px;padding:6px 9px}
+  .stat-item .v{font-size:14px;font-weight:700}.stat-item .l{font-size:9px;color:var(--dim)}
+  .g{color:var(--ok)}.r{color:var(--bad)}.o{color:var(--warn)}.p{color:var(--purple)}
   .frow{display:flex;align-items:center;gap:6px;margin-bottom:4px}
-  .frow label{font-size:10px;color:var(--m);width:65px;flex-shrink:0}
-  .frow input[type=range]{flex:1;accent-color:var(--a)}
-  .frow .fv{font-size:10px;color:var(--m);width:28px;text-align:right;font-family:monospace}
+  .frow label{font-size:10px;color:var(--dim);width:65px;flex-shrink:0}
+  .frow input[type=range]{flex:1;accent-color:var(--gold)}
+  .frow .fv{font-size:10px;color:var(--dim);width:28px;text-align:right;font-family:var(--mono)}
   /* Inspector */
-  .ilist{font-size:10px;font-family:monospace;max-height:150px;overflow-y:auto;background:var(--bg);border-radius:4px;padding:6px;margin:4px 0}
+  .ilist{font-size:10px;font-family:var(--mono);max-height:150px;overflow-y:auto;background:var(--ink);border:1px solid var(--line);border-radius:5px;padding:6px;margin:4px 0}
   .ilist .row{display:flex;justify-content:space-between;padding:1px 4px;border-radius:2px;cursor:pointer}
-  .ilist .row:hover{background:var(--b)}
-  .ilist .row .ol{color:var(--o)}
-  #tooltip{position:fixed;pointer-events:none;background:var(--s);border:1px solid var(--b);border-radius:6px;padding:8px 10px;font-size:11px;font-family:monospace;z-index:999;display:none;max-width:340px;box-shadow:0 4px 12px rgba(0,0,0,.4);line-height:1.5}
-  #tooltip .tt-key{color:var(--a);font-weight:700;margin-bottom:2px}
+  .ilist .row:hover{background:var(--line)}
+  .ilist .row .ol{color:var(--warn)}
+  #tooltip{position:fixed;pointer-events:none;background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:11px;font-family:var(--mono);z-index:999;display:none;max-width:340px;box-shadow:0 4px 12px rgba(0,0,0,.4);line-height:1.5}
+  #tooltip .tt-key{color:var(--info);font-weight:700;margin-bottom:2px}
   #tooltip .tt-row{display:flex;justify-content:space-between;gap:20px}
-  .tt-dep{color:var(--g)}.tt-impact{color:var(--o)}
+  .tt-dep{color:var(--ok)}.tt-impact{color:var(--warn)}
   .suit-bar{display:inline-block;height:8px;border-radius:1px;margin:0 1px;vertical-align:middle}
 </style>
 </head>
 <body>
 
-<!-- ═══ Header: 三模块 ═══ -->
+<!-- ═══ 统一导航 ═══ -->
+<nav class="topbar">
+  <div class="brand"><span>◈</span>ReverseGen</div>
+  <div class="sep"></div>
+  <div class="spacer"></div>
+  <a href="/">主页</a>
+  <a href="/challenge-expectation">挑战期望</a>
+  <a href="/analysis.html" class="active">Triple 分析</a>
+  <a href="/batch-generate.html">批量产关</a>
+  <a href="/generation-strategies.html">产出策略</a>
+</nav>
+
+<!-- ═══ Header: 三模块 (分析专属) ═══ -->
 <div id="header">
 
   <!-- ── ① + ② 并排 ── -->
@@ -116,7 +176,7 @@
       <div class="input-row">
         <label>地形 ID</label>
         <input type="number" id="levelId" placeholder="如 100075" style="width:100px;flex:none">
-        <span style="font-size:10px;color:var(--m)">或路径</span>
+        <span style="font-size:10px;color:var(--dim)">或路径</span>
         <input type="text" id="terrainPath" placeholder="test/fixtures/100075.json" class="mono" style="flex:1">
         <button class="btn-terrain" onclick="App.loadTerrain()" id="btnLoadTerrain">🏔 加载地形</button>
       </div>
@@ -134,11 +194,11 @@
       <div class="info-area">
         <div class="status" id="statusBar">
           <span class="badge badge-pending" id="statusBadge">等待输入</span>
-          <span style="font-size:11px;color:var(--m)" id="statusText">请加载地形或 ReplayCode</span>
+          <span style="font-size:11px;color:var(--dim)" id="statusText">请加载地形或 ReplayCode</span>
         </div>
         <button class="btn-go" onclick="App.startAnalysis()" id="btnAnalyze" disabled>▶ 开始分析</button>
       </div>
-      <div style="font-size:10px;color:var(--m);margin-top:2px" id="statusDetail"></div>
+      <div style="font-size:10px;color:var(--dim);margin-top:3px" id="statusDetail"></div>
     </div>
   </div>
 
@@ -172,7 +232,7 @@
       <span class="fv" id="fvMaxE">10</span>
       <button class="btn-sm" onclick="App.applyFilters()" title="用新过滤参数刷新图">刷新</button>
       <span class="sep"></span>
-      <input type="text" id="searchTriple" placeholder="搜索 triple..." style="width:130px;font-size:10px;font-family:monospace;background:var(--bg);border:1px solid var(--b);border-radius:3px;color:var(--t);padding:3px 6px"
+      <input type="text" id="searchTriple" placeholder="搜索 triple..." style="width:130px;font-size:10px;font-family:var(--mono);background:var(--ink);border:1px solid var(--line);border-radius:4px;color:var(--text);padding:4px 7px"
         onkeydown="if(event.key==='Enter')App.searchTriple()">
       <button class="btn-sm" onclick="App.searchTriple()">🔍</button>
       <a class="nav-link" href="/generation-strategies.html">产出策略</a>
@@ -215,15 +275,15 @@
     <div class="psection">
       <h3 onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">📐 偏序关系 (B ≺ A) ▾</h3>
       <div class="sbody" style="display:none">
-        <div style="font-size:11px;color:var(--t);line-height:1.6">
+        <div style="font-size:11px;color:var(--text);line-height:1.6">
           <b>B.depSet ⊆ A.depSet</b><br>
-          <span style="color:var(--m)">B 的所有依赖牌都在 A 的依赖中<br>→ B 消除对 A 有最大帮助<br>→ B <b>绝对</b>应该在 A 之前消除</span><br>
+          <span style="color:var(--dim)">B 的所有依赖牌都在 A 的依赖中<br>→ B 消除对 A 有最大帮助<br>→ B <b>绝对</b>应该在 A 之前消除</span><br>
           ──<br>
           <b>分层：</b>depSetSize 分位数<br>
-          <span style="color:var(--m)">L0=基础 · L7=最深</span><br>
+          <span style="color:var(--dim)">L0=基础 · L7=最深</span><br>
           ──<br>
           <b>上→下</b> = 先消→后消<br>
-          <span style="color:#6b9fff">⬤</span> 蓝=浅层 · <span style="color:#f85149">⬤</span> 红=深层<br>
+          <span style="color:var(--info)">⬤</span> 蓝=浅层 · <span style="color:var(--bad)">⬤</span> 红=深层<br>
           <b>圆大</b>=后继多 · <b>悬停</b>=依赖链 · <b>点击</b>=详情
         </div>
       </div>
@@ -232,15 +292,15 @@
     <!-- 检查器 -->
     <div class="psection" id="inspector">
       <h3>🔍 选中节点</h3>
-      <div style="color:var(--m);font-size:11px;text-align:center;padding:10px 0" id="inspectorEmpty">点击图中节点</div>
+      <div style="color:var(--dim);font-size:11px;text-align:center;padding:10px 0" id="inspectorEmpty">点击图中节点</div>
       <div id="inspectorContent" style="display:none">
-        <div style="font-family:monospace;font-size:13px;font-weight:700;color:var(--a);word-break:break-all;margin-bottom:4px" id="ikey"></div>
-        <div style="font-size:10px;color:var(--m);margin-bottom:4px" id="isummary"></div>
-        <div style="font-size:10px;color:var(--m);margin:6px 0 2px"><b>depSet</b>（依赖包）</div>
+        <div style="font-family:var(--mono);font-size:13px;font-weight:700;color:var(--info);word-break:break-all;margin-bottom:4px" id="ikey"></div>
+        <div style="font-size:10px;color:var(--dim);margin-bottom:4px" id="isummary"></div>
+        <div style="font-size:10px;color:var(--dim);margin:6px 0 2px"><b>depSet</b>（依赖包）</div>
         <div class="ilist" id="iDepSet"></div>
-        <div style="font-size:10px;color:var(--m);margin:6px 0 2px"><span class="tt-dep">↑ 被谁帮助</span></div>
+        <div style="font-size:10px;color:var(--dim);margin:6px 0 2px"><span class="tt-dep">↑ 被谁帮助</span></div>
         <div class="ilist" id="iPreds"></div>
-        <div style="font-size:10px;color:var(--m);margin:6px 0 2px"><span class="tt-impact">↓ 我帮助谁</span></div>
+        <div style="font-size:10px;color:var(--dim);margin:6px 0 2px"><span class="tt-impact">↓ 我帮助谁</span></div>
         <div class="ilist" id="iSuccs"></div>
       </div>
     </div>
@@ -252,6 +312,14 @@
 
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <script>
+// Helper: read a CSS variable hex and return "r,g,b" string for rgba()
+var _cs=null;
+function cvRGB(n,f){if(!_cs)_cs=getComputedStyle(document.documentElement);var h=_cs.getPropertyValue(n).trim();if(!h||h[0]!=='#')return f||'138,134,124';h=h.slice(1);return parseInt(h.slice(0,2),16)+','+parseInt(h.slice(2,4),16)+','+parseInt(h.slice(4,6),16)}
+function cvHex(n,f){if(!_cs)_cs=getComputedStyle(document.documentElement);var h=_cs.getPropertyValue(n).trim();return (h&&h[0]==='#')?h:(f||dHex)}
+var DRGB=cvRGB('--dim'),  dHex=cvHex('--dim');
+var IRGB=cvRGB('--info'),  iHex=cvHex('--info');
+var CRGB=cvRGB('--copper','194,120,75');
+var LRGB=cvRGB('--line','48,54,61'), lHex=cvHex('--line',lHex);
 // ════════════════════════════════════════════════════════════
 //  App — 主控制器
 // ════════════════════════════════════════════════════════════
@@ -532,7 +600,7 @@ const App = {
         const ds = detail.detail.node.depSetTiles;
         if (ds && ds.length > 0) {
           document.getElementById('iDepSet').innerHTML =
-            `<div class="row"><span style="color:var(--o)">${ds.length} tiles:</span> <span>${ds.slice(0,30).join(', ')}${ds.length>30?'...':''}</span></div>`;
+            `<div class="row"><span style="color:var(--warn)">${ds.length} tiles:</span> <span>${ds.slice(0,30).join(', ')}${ds.length>30?'...':''}</span></div>`;
         } else {
           document.getElementById('iDepSet').innerHTML = `<div class="row">(无数据)</div>`;
         }
@@ -563,10 +631,10 @@ const DagGraph = {
     this.g = this.svg.append('g');
     this.svg.append('defs').append('marker')
       .attr('id', 'dag-arrow').attr('viewBox', '0 -5 10 10').attr('refX', 13).attr('refY', 5).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
-      .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', 'rgba(139,148,158,0.35)');
+      .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', 'rgba(${DRGB},0.35)');
     this.svg.select('defs').append('marker')
       .attr('id', 'dag-arrow-hl').attr('viewBox', '0 -5 10 10').attr('refX', 13).attr('refY', 5).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
-      .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', 'rgba(88,166,255,0.7)');
+      .append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', 'rgba(${IRGB},0.7)');
   },
 
   buildReachability() {
@@ -640,27 +708,27 @@ const DagGraph = {
   draw() {
     const nodes = this.nodes, links = this.links;
     const g = this.g; g.selectAll('*').remove();
-    if (nodes.length === 0) { g.append('text').attr('x', 400).attr('y', 300).attr('text-anchor', 'middle').attr('fill', '#8b949e').attr('font-size', 14).text('无数据 — 请先加载并开始分析'); return; }
+    if (nodes.length === 0) { g.append('text').attr('x', 400).attr('y', 300).attr('text-anchor', 'middle').attr('fill', dHex).attr('font-size', 14).text('无数据 — 请先加载并开始分析'); return; }
     const maxSucc = Math.max(...nodes.map(n => n.triple.successorCount), 1);
     const rScale = d3.scaleSqrt().domain([0, maxSucc]).range([3, 22]);
     const maxLayer = Math.max(...nodes.map(n => this.getLayer(n.triple)), 1);
     if (this._layers && this._layers.length > 1) {
-      g.selectAll('text.layer-label').data(this._layers).join('text').attr('class', 'layer-label').attr('x', 8).attr('y', l => (this._layerNodes.get(l)?.[0]?.y) || 0).attr('fill', '#8b949e').attr('font-size', 10).attr('font-family', 'monospace').text(l => `L${l}`);
+      g.selectAll('text.layer-label').data(this._layers).join('text').attr('class', 'layer-label').attr('x', 8).attr('y', l => (this._layerNodes.get(l)?.[0]?.y) || 0).attr('fill', dHex).attr('font-size', 10).attr('font-family', 'monospace').text(l => `L${l}`);
     }
     const linkG = g.append('g').attr('class', 'links');
     linkG.selectAll('path').data(links).join('path')
       .attr('d', d => { const sy = nodes[d.source].y, ty = nodes[d.target].y, sx = nodes[d.source].x, tx = nodes[d.target].x, cy = (sy + ty) / 2; return `M${sx},${sy} C${sx},${cy} ${tx},${cy} ${tx},${ty}`; })
-      .attr('fill', 'none').attr('stroke', 'rgba(139,148,158,0.18)').attr('stroke-width', d => Math.max(0.5, Math.min(3, d.overlap / 4))).attr('marker-end', 'url(#dag-arrow)');
+      .attr('fill', 'none').attr('stroke', 'rgba(${DRGB},0.18)').attr('stroke-width', d => Math.max(0.5, Math.min(3, d.overlap / 4))).attr('marker-end', 'url(#dag-arrow)');
     const nodeG = g.append('g').attr('class', 'nodes');
     const node = nodeG.selectAll('g').data(nodes).join('g')
       .attr('transform', d => `translate(${d.x},${d.y})`).attr('cursor', 'pointer')
       .on('click', (event, d) => { event.stopPropagation(); App.selectTriple(d.id); })
       .on('mouseenter', (event, d) => { this.showTooltip(event, d); this.highlightNode(d.id); })
       .on('mouseleave', () => { this.hideTooltip(); this.unhighlight(); });
-    node.filter(d => d.triple.successorCount > maxSucc * 0.7).append('circle').attr('r', d => rScale(d.triple.successorCount) + 3).attr('fill', 'none').attr('stroke', 'rgba(248,129,73,0.3)').attr('stroke-width', 2);
+    node.filter(d => d.triple.successorCount > maxSucc * 0.7).append('circle').attr('r', d => rScale(d.triple.successorCount) + 3).attr('fill', 'none').attr('stroke', 'rgba(${CRGB},0.3)').attr('stroke-width', 2);
     const colorScale = d3.scaleSequential(d3.interpolateCool).domain([maxLayer, 0]);
     node.append('circle').attr('r', d => rScale(d.triple.successorCount)).attr('fill', d => colorScale(this.getLayer(d.triple))).attr('stroke', 'rgba(255,255,255,0.15)').attr('stroke-width', 1);
-    node.filter(d => d.triple.successorCount > maxSucc * 0.5).append('text').attr('y', d => rScale(d.triple.successorCount) + 12).attr('text-anchor', 'middle').attr('fill', '#8b949e').attr('font-size', 8).attr('font-family', 'monospace').text(d => d.id.length > 12 ? d.id.substring(0, 10) + '..' : d.id);
+    node.filter(d => d.triple.successorCount > maxSucc * 0.5).append('text').attr('y', d => rScale(d.triple.successorCount) + 12).attr('text-anchor', 'middle').attr('fill', dHex).attr('font-size', 8).attr('font-family', 'monospace').text(d => d.id.length > 12 ? d.id.substring(0, 10) + '..' : d.id);
     this.svg.on('click', (event) => { if (event.target === this.svg.node()) App.clearInspector(); });
     const allX = nodes.map(n => n.x), allY = nodes.map(n => n.y);
     if (allX.length > 0) {
@@ -693,7 +761,7 @@ const DagGraph = {
 
   showTooltip(event, d) {
     const tt = document.getElementById('tooltip'); tt.style.display = 'block';
-    tt.innerHTML = `<div class="tt-key">${d.id}</div><div class="tt-row"><span>depSet大小</span><span class="o">${d.triple.depSetSize}</span></div><div class="tt-row"><span>拓扑层</span><span>${this.getLayer(d.triple)}</span></div><div class="tt-row"><span class="tt-impact">影响(后继)</span><span class="g">${d.triple.successorCount.toLocaleString()}</span></div><div class="tt-row"><span class="tt-dep">被帮助(前驱)</span><span>${d.triple.predecessorCount.toLocaleString()}</span></div><div class="tt-row"><span>瓶颈分</span><span>${d.triple.bottleneckScore.toFixed(3)}</span></div><div style="font-size:9px;color:var(--m);margin-top:2px">悬停=高亮依赖链 | 点击=详情</div>`;
+    tt.innerHTML = `<div class="tt-key">${d.id}</div><div class="tt-row"><span>depSet大小</span><span class="o">${d.triple.depSetSize}</span></div><div class="tt-row"><span>拓扑层</span><span>${this.getLayer(d.triple)}</span></div><div class="tt-row"><span class="tt-impact">影响(后继)</span><span class="g">${d.triple.successorCount.toLocaleString()}</span></div><div class="tt-row"><span class="tt-dep">被帮助(前驱)</span><span>${d.triple.predecessorCount.toLocaleString()}</span></div><div class="tt-row"><span>瓶颈分</span><span>${d.triple.bottleneckScore.toFixed(3)}</span></div><div style="font-size:9px;color:var(--dim);margin-top:2px">悬停=高亮依赖链 | 点击=详情</div>`;
     tt.style.left = Math.min(event.pageX + 14, window.innerWidth - 360) + 'px'; tt.style.top = (event.pageY - 10) + 'px';
   },
 
@@ -714,7 +782,7 @@ const ForceGraph = {
     this.zoom = d3.zoom().scaleExtent([0.1, 8]).on('zoom', (e) => { this.g.attr('transform', e.transform); });
     this.svg.call(this.zoom); this.g = this.svg.append('g');
     const defs = this.svg.append('defs');
-    defs.append('marker').attr('id', 'force-arrow').attr('viewBox', '0 -5 10 10').attr('refX', 20).attr('refY', 0).attr('markerWidth', 5).attr('markerHeight', 5).attr('orient', 'auto').append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', 'rgba(139,148,158,0.3)');
+    defs.append('marker').attr('id', 'force-arrow').attr('viewBox', '0 -5 10 10').attr('refX', 20).attr('refY', 0).attr('markerWidth', 5).attr('markerHeight', 5).attr('orient', 'auto').append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', 'rgba(${DRGB},0.3)');
   },
 
   render() {
@@ -723,7 +791,7 @@ const ForceGraph = {
     const gTriples = graph.triples, edges = graph.prerequisiteEdges || [];
     const W = document.getElementById('viz').clientWidth || 1000, H = document.getElementById('viz').clientHeight || 700;
     this.g.selectAll('*').remove(); this.nodeMap = {}; this.nodes = []; this.links = [];
-    if (gTriples.length === 0) { this.g.append('text').attr('x', W/2).attr('y', H/2).attr('text-anchor', 'middle').attr('fill', '#8b949e').attr('font-size', 14).text('无数据'); return; }
+    if (gTriples.length === 0) { this.g.append('text').attr('x', W/2).attr('y', H/2).attr('text-anchor', 'middle').attr('fill', dHex).attr('font-size', 14).text('无数据'); return; }
     const maxLayer = Math.max(...gTriples.map(t => ForceGraph.getLayer(t)), 1), maxSucc = Math.max(...gTriples.map(t => t.successorCount), 1);
     for (let i = 0; i < gTriples.length; i++) {
       const t = gTriples[i]; this.nodeMap[t.key] = i;
@@ -734,7 +802,7 @@ const ForceGraph = {
     const colorScale = d3.scaleSequential(d3.interpolateCool).domain([maxLayer, 0]);
     const layerX = d3.scaleLinear().domain([0, maxLayer]).range([100, W - 100]);
     const linkG = this.g.append('g');
-    const link = linkG.selectAll('line').data(this.links).join('line').attr('stroke', 'rgba(139,148,158,0.15)').attr('stroke-width', d => Math.max(0.5, Math.min(2.5, d.overlap / 6))).attr('marker-end', 'url(#force-arrow)');
+    const link = linkG.selectAll('line').data(this.links).join('line').attr('stroke', 'rgba(${DRGB},0.15)').attr('stroke-width', d => Math.max(0.5, Math.min(2.5, d.overlap / 6))).attr('marker-end', 'url(#force-arrow)');
     const nodeG = this.g.append('g');
     const node = nodeG.selectAll('g').data(this.nodes).join('g').attr('cursor', 'pointer')
       .call(d3.drag().on('start', (e, d) => { if (!e.active) ForceGraph.simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }).on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; }).on('end', (e, d) => { if (!e.active) ForceGraph.simulation.alphaTarget(0); d.fx = null; d.fy = null; }))
@@ -779,15 +847,15 @@ var TileGraph = {
     this.zoom = d3.zoom().scaleExtent([0.15, 6]).on('zoom', function(e) { TileGraph.g.attr('transform', e.transform); });
     this.svg.call(this.zoom);
     this.svg.on('click', function(event) { if (event.target === this || event.target.tagName === 'svg') TileGraph.clearSel(); });
-    this.svg.select('defs').append('marker').attr('id', 'tile-arrow').attr('viewBox', '0 -5 10 10').attr('refX', 12).attr('refY', 0).attr('markerWidth', 5).attr('markerHeight', 5).attr('orient', 'auto').append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', 'rgba(139,148,158,0.3)');
+    this.svg.select('defs').append('marker').attr('id', 'tile-arrow').attr('viewBox', '0 -5 10 10').attr('refX', 12).attr('refY', 0).attr('markerWidth', 5).attr('markerHeight', 5).attr('orient', 'auto').append('path').attr('d', 'M0,-4L8,0L0,4').attr('fill', 'rgba(${DRGB},0.3)');
   },
   getLayer(t) { return this.mode === 'depth' ? (t.depth || 1) : t.layer; },
   setMode(m) { this.mode = m; this.selId = null; this.hlSet.clear(); this.render(); document.getElementById('btnLayerQuantile').classList.toggle('active', m === 'depth'); document.getElementById('btnLayerDepth').classList.toggle('active', m === 'layer'); },
   buildHlSet(id) { var s=new Set(),tm=this.tileMap; function up(tid){if(s.has(tid))return;s.add(tid);var t=tm[tid];if(t)(t.deps||[]).forEach(up);} function dn(tid){if(s.has(tid))return;s.add(tid);var t=tm[tid];if(t)(t.blocks||[]).forEach(dn);} up(id);dn(id);s.add(id);return s; },
   applyHighlight() {
     var hl = this.hlSet, hasHL = hl.size > 0, sel = this.selId, self = this;
-    this.g.selectAll('circle.tile-node').attr('fill', function(t) { if (hasHL && !hl.has(t.id)) return '#30363d'; if (t.color && t.color > 0) return self.palette[(t.color-1)%self.palette.length]; return '#8b949e'; }).attr('opacity', function(t) { return (hasHL && !hl.has(t.id)) ? 0.2 : 0.92; }).attr('stroke', function(t) { return t.id === sel ? '#ffa657' : '#30363d'; }).attr('stroke-width', function(t) { return t.id === sel ? 2.5 : 1; }).attr('r', function(t) { return t.id === sel ? (self._nodeR||7)+2 : (self._nodeR||7); });
-    this.g.selectAll('line.tile-edge').attr('stroke', function(e) { if (hasHL) return hl.has(e.from)&&hl.has(e.to)?'rgba(88,166,255,0.65)':'rgba(139,148,158,0.04)'; return 'rgba(139,148,158,0.2)'; }).attr('stroke-width', function(e) { return (hasHL&&hl.has(e.from)&&hl.has(e.to))?1.8:0.6; }).attr('marker-end', function(e) { return (hasHL&&hl.has(e.from)&&hl.has(e.to))?'url(#tile-arrow)':null; });
+    this.g.selectAll('circle.tile-node').attr('fill', function(t) { if (hasHL && !hl.has(t.id)) return lHex; if (t.color && t.color > 0) return self.palette[(t.color-1)%self.palette.length]; return '#8b949e'; }).attr('opacity', function(t) { return (hasHL && !hl.has(t.id)) ? 0.2 : 0.92; }).attr('stroke', function(t) { return t.id === sel ? '#ffa657' : lHex; }).attr('stroke-width', function(t) { return t.id === sel ? 2.5 : 1; }).attr('r', function(t) { return t.id === sel ? (self._nodeR||7)+2 : (self._nodeR||7); });
+    this.g.selectAll('line.tile-edge').attr('stroke', function(e) { if (hasHL) return hl.has(e.from)&&hl.has(e.to)?'rgba(${IRGB},0.65)':'rgba(${DRGB},0.04)'; return 'rgba(${DRGB},0.2)'; }).attr('stroke-width', function(e) { return (hasHL&&hl.has(e.from)&&hl.has(e.to))?1.8:0.6; }).attr('marker-end', function(e) { return (hasHL&&hl.has(e.from)&&hl.has(e.to))?'url(#tile-arrow)':null; });
   },
   selectTile(id) { if (this.selId===id) { this.selId=null; this.hlSet.clear(); App.clearInspector(); } else { this.selId=id; this.hlSet=this.buildHlSet(id); this.showDetail(id); } this.applyHighlight(); },
   hoverTile(id) { if(!this.selId){this.hlSet=this.buildHlSet(id);this.applyHighlight();} },
@@ -800,7 +868,7 @@ var TileGraph = {
     var clr=t.color&&t.color>0?('<span class="dot" style="background:'+this.palette[(t.color-1)%this.palette.length]+';display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:middle"></span>C'+t.color+' '):'';
     document.getElementById('isummary').innerHTML=clr+'依赖 '+(t.deps||[]).length+' 张 | 阻塞 '+(t.blocks||[]).length+' 张 | 链上 '+this.hlSet.size+' 张';
     document.getElementById('iDepSet').innerHTML='<div style="font-size:11px;line-height:1.6">依赖链上共 <b>'+this.hlSet.size+'</b> 张牌（含自身）</div>';
-    var blk=(t.blocks||[]).slice(0,12).map(function(b){return '<span style="color:var(--a)">#'+b+'</span>';}).join(', ')||'(无)'; if((t.blocks||[]).length>12)blk+=' ...';
+    var blk=(t.blocks||[]).slice(0,12).map(function(b){return '<span style="color:var(--info)">#'+b+'</span>';}).join(', ')||'(无)'; if((t.blocks||[]).length>12)blk+=' ...';
     document.getElementById('iPreds').innerHTML='<div class="row"><span>依赖</span><span>'+(t.deps||[]).length+' 张</span></div>';
     document.getElementById('iSuccs').innerHTML='<div class="row"><span>阻塞</span><span>'+blk+'</span></div>';
   },
@@ -817,9 +885,9 @@ var TileGraph = {
     for (var l = 0; l <= maxL; l++) { var arr = groups[l] || [], sp = usableW / Math.max(arr.length + 1, 1), y = H - margin.b - layerH * (l + 1) + layerH / 2; arr.forEach(function(t, i) { self.tilePos[t.id] = { x: margin.l + sp * (i + 1), y: y }; }); }
     var edgeData = []; tiles.forEach(function(t) { (t.deps||[]).forEach(function(depId) { if (self.tilePos[depId]) edgeData.push({ from: depId, to: t.id }); }); });
     var hlSet = this.hlSet, hasHL = hlSet.size > 0, sel = this.selId;
-    this.g.selectAll('line').data(edgeData).join('line').attr('class', 'tile-edge').attr('x1', function(e) { return self.tilePos[e.from]?.x||0; }).attr('y1', function(e) { return self.tilePos[e.from]?.y||0; }).attr('x2', function(e) { return self.tilePos[e.to]?.x||0; }).attr('y2', function(e) { return self.tilePos[e.to]?.y||0; }).attr('stroke', function(e) { if (hasHL) return hlSet.has(e.from)&&hlSet.has(e.to)?'rgba(88,166,255,0.65)':'rgba(139,148,158,0.04)'; return 'rgba(139,148,158,0.2)'; }).attr('stroke-width', function(e) { return (hasHL&&hlSet.has(e.from)&&hlSet.has(e.to))?1.8:0.6; }).attr('marker-end', function(e) { return (hasHL&&hlSet.has(e.from)&&hlSet.has(e.to))?'url(#tile-arrow)':null; });
+    this.g.selectAll('line').data(edgeData).join('line').attr('class', 'tile-edge').attr('x1', function(e) { return self.tilePos[e.from]?.x||0; }).attr('y1', function(e) { return self.tilePos[e.from]?.y||0; }).attr('x2', function(e) { return self.tilePos[e.to]?.x||0; }).attr('y2', function(e) { return self.tilePos[e.to]?.y||0; }).attr('stroke', function(e) { if (hasHL) return hlSet.has(e.from)&&hlSet.has(e.to)?'rgba(${IRGB},0.65)':'rgba(${DRGB},0.04)'; return 'rgba(${DRGB},0.2)'; }).attr('stroke-width', function(e) { return (hasHL&&hlSet.has(e.from)&&hlSet.has(e.to))?1.8:0.6; }).attr('marker-end', function(e) { return (hasHL&&hlSet.has(e.from)&&hlSet.has(e.to))?'url(#tile-arrow)':null; });
     var r = this._nodeR = Math.max(5, Math.min(11, usableW / Math.max(tiles.length, 1) * 0.45));
-    this.g.selectAll('circle').data(tiles).join('circle').attr('class', 'tile-node').attr('cx', function(t) { return self.tilePos[t.id]?.x||0; }).attr('cy', function(t) { return self.tilePos[t.id]?.y||0; }).attr('r', function(t) { return t.id===sel?r+2:r; }).attr('fill', function(t) { if (hasHL&&!hlSet.has(t.id)) return '#30363d'; if (t.color&&t.color>0) return self.palette[(t.color-1)%self.palette.length]; return '#8b949e'; }).attr('stroke', function(t) { return t.id===sel?'#ffa657':'#30363d'; }).attr('stroke-width', function(t) { return t.id===sel?2.5:1; }).attr('opacity', function(t) { return (hasHL&&!hlSet.has(t.id))?0.2:0.92; }).attr('cursor', 'pointer').on('click', function(event, t) { event.stopPropagation(); TileGraph.selectTile(t.id); }).on('mouseenter', function(event, t) { if (!TileGraph.selId) TileGraph.hoverTile(t.id); }).on('mouseleave', function() { if (!TileGraph.selId) TileGraph.clearHover(); });
+    this.g.selectAll('circle').data(tiles).join('circle').attr('class', 'tile-node').attr('cx', function(t) { return self.tilePos[t.id]?.x||0; }).attr('cy', function(t) { return self.tilePos[t.id]?.y||0; }).attr('r', function(t) { return t.id===sel?r+2:r; }).attr('fill', function(t) { if (hasHL&&!hlSet.has(t.id)) return lHex; if (t.color&&t.color>0) return self.palette[(t.color-1)%self.palette.length]; return '#8b949e'; }).attr('stroke', function(t) { return t.id===sel?'#ffa657':lHex; }).attr('stroke-width', function(t) { return t.id===sel?2.5:1; }).attr('opacity', function(t) { return (hasHL&&!hlSet.has(t.id))?0.2:0.92; }).attr('cursor', 'pointer').on('click', function(event, t) { event.stopPropagation(); TileGraph.selectTile(t.id); }).on('mouseenter', function(event, t) { if (!TileGraph.selId) TileGraph.hoverTile(t.id); }).on('mouseleave', function() { if (!TileGraph.selId) TileGraph.clearHover(); });
     this.g.selectAll('text.layerlbl').data(Object.keys(groups).map(Number).sort(function(a,b){return b-a;})).join('text').attr('class', 'layerlbl').attr('x', 6).attr('y', function(l) { var first = groups[l]?.[0]; return first ? (self.tilePos[first.id]?.y||0) : 0; }).attr('fill', '#8b949e').attr('font-size', 9).attr('font-family', 'monospace').text(function(l) { return (self.mode==='depth'?'D':'L')+l+' ('+(groups[l]||[]).length+')'; });
     document.getElementById('statTriples').textContent = tiles.length; document.getElementById('statEdges').textContent = edgeData.length;
     document.getElementById('statLayers').textContent = maxL + 1; document.getElementById('statLayersLabel').textContent = this.mode==='depth'?'深度层数':'Layer 层数';
