@@ -60,6 +60,7 @@ interface Options {
   colorJitter: number;
   spreadRange?: NumericRange;
   debtRange?: NumericRange;
+  colorAllocationMode: 'balanced' | 'single-heavy';
   acceptance: BatchAcceptanceConfig;
   resume: boolean;
   run: boolean;
@@ -132,6 +133,7 @@ function parseArgs(argv: string[]): Options {
     concurrency: 2,
     targetGrades: [],
     colorJitter: 0,
+    colorAllocationMode: 'balanced',
     acceptance: {},
     resume: false,
     run: false,
@@ -164,6 +166,12 @@ function parseArgs(argv: string[]): Options {
     else if (arg === '--spread-max') opts.spreadRange = { min: opts.spreadRange?.min ?? 0, max: parseNumber(next(), 1) };
     else if (arg === '--debt-min') opts.debtRange = { min: parseNumber(next(), 0), max: opts.debtRange?.max ?? 1 };
     else if (arg === '--debt-max') opts.debtRange = { min: opts.debtRange?.min ?? 0, max: parseNumber(next(), 1) };
+    else if (arg === '--color-allocation') {
+      const v = next();
+      if (v === 'single-heavy') opts.colorAllocationMode = 'single-heavy';
+      else if (v === 'balanced') opts.colorAllocationMode = 'balanced';
+      else throw new Error(`未知花色配额模式: ${v}`);
+    }
     else if (arg === '--accept-min-sim1-wins') opts.acceptance.minSim1Wins = parseNumber(next(), 0);
     else if (arg === '--accept-min-sim5-wins') opts.acceptance.minSim5Wins = parseNumber(next(), 0);
     else if (arg === '--accept-min-sim15-wins') opts.acceptance.minSim15Wins = parseNumber(next(), 0);
@@ -224,6 +232,7 @@ Options:
   --color-jitter <n>       Integer color-count jitter +/-n
   --spread-min/max <n>     Random spread bounds
   --debt-min/max <n>       Random debt bounds
+  --color-allocation <mode> balanced | single-heavy (default: balanced)
   --optimal-acceptance-json <json> Per-grade Optimal acceptance
 `);
 }
@@ -362,6 +371,7 @@ function buildJobs(plans: TerrainPlan[], opts: Options): TerrainJob[] {
         colorJitter: opts.colorJitter,
         spreadRange: opts.spreadRange,
         debtRange: opts.debtRange,
+        colorAllocationMode: opts.colorAllocationMode,
       },
       simRuns: opts.simRuns,
       acceptance: jsonClone(opts.acceptance),

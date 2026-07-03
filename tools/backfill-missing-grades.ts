@@ -40,6 +40,7 @@ import {
   computeDependencyDepth,
   computeMetrics,
   computeTileDepSets,
+  assignColorTotals,
   generateBoardLayerClosure,
   generateReplayCode,
   getAllTiles,
@@ -133,6 +134,7 @@ interface CliOptions {
   adaptiveContinuousStep: number;
   optimalFirst: boolean;
   placementMode: 'layer-closure' | 'random-color';
+  colorAllocationMode: 'balanced' | 'single-heavy';
 }
 
 interface ExistingRow {
@@ -185,6 +187,7 @@ interface SearchJob {
   adaptiveContinuousStep: number;
   optimalFirst: boolean;
   placementMode: 'layer-closure' | 'random-color';
+  colorAllocationMode: 'balanced' | 'single-heavy';
   historicalTemplates: Record<number, GenerationParams[]>;
   seedBase: number;
 }
@@ -281,6 +284,7 @@ function parseArgs(argv: string[]): CliOptions {
     adaptiveContinuousStep: 0.08,
     optimalFirst: false,
     placementMode: 'layer-closure',
+    colorAllocationMode: 'balanced',
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -354,6 +358,12 @@ function parseArgs(argv: string[]): CliOptions {
       const value = next();
       if (value === 'layer-closure' || value === 'random-color') opts.placementMode = value;
       else throw new Error(`未知placement mode: ${value}`);
+    }
+    else if (a === '--color-allocation') {
+      const value = next();
+      if (value === 'single-heavy') opts.colorAllocationMode = 'single-heavy';
+      else if (value === 'balanced') opts.colorAllocationMode = 'balanced';
+      else throw new Error(`未知花色配额模式: ${value}`);
     }
     else if (a === '--include-100004') opts.excludeLevels.delete('100004');
     else if (a === '--help' || a === '-h') {
@@ -664,6 +674,7 @@ function readHistoricalTemplatePools(
   const closeIdx = idx('closeRates');
   const spreadIdx = idx('spreadParam');
   const debtIdx = idx('debtPersistenceWeight');
+  const allocIdx = idx('colorAllocationMode');
   const levelTagsIdx = idx('LevelTags');
   if ([levelIdx, gradeIdx, colorIdx, closeIdx, spreadIdx, debtIdx].some(index => index < 0)) return pools;
 
@@ -677,6 +688,8 @@ function readHistoricalTemplatePools(
     const closeRates = String(row[closeIdx] ?? '').split(',').map(Number);
     const spreadParam = Number(row[spreadIdx]);
     const debtPersistenceWeight = Number(row[debtIdx]);
+    const colorAllocationMode = (allocIdx >= 0 ? String(row[allocIdx] ?? '').trim() : '') === 'single-heavy'
+      ? 'single-heavy' as const : 'balanced' as const;
     if (
       !Number.isInteger(colorCount) || colorCount <= 0 ||
       closeRates.length === 0 || closeRates.some(value => !Number.isFinite(value)) ||
@@ -684,7 +697,7 @@ function readHistoricalTemplatePools(
     ) continue;
     const byGrade = pools.get(levelResId) ?? {};
     const gradePool = byGrade[grade] ?? [];
-    gradePool.push({ colorCount, closeRates, spreadParam, debtPersistenceWeight });
+    gradePool.push({ colorCount, closeRates, spreadParam, debtPersistenceWeight, colorAllocationMode });
     byGrade[grade] = gradePool;
     pools.set(levelResId, byGrade);
   }
@@ -809,6 +822,7 @@ function createG0Row(
   colorJitter: number,
   spreadParam: number,
   debtPersistenceWeight: number,
+  colorAllocationMode: 'balanced' | 'single-heavy',
 ): BatchRow {
   const terrain = loadTerrainFromFile(terrainPath);
   const allTiles = getAllTiles(terrain);
@@ -820,6 +834,7 @@ function createG0Row(
     colorCount: colorCountWithJitter(colorRatio, freeTiles, colorRng, colorJitter),
     spreadParam,
     debtPersistenceWeight,
+    colorAllocationMode,
   };
   const t0 = performance.now();
   const result = generateBoardLayerClosure({
@@ -829,6 +844,8 @@ function createG0Row(
     dock: 7,
     spreadParam: params.spreadParam,
     debtPersistenceWeight: params.debtPersistenceWeight,
+    colorAllocationMode: params.colorAllocationMode,
+    colorAllocationRng: colorRng,
   });
   const m = result.metrics;
   return {
@@ -841,6 +858,9 @@ function createG0Row(
     closeRates: params.closeRates,
     spreadParam: params.spreadParam,
     debtPersistenceWeight: params.debtPersistenceWeight,
+    colorAllocationMode: m.colorAllocationMode ?? params.colorAllocationMode,
+    heavyColor: m.heavyColor ?? 0,
+    colorTripletCounts: m.colorTripletCounts ?? [],
     freeTiles,
     totalTiles: allTiles.length,
     depthCount: m.depthCount,
@@ -868,7 +888,7 @@ function createG0Row(
   };
 }
 
-function buildSearchParams(terrain: TerrainData, colorRatio: number, colorJitter: number, rng: () => number): GenerationParams {
+function buildSearchParams(terrain: TerrainData, colorRatio: number, colorJitter: number, rng: () => number, colorAllocationMode: 'balanced' | 'single-heavy' = 'balanced'): GenerationParams {
   const allTiles = getAllTiles(terrain);
   const freeTiles = allTiles.filter(t => !t.isConst).length;
   return {
@@ -876,6 +896,7 @@ function buildSearchParams(terrain: TerrainData, colorRatio: number, colorJitter
     colorCount: colorCountWithJitter(colorRatio, freeTiles, rng, colorJitter),
     spreadParam: rng(),
     debtPersistenceWeight: rng(),
+    colorAllocationMode,
   };
 }
 
@@ -925,7 +946,8 @@ function buildTargetedSearchParams(
   overrides: Pick<SearchJob,
     'searchCloseMin' | 'searchCloseMax' | 'searchCloseMode' |
     'searchDebtMin' | 'searchDebtMax' |
-    'searchSpreadMin' | 'searchSpreadMax'
+    'searchSpreadMin' | 'searchSpreadMax' |
+    'colorAllocationMode'
   >,
   rng: () => number,
 ): GenerationParams {
@@ -984,6 +1006,7 @@ function buildTargetedSearchParams(
     colorCount: colorCountWithJitter(colorRatio, freeTiles, rng, colorJitter),
     spreadParam,
     debtPersistenceWeight,
+    colorAllocationMode: overrides.colorAllocationMode ?? 'balanced',
   };
 }
 
@@ -1092,6 +1115,7 @@ function generateCandidateOnly(
   params: GenerationParams,
   terrainPath: string,
   attemptIndex: number,
+  rng: () => number,
 ): BatchRow {
   const started = performance.now();
   const allTiles = getAllTiles(terrain);
@@ -1104,6 +1128,8 @@ function generateCandidateOnly(
       dock: 7,
       spreadParam: params.spreadParam,
       debtPersistenceWeight: params.debtPersistenceWeight,
+      colorAllocationMode: params.colorAllocationMode,
+      colorAllocationRng: rng,
     });
     const metrics = result.metrics;
     return {
@@ -1116,6 +1142,9 @@ function generateCandidateOnly(
       closeRates: params.closeRates,
       spreadParam: params.spreadParam,
       debtPersistenceWeight: params.debtPersistenceWeight,
+      colorAllocationMode: metrics.colorAllocationMode ?? params.colorAllocationMode,
+      heavyColor: metrics.heavyColor ?? 0,
+      colorTripletCounts: metrics.colorTripletCounts ?? [],
       freeTiles,
       totalTiles: allTiles.length,
       depthCount: metrics.depthCount,
@@ -1152,6 +1181,9 @@ function generateCandidateOnly(
       closeRates: params.closeRates,
       spreadParam: params.spreadParam,
       debtPersistenceWeight: params.debtPersistenceWeight,
+      colorAllocationMode: params.colorAllocationMode,
+      heavyColor: 0,
+      colorTripletCounts: [],
       freeTiles,
       totalTiles: allTiles.length,
       depthCount: 0,
@@ -1187,6 +1219,7 @@ function generateRandomColorCandidate(
   terrainPath: string,
   attemptIndex: number,
   rng: () => number,
+  colorAllocationMode: 'balanced' | 'single-heavy',
 ): BatchRow {
   const started = performance.now();
   const allTiles = getAllTiles(terrain);
@@ -1197,11 +1230,13 @@ function generateRandomColorCandidate(
     }
     const tripletCount = freeTiles.length / 3;
     const actualColorCount = Math.max(1, Math.min(colorCount, tripletCount));
-    const baseTriplets = Math.floor(tripletCount / actualColorCount);
-    const extraTriplets = tripletCount % actualColorCount;
+    const colorTotals = assignColorTotals(tripletCount, actualColorCount, colorAllocationMode, rng);
+    const heavyColor = colorAllocationMode === 'single-heavy'
+      ? colorTotals.indexOf(Math.max(...colorTotals)) + 1
+      : 0;
     const colorBag: number[] = [];
     for (let color = 1; color <= actualColorCount; color++) {
-      const tileCount = (baseTriplets + (color <= extraTriplets ? 1 : 0)) * 3;
+      const tileCount = colorTotals[color - 1];
       for (let i = 0; i < tileCount; i++) colorBag.push(color);
     }
     shuffleInPlace(colorBag, rng);
@@ -1235,6 +1270,9 @@ function generateRandomColorCandidate(
       actualCloseRates,
       0,
       [],
+      colorAllocationMode,
+      heavyColor,
+      colorTotals,
     );
     const replayCode = generateReplayCode(
       getCanonicalTileOrder(allTiles),
@@ -1251,6 +1289,9 @@ function generateRandomColorCandidate(
       closeRates: metrics.actualCloseRates.slice(0, -1),
       spreadParam: 0,
       debtPersistenceWeight: 0,
+      colorAllocationMode,
+      heavyColor,
+      colorTripletCounts: colorTotals.map(total => total / 3),
       freeTiles: freeTiles.length,
       totalTiles: allTiles.length,
       depthCount: metrics.depthCount,
@@ -1288,6 +1329,9 @@ function generateRandomColorCandidate(
       closeRates: [],
       spreadParam: 0,
       debtPersistenceWeight: 0,
+      colorAllocationMode: 'balanced' as const,
+      heavyColor: 0,
+      colorTripletCounts: [],
       freeTiles: freeTiles.length,
       totalTiles: allTiles.length,
       depthCount: 0,
@@ -1346,6 +1390,7 @@ function cloneTemplateParams(template: GenerationParams): GenerationParams {
     colorCount: template.colorCount,
     spreadParam: template.spreadParam,
     debtPersistenceWeight: template.debtPersistenceWeight,
+    colorAllocationMode: template.colorAllocationMode,
   };
 }
 
@@ -1575,6 +1620,7 @@ function buildSearchJobs(
       adaptiveContinuousStep: opts.adaptiveContinuousStep,
       optimalFirst: opts.optimalFirst,
       placementMode: opts.placementMode,
+      colorAllocationMode: opts.colorAllocationMode,
       historicalTemplates: historicalTemplatePools.get(c.levelResId) ?? {},
       seedBase: (Date.now() + Number(c.levelResId) * 97) & 0x7fffffff,
     });
@@ -1660,11 +1706,12 @@ async function runWorkerJob(job: SearchJob): Promise<void> {
         job,
           rng,
         );
+    params.colorAllocationMode = job.colorAllocationMode;
     let optimalPassedGrades: Set<number> | null = null;
     let row = job.placementMode === 'random-color'
-      ? generateRandomColorCandidate(terrain, params.colorCount, job.terrainPath, attempts + 1, rng)
+      ? generateRandomColorCandidate(terrain, params.colorCount, job.terrainPath, attempts + 1, rng, job.colorAllocationMode)
       : job.optimalFirst && job.optimalAcceptance
-        ? generateCandidateOnly(terrain, params, job.terrainPath, attempts + 1)
+        ? generateCandidateOnly(terrain, params, job.terrainPath, attempts + 1, rng)
         : generateAndEvaluateOne(
           terrain,
           params,
@@ -1930,7 +1977,7 @@ async function runMain(): Promise<void> {
       const c = coverages[i];
       const needed = c.missing[0] ?? 0;
       for (let n = 0; n < needed; n++) {
-        const row = createG0Row(i, c.terrainPath, n + 1, opts.colorRatio, opts.colorJitter, opts.g0Spread, opts.g0Debt);
+        const row = createG0Row(i, c.terrainPath, n + 1, opts.colorRatio, opts.colorJitter, opts.g0Spread, opts.g0Debt, opts.colorAllocationMode);
         appendRow(opts.output, row);
         g0Generated++;
       }

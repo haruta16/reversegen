@@ -67,10 +67,11 @@
     "layer-closure": {
       "label": "Tile 层闭合生成",
       "description": "使用闭合率、花色、同色分布和债务持续权重塑造牌面。",
-      "policies": ["closure", "color", "spread", "debt"],
+      "policies": ["closure", "color", "color_allocation", "spread", "debt"],
       "policyModes": {
         "closure": ["random", "random_range", "fixed_points", "full_layer_max", "per_layer_list"],
         "color": ["ratio", "ratio_jitter", "fixed_count", "range"],
+        "color_allocation": ["balanced", "single_heavy"],
         "spread": ["fixed", "random", "random_range"],
         "debt": ["fixed", "random", "random_range"]
       }
@@ -78,9 +79,10 @@
     "random-color": {
       "label": "Tile 纯随机颜色落位",
       "description": "只控制花色数量，颜色袋随机落位；闭合率、分布和债务不参与生成。",
-      "policies": ["color"],
+      "policies": ["color", "color_allocation"],
       "policyModes": {
-        "color": ["ratio", "ratio_jitter", "fixed_count", "range"]
+        "color": ["ratio", "ratio_jitter", "fixed_count", "range"],
+        "color_allocation": ["balanced", "single_heavy"]
       }
     }
   },
@@ -94,7 +96,9 @@
     "ratio_jitter": {"label": "比例浮动", "fields": ["ratio", "jitter"]},
     "fixed_count": {"label": "固定花色数", "fields": ["value"]},
     "range": {"label": "比例范围", "fields": ["min", "max", "jitter"]},
-    "fixed": {"label": "固定值", "fields": ["value"]}
+    "fixed": {"label": "固定值", "fields": ["value"]},
+    "balanced": {"label": "均匀分配", "fields": []},
+    "single_heavy": {"label": "单色极重", "fields": []}
   },
   "fieldGroups": {
     "scope": ["terrainSource", "levelRange", "includeLevels", "excludeLevels", "levelsDir", "sourceCsv", "firstBackfillCsv", "latestBackfillCsv", "workbook", "templateWorkbook"],

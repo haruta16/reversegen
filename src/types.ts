@@ -175,6 +175,9 @@ export function sortTriple(a: number, b: number, c: number): [number, number, nu
 
 // ── LayerClosure（层闭合）花色分配算法 ──
 
+/** 花色配额方式 */
+export type ColorAllocationMode = 'balanced' | 'single-heavy';
+
 /**
  * LayerClosure 算法输入。
  *
@@ -186,6 +189,14 @@ export interface LayerClosureInput {
   terrain: TerrainData;
   /** 使用的花色数（花色值自动为 1..colorCount，与 CostLadder 一致） */
   colorCount: number;
+  /**
+   * 花色配额方式。
+   * - 'balanced': 均匀分配（默认，保持旧行为）
+   * - 'single-heavy': 随机选一个主花色集中分配，其余花色各 1 组
+   */
+  colorAllocationMode?: ColorAllocationMode;
+  /** 花色配额随机源；批量任务传入种子 RNG，默认使用 Math.random。 */
+  colorAllocationRng?: () => number;
   /** Dock 槽位容量（用于必输判定等指标，不影响花色分配） */
   dock: number;
   /**
@@ -320,6 +331,12 @@ export interface DebtMetrics {
    * 0 = 最紧密（全部包在同一个 depSet 里），1 = 最松散（所有 depSet 互不重叠）。
    */
   suitSpreadNorm: number;
+  /** 花色配额方式（回显输入） */
+  colorAllocationMode?: ColorAllocationMode;
+  /** single-heavy 模式下的主花色索引（1-based，balanced 模式为 0） */
+  heavyColor?: number;
+  /** 各花色 triplet 组数 */
+  colorTripletCounts?: number[];
 }
 
 /** LayerClosure 算法输出 */

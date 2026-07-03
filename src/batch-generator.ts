@@ -22,7 +22,7 @@ import { solvePlayerMistakeBatch, solvePlayerShortestBatch } from './solver/inde
 import { OfflineTile } from './solver/types.js';
 import { OfflineGame } from './solver/offline-game.js';
 import { gradeStrategy2 } from './grader.js';
-import type { TerrainData, TerrainTile } from './types.js';
+import type { TerrainData, TerrainTile, ColorAllocationMode } from './types.js';
 import type { SimSnapshot } from './grader.js';
 import { mulberry32 } from './random-utils.js';
 
@@ -65,6 +65,7 @@ export interface UnifiedParams {
   colorJitter?: number;
   spreadRange?: NumericRange;
   debtRange?: NumericRange;
+  colorAllocationMode: ColorAllocationMode;
 }
 
 export interface BatchConfig {
@@ -79,6 +80,7 @@ export interface BatchConfig {
   colorJitter?: number;
   spreadRange?: NumericRange;
   debtRange?: NumericRange;
+  colorAllocationMode: ColorAllocationMode;
   targetGrades?: number[];
   acceptance?: BatchAcceptanceConfig;
   acceptedOnly?: boolean;
@@ -93,12 +95,14 @@ export interface GenerationParams {
   colorCount: number;
   spreadParam: number;
   debtPersistenceWeight: number;
+  colorAllocationMode?: ColorAllocationMode;
 }
 
 export interface BatchRow {
   terrainIndex: number; terrainPath: string; levelResId: string;
   attemptIndex: number; isMaxGradeProbe: boolean;
   colorCount: number; closeRates: number[]; spreadParam: number; debtPersistenceWeight: number;
+  colorAllocationMode?: ColorAllocationMode; heavyColor?: number; colorTripletCounts?: number[];
   freeTiles: number; totalTiles: number; depthCount: number;
   peakDebt: number; peakExpDebt: number; oi: number; consecutiveOI: number;
   suitSpreadNorm: number; isDoomed: boolean;
@@ -259,6 +263,7 @@ export function randomizeParams(
     spreadParam: params.spreadParam === 'random' ? randomInRange(rng, params.spreadRange) : params.spreadParam,
     debtPersistenceWeight: params.debtPersistenceWeight === 'random'
       ? randomInRange(rng, params.debtRange) : params.debtPersistenceWeight,
+    colorAllocationMode: params.colorAllocationMode,
   };
 }
 
@@ -302,6 +307,7 @@ export function buildHardestParams(
     debtPersistenceWeight: unified.debtPersistenceWeight === 'random'
       ? (unified.debtRange?.max ?? 1.0)
       : unified.debtPersistenceWeight,
+    colorAllocationMode: unified.colorAllocationMode,
   };
 }
 
@@ -345,6 +351,7 @@ function mkEmptyRow(idx: number, path: string, p: GenerationParams, attempt: num
     isMaxGradeProbe: isProbe,
     colorCount: p.colorCount, closeRates: p.closeRates,
     spreadParam: p.spreadParam, debtPersistenceWeight: p.debtPersistenceWeight,
+    colorAllocationMode: p.colorAllocationMode, heavyColor: 0, colorTripletCounts: [],
     freeTiles: 0, totalTiles: 0, depthCount: 0,
     peakDebt: 0, peakExpDebt: 0, oi: 0, consecutiveOI: 0,
     suitSpreadNorm: 0, isDoomed: false, actualCloseRates: [], weightedDebtRetentionRate: 0,
@@ -373,6 +380,8 @@ export function generateAndEvaluateOne(
     const result = generateBoardLayerClosure({
       terrain, closeRates: params.closeRates, colorCount: params.colorCount,
       dock: 7, spreadParam: params.spreadParam, debtPersistenceWeight: params.debtPersistenceWeight,
+      colorAllocationMode: params.colorAllocationMode,
+      colorAllocationRng: mulberry32(seed + 31337),
     });
     const m = result.metrics;
     const offlineTiles = buildOfflineTiles(terrain, result.assignments);
@@ -395,6 +404,9 @@ export function generateAndEvaluateOne(
       attemptIndex, isMaxGradeProbe,
       colorCount: params.colorCount, closeRates: params.closeRates,
       spreadParam: params.spreadParam, debtPersistenceWeight: params.debtPersistenceWeight,
+      colorAllocationMode: m.colorAllocationMode ?? params.colorAllocationMode,
+      heavyColor: m.heavyColor ?? 0,
+      colorTripletCounts: m.colorTripletCounts ?? [],
       freeTiles, totalTiles: allTiles.length, depthCount: m.depthCount,
       peakDebt: m.peakDebt, peakExpDebt: m.peakExpDebt, oi: m.oi, consecutiveOI: m.consecutiveOI,
       suitSpreadNorm: m.suitSpreadNorm, isDoomed: m.isDoomed,
@@ -563,6 +575,7 @@ export const BATCH_CSV_HEADERS = [
   'highWinRate', 'MiddleWinRate', 'LowWinRate',
   // 后 12 列：生成参数 + sim 详情 + 实际闭合率 + 元信息
   'colorCount', 'closeRates', 'spreadParam', 'debtPersistenceWeight',
+  'colorAllocationMode', 'heavyColor', 'colorTripletCounts',
   'simRuns', 'sim1Wins', 'sim5Wins', 'sim15Wins', 'totalTiles',
   'optimalRuns', 'optimalWins', 'optimalLosses', 'optimalWinRate',
   'optimalForcedPickOnWin', 'optimalStarvationOnWin',
@@ -593,6 +606,7 @@ export function serializeBatchRow(row: BatchRow): string {
     row.sim1WinRate, row.sim5WinRate, row.sim15WinRate,
     // 后 12
     row.colorCount, row.closeRates.join(','), row.spreadParam, row.debtPersistenceWeight,
+    row.colorAllocationMode, row.heavyColor, (row.colorTripletCounts || []).join(','),
     row.simRuns, row.sim1Wins, row.sim5Wins, row.sim15Wins, row.totalTiles,
     row.optimalRuns ?? '', row.optimalWins ?? '', row.optimalLosses ?? '', row.optimalWinRate ?? '',
     row.optimalForcedPickOnWin ?? '', row.optimalStarvationOnWin ?? '',
@@ -769,6 +783,7 @@ export async function runBatchGeneration(
     colorJitter: config.colorJitter,
     spreadRange: config.spreadRange,
     debtRange: config.debtRange,
+    colorAllocationMode: config.colorAllocationMode,
   };
 
   const updateTerrain = (terrain: TerrainProgress, rowsAdded: number) => {

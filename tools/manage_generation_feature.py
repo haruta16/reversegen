@@ -33,6 +33,7 @@ EXECUTORS = {
 MODE_ENUMS = {
     "closure": {"random", "random_range", "fixed_points", "full_layer_max", "per_layer_list"},
     "color": {"ratio", "ratio_jitter", "fixed_count", "range"},
+    "color_allocation": {"balanced", "single_heavy"},
     "spread_debt": {"fixed", "random", "random_range"},
 }
 
@@ -137,6 +138,7 @@ DEFAULT_SCHEMA: dict[str, Any] = {
                 "color": {"$ref": "#/$defs/parameterPolicy"},
                 "spread": {"$ref": "#/$defs/parameterPolicy"},
                 "debt": {"$ref": "#/$defs/parameterPolicy"},
+                "color_allocation": {"$ref": "#/$defs/parameterPolicy"},
             },
         },
         "evaluation": {
@@ -717,6 +719,9 @@ def validate_strategy(strategy: dict[str, Any], strategy_path: Path | None = Non
     if color.get("mode") not in MODE_ENUMS["color"]:
         errors.append("generation.color.mode: 枚举值无效")
     validate_number_range(color, "generation.color", errors)
+    color_allocation = policy(generation, "color_allocation")
+    if color_allocation and color_allocation.get("mode") not in MODE_ENUMS["color_allocation"]:
+        errors.append("generation.color_allocation.mode: 枚举值无效")
     for name in ["spread", "debt"]:
         p = policy(generation, name)
         if p.get("mode") not in MODE_ENUMS["spread_debt"]:
@@ -1138,6 +1143,7 @@ def command_for(strategy: dict[str, Any], run_dir: Path, args: argparse.Namespac
         output = generation_dir / "batch.csv"
         closure = policy(generation, "closure")
         color = policy(generation, "color")
+        color_alloc = policy(generation, "color_allocation")
         spread = policy(generation, "spread")
         debt = policy(generation, "debt")
         cmd = [
@@ -1148,6 +1154,7 @@ def command_for(strategy: dict[str, Any], run_dir: Path, args: argparse.Namespac
             "--close-rates", closure_arg(closure),
             "--color-count", color_count_arg(color),
             "--color-ratio", color_ratio_arg(color),
+            "--color-allocation", "single-heavy" if color_alloc.get("mode") == "single_heavy" else "balanced",
             "--spread", fixed_or_random_arg(spread),
             "--debt", fixed_or_random_arg(debt),
             "--sim-runs", str(evaluation.get("sim_runs", 200)),
@@ -1174,6 +1181,7 @@ def command_for(strategy: dict[str, Any], run_dir: Path, args: argparse.Namespac
         status = logs_dir / "backfill_status.json"
         closure = policy(generation, "closure")
         color = policy(generation, "color")
+        color_alloc = policy(generation, "color_allocation")
         spread = policy(generation, "spread")
         debt = policy(generation, "debt")
         cmd = [
@@ -1182,6 +1190,7 @@ def command_for(strategy: dict[str, Any], run_dir: Path, args: argparse.Namespac
             "--target", str(target.get("target_count_per_grade", 10)),
             "--grades", csv_value(target.get("grades", [0, 1, 2, 3, 4, 5])),
             "--color-jitter", str(color.get("jitter", 2 if color.get("mode") == "ratio_jitter" else 0)),
+            "--color-allocation", "single-heavy" if color_alloc.get("mode") == "single_heavy" else "balanced",
             "--sim-runs", str(evaluation.get("sim_runs", 100)),
             "--template-attempts", str(search.get("template_attempts", 100)),
             "--concurrency", concurrency or "5",

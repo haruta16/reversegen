@@ -569,6 +569,7 @@ const server = createServer(async (req, res) => {
           executors: Object.entries(catalog.workflows || {}).map(([value, item]: [string, any]) => [value, item.label]),
           closureModes: layerClosure.policyModes?.closure || [],
           colorModes: layerClosure.policyModes?.color || [],
+          colorAllocationModes: layerClosure.policyModes?.color_allocation || [],
           scalarModes: layerClosure.policyModes?.spread || [],
           statuses: ['draft', 'active', 'deprecated', 'archived'],
           fillPolicies: ['all', 'missing_only', 'replace_filtered', 'probe_only', 'cap_only', 'none'],
@@ -749,12 +750,14 @@ const server = createServer(async (req, res) => {
         algorithm,
         costArray, colorCount, // CostLadder params
         closeRates, dock, spreadParam, debtPersistenceWeight, // LayerClosure params
+        colorAllocationMode,                                 // LayerClosure
         levelId, levelsDir, terrainPath, levelHash,
       } = body as {
         algorithm?: string;
         costArray?: string; colorCount?: string;           // CostLadder
         closeRates?: string; dock?: string; spreadParam?: string; // LayerClosure
         debtPersistenceWeight?: string;                    // LayerClosure
+        colorAllocationMode?: string;                      // LayerClosure
         levelId?: string; levelsDir?: string; terrainPath?: string; levelHash?: string;
       };
 
@@ -786,10 +789,12 @@ const server = createServer(async (req, res) => {
         const dpRaw = parseFloat(debtPersistenceWeight || '0');
         const dp = isNaN(dpRaw) ? 0 : Math.max(0, Math.min(1, dpRaw));
 
+        const allocMode = (colorAllocationMode === 'single-heavy' ? 'single-heavy' : 'balanced') as import('../src/types.js').ColorAllocationMode;
         const result = generateBoardLayerClosure({
           terrain, closeRates: rates, colorCount: k,
           dock: dk, levelHash, spreadParam: spread,
           debtPersistenceWeight: dp,
+          colorAllocationMode: allocMode,
         });
 
         const ordered = getCanonicalTileOrder(allTiles);
@@ -1935,6 +1940,7 @@ const server = createServer(async (req, res) => {
       config.targetPerTier = config.targetPerTier || 10;
       config.maxAttempts = config.maxAttempts || 500;
       config.concurrency = Math.max(1, Math.min(config.terrainPaths.length, Math.floor(Number(config.concurrency || 1))));
+      config.colorAllocationMode = config.colorAllocationMode || 'balanced';
 
       const jobId = `batch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
       console.log('[batch] step5: jobId:', jobId);

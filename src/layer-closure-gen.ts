@@ -20,7 +20,7 @@
  * @module layer-closure-gen
  */
 
-import type { TerrainTile, TerrainData, LayerClosureInput, LayerClosureOutput, DebtMetrics } from './types.js';
+import type { TerrainTile, TerrainData, LayerClosureInput, LayerClosureOutput, DebtMetrics, ColorAllocationMode } from './types.js';
 import { getAllTiles } from './terrain-loader.js';
 
 // ═══════════════════════════════════════════════════════════
@@ -28,7 +28,7 @@ import { getAllTiles } from './terrain-loader.js';
 // ═══════════════════════════════════════════════════════════
 
 export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput {
-  const { terrain, colorCount, dock, closeRates, spreadParam, debtPersistenceWeight } = input;
+  const { terrain, colorCount, dock, closeRates, spreadParam, debtPersistenceWeight, colorAllocationMode, colorAllocationRng } = input;
   const p = Math.max(0, Math.min(1, debtPersistenceWeight ?? 0));
 
   // ── 1. 提取全量牌，算依赖深度（const 也参与）──
@@ -54,7 +54,10 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
   const freeTilesPerDepth = depthLayers.map(l => l.filter(t => !t.isConst).length);
   const allTilesPerDepth = depthLayers.map(l => l.length);
   const totalTriplets = freeTiles.length / 3;
-  const colorTotalTiles = assignColorTotals(totalTriplets, colorCount);
+  const colorTotalTiles = assignColorTotals(totalTriplets, colorCount, colorAllocationMode, colorAllocationRng);
+  const heavyColor = colorAllocationMode === 'single-heavy'
+    ? colorTotalTiles.indexOf(Math.max(...colorTotalTiles)) + 1
+    : 0;
 
   // ── 3. 逐层约束满足 → 矩阵 M[c][d] ──
   const { matrix, retainedOldDebtTilesByLayer } = buildMatrixByCloseRates(
@@ -73,7 +76,7 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
   const triplets = buildTriplets(assignments, depthLayers);
 
   // ── 7. 难度指标（const 全面参与）──
-  const metrics = computeMetrics(assignments, allTiles, depthLayers, depthMap, tileMap, tileDepSets, dock, colorCount, actualCloseRates, p, retainedOldDebtTilesByLayer);
+  const metrics = computeMetrics(assignments, allTiles, depthLayers, depthMap, tileMap, tileDepSets, dock, colorCount, actualCloseRates, p, retainedOldDebtTilesByLayer, colorAllocationMode, heavyColor, colorTotalTiles);
 
   return { assignments, triplets, metrics };
 }
@@ -116,7 +119,45 @@ export function computeDependencyDepth(
 // 2. 每色总牌数
 // ═══════════════════════════════════════════════════════════
 
-function assignColorTotals(totalTriplets: number, colorCount: number): number[] {
+/**
+ * 将 totalTriplets 组牌按 mode 分配给 colorCount 种花色。
+ *
+ * - balanced: 均匀分配，每色约 totalTriplets / colorCount 组，余数摊给前几个花色。
+ * - single-heavy: 随机选一个主花色，其余 K-1 色各 1 组，主花色获得 T-K+1 组。
+ *
+ * 返回值是每色 tile 数（triplet 数 × 3）。
+ */
+export function assignColorTotals(
+  totalTriplets: number,
+  colorCount: number,
+  mode: ColorAllocationMode = 'balanced',
+  rng: () => number = Math.random,
+): number[] {
+  if (colorCount > totalTriplets) {
+    if (mode === 'single-heavy' && totalTriplets === colorCount) {
+      // 每色只能一组，退化为均匀分配
+      return Array.from({ length: colorCount }, () => 3);
+    }
+    throw new Error(
+      `花色数 ${colorCount} 超过可用 triplet 组数 ${totalTriplets}，无法分配`,
+    );
+  }
+
+  if (mode === 'single-heavy') {
+    // 随机选一个主花色，其余各 1 组
+    const heavyColor = Math.floor(rng() * colorCount);
+    const result: number[] = [];
+    for (let c = 0; c < colorCount; c++) {
+      if (c === heavyColor) {
+        result.push((totalTriplets - colorCount + 1) * 3);
+      } else {
+        result.push(3); // 1 组 = 3 张牌
+      }
+    }
+    return result;
+  }
+
+  // balanced (默认)
   const base = Math.floor(totalTriplets / colorCount);
   const extra = totalTriplets % colorCount;
   const result: number[] = [];
@@ -794,6 +835,9 @@ export function computeMetrics(
   actualCloseRates: number[],
   debtPersistenceWeight: number,
   buildRetainedOldDebtTilesByLayer: number[],
+  colorAllocationMode?: ColorAllocationMode,
+  heavyColor?: number,
+  colorTotalTilesArg?: number[],
 ): DebtMetrics {
   const D = depthLayers.length;
   const totalTiles = tiles.length;
@@ -925,6 +969,9 @@ export function computeMetrics(
     isDoomed: peakDebt > dock,
     suitSpread,
     suitSpreadNorm,
+    colorAllocationMode,
+    heavyColor: heavyColor ?? 0,
+    colorTripletCounts: colorTotalTilesArg?.map(t => t / 3),
   };
 }
 
@@ -1129,5 +1176,6 @@ function emptyMetrics(): DebtMetrics {
     averageOcclusion: 0, totalEdges: 0, sameColorEdges: 0, crossColorEdges: 0,
     allSuitsClosed: true, isDoomed: false,
     suitSpread: 0, suitSpreadNorm: 0,
+    heavyColor: 0, colorTripletCounts: [],
   };
 }

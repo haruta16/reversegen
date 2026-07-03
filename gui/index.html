@@ -312,6 +312,14 @@ kbd{
           <div><label>Dock容量</label><input type="number" id="dock" value="7" min="1" max="20"></div>
           <div><label>花色数</label><input type="number" id="colorCount" value="8" min="1" max="99" oninput="syncCloseRates()"></div>
         </div>
+        <div style="margin-top:4px">
+          <label>花色配额</label>
+          <select id="colorAllocation" style="width:100%">
+            <option value="balanced">均匀分配</option>
+            <option value="single-heavy">单色极重</option>
+          </select>
+          <div id="colorAllocNote" style="font-size:9px;color:var(--dim);margin-top:2px;display:none"></div>
+        </div>
         <label style="margin-top:6px">同色分布 <span style="font-weight:400;font-size:9px" id="spreadLabel">— 0.50</span></label>
         <div class="slider-row">
           <span class="sl-l">紧密</span>
@@ -755,6 +763,7 @@ async function generate(){
     body.dock=document.getElementById('dock').value;
     body.spreadParam=(parseInt(document.getElementById('spreadParam').value)/100).toFixed(2);
     body.debtPersistenceWeight=(parseInt(document.getElementById('debtPersistence').value)/100).toFixed(2);
+    body.colorAllocationMode=document.getElementById('colorAllocation').value;
   }else{body.costArray=document.getElementById('costArray').value.trim()}
 
   btn.innerHTML='<span class="spinner"></span> 生成中...';btn.disabled=true;
@@ -810,10 +819,13 @@ function showClosure(d){
     '<div class="stat"><div class="n '+(m.allSuitsClosed?'n-ok':'n-bad')+'">'+(m.allSuitsClosed?'✓':'✗')+'</div><div class="lbl">花色×3</div></div>';
   document.getElementById('stepSection').style.display='none';
   document.getElementById('chartTitle').textContent=hasTargets?'闭合率 设定 vs 实际':'闭合率';
+  var allocLabel=m.colorAllocationMode==='single-heavy'
+    ?' · 单色极重(主色#'+(m.heavyColor||'?')+') · 组数['+(m.colorTripletCounts||[]).join(',')+']'
+    :'';
   document.getElementById('chartLegend').innerHTML=
     '<span style="color:'+(hasTargets?'#d4a853':'#7ec99c')+'">▮ '+(hasTargets?'目标':'实际')+'</span>'+
     (hasTargets?' <span style="color:#7ec99c">▮ 实际</span>':'')+
-    ' · 花色<b>'+m.colorCount+'</b> · 深度<b>'+m.depthCount+'</b>层';
+    ' · 花色<b>'+m.colorCount+'</b> · 深度<b>'+m.depthCount+'</b>层'+allocLabel;
   drawClosureChart(d,m,hasTargets);
 }
 

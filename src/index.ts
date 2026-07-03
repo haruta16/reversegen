@@ -12,7 +12,7 @@
  *   console.log(result.replayCode);
  */
 
-import type { TerrainData, ReverseGenOutput, LayerClosureInput, LayerClosureOutput, DebtMetrics } from './types.js';
+import type { TerrainData, ReverseGenOutput, LayerClosureInput, LayerClosureOutput, DebtMetrics, ColorAllocationMode } from './types.js';
 import { getAllTiles, getConstTiles } from './terrain-loader.js';
 import { runReverseGen } from './reverse-gen.js';
 import { runLayerClosureGen } from './layer-closure-gen.js';
@@ -64,6 +64,13 @@ export interface GenerateBoardLayerClosureInput {
    * 0=尽量清旧债 / 1=尽量延旧债。闭合率负责"每层有多少债务"，此参数负责"是不是同一批债务"。
    */
   debtPersistenceWeight?: number;
+  /**
+   * 花色配额方式（默认 'balanced'）。
+   * 'balanced' = 均匀分配 / 'single-heavy' = 单色极重（一个主花色集中，其余各 1 组）。
+   */
+  colorAllocationMode?: ColorAllocationMode;
+  /** 花色配额随机源；批量任务可传入种子 RNG。 */
+  colorAllocationRng?: () => number;
 }
 
 /** generateBoardLayerClosure 的输出 */
@@ -126,6 +133,8 @@ export function generateBoardLayerClosure(
     levelHash: hashOverride,
     spreadParam,
     debtPersistenceWeight,
+    colorAllocationMode,
+    colorAllocationRng,
   } = input;
 
   const allTiles = getAllTiles(terrain);
@@ -142,6 +151,8 @@ export function generateBoardLayerClosure(
     closeRates,
     spreadParam,
     debtPersistenceWeight,
+    colorAllocationMode,
+    colorAllocationRng,
   });
 
   const m = algoResult.metrics;
@@ -185,13 +196,14 @@ export type {
   LayerClosureInput,
   LayerClosureOutput,
   DebtMetrics,
+  ColorAllocationMode,
 } from './types.js';
 
 export { TileState } from './types.js';
 
 // 算法
 export { runReverseGen } from './reverse-gen.js';
-export { runLayerClosureGen, computeDependencyDepth } from './layer-closure-gen.js';
+export { runLayerClosureGen, computeDependencyDepth, assignColorTotals } from './layer-closure-gen.js';
 
 // 序列化
 export {
