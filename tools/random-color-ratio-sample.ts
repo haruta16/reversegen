@@ -46,6 +46,8 @@ interface OutputRow {
   LowWinRate: number;
   colorCount: number;
   colorRatio: number;
+  baseColorCount: number;
+  colorOffset: number;
   closeRates: string;
   closeMean: number;
   closeStd: number;
@@ -90,6 +92,16 @@ function absolute(path: string): string {
 function numArg(name: string, fallback: number): number {
   const value = Number(arg(name, String(fallback)));
   return Number.isFinite(value) ? value : fallback;
+}
+
+function intListArg(name: string): number[] {
+  const raw = arg(name, '').trim();
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map(part => Number(part.trim()))
+    .filter(value => Number.isFinite(value))
+    .map(value => Math.trunc(value));
 }
 
 function parseCSVLine(line: string): string[] {
@@ -160,7 +172,7 @@ function pickLevels(levelsDir: string, sourcePath: string, count: number, seed: 
   return candidates.slice(0, Math.min(count, candidates.length));
 }
 
-function randomElementValues(terrain: TerrainData, ratio: number, rng: () => number): {
+function randomElementValuesByColorCount(terrain: TerrainData, colorCountInput: number, rng: () => number): {
   values: Map<number, number>;
   colorCount: number;
 } {
@@ -168,7 +180,7 @@ function randomElementValues(terrain: TerrainData, ratio: number, rng: () => num
   const freeTiles = allTiles.filter(tile => !tile.isConst);
   if (freeTiles.length % 3 !== 0) throw new Error(`${terrain.levelResId}: free tile count is not divisible by 3`);
   const triplets = freeTiles.length / 3;
-  const colorCount = Math.max(1, Math.min(triplets, colorCountFromRatio(ratio, freeTiles.length)));
+  const colorCount = Math.max(1, Math.min(triplets, Math.trunc(colorCountInput)));
   const base = Math.floor(triplets / colorCount);
   const extra = triplets % colorCount;
   const bag: number[] = [];
@@ -183,6 +195,15 @@ function randomElementValues(terrain: TerrainData, ratio: number, rng: () => num
   }
   freeTiles.forEach((tile, index) => values.set(tile.id, bag[index]));
   return { values, colorCount };
+}
+
+function randomElementValues(terrain: TerrainData, ratio: number, rng: () => number): {
+  values: Map<number, number>;
+  colorCount: number;
+} {
+  const allTiles = getAllTiles(terrain);
+  const freeTiles = allTiles.filter(tile => !tile.isConst);
+  return randomElementValuesByColorCount(terrain, colorCountFromRatio(ratio, freeTiles.length), rng);
 }
 
 function simResult(batch: ReturnType<typeof solvePlayerMistakeBatch>, runs: number): SimResult {
@@ -226,10 +247,13 @@ function evaluate(
   values: Map<number, number>,
   colorCount: number,
   ratio: number,
+  baseColorCount: number,
+  colorOffset: number,
   attempt: number,
   simRuns: number,
   optimalRuns: number,
   seed: number,
+  generator: string,
 ): OutputRow {
   const allTiles = getAllTiles(terrain);
   const replayCode = generateReplayCode(getCanonicalTileOrder(allTiles), values, terrain.levelHash ?? '');
@@ -261,7 +285,9 @@ function evaluate(
   const totalTiles = allTiles.length;
   return {
     levelResId: String(terrain.levelResId ?? ''),
-    ReplayKey: `random-color-${ratio.toFixed(2)}-${attempt}`,
+    ReplayKey: colorOffset === 0
+      ? `random-color-${ratio.toFixed(2)}-${attempt}`
+      : `random-color-${ratio.toFixed(2)}-${colorOffset > 0 ? 'p' : 'm'}${Math.abs(colorOffset)}-${attempt}`,
     ReplayCode: replayCode,
     grade: verdict.grade,
     passrate: verdict.passrate,
@@ -276,6 +302,8 @@ function evaluate(
     LowWinRate: snapshot.sim15.winRate,
     colorCount,
     colorRatio: ratio,
+    baseColorCount,
+    colorOffset,
     closeRates: close.closeRates.map(value => value.toFixed(4)).join('|'),
     closeMean: close.mean,
     closeStd: close.std,
@@ -299,7 +327,7 @@ function evaluate(
     optimalRemainingTilesOnLoss: remainingTiles,
     optimalRemainingRatioOnLoss: totalTiles > 0 ? remainingTiles / totalTiles : 0,
     attemptIndex: attempt,
-    generator: 'random-color-fixed-ratio',
+    generator,
     terrainPath,
   };
 }
@@ -310,6 +338,7 @@ function writeCsv(path: string, rows: OutputRow[]): void {
     'levelResId', 'ReplayKey', 'ReplayCode', 'grade', 'passrate', 'ElementCount',
     'DifficultyScore', 'CompletionStatus', 'ExpectConsume', 'LevelTags', 'ReplayTags',
     'highWinRate', 'MiddleWinRate', 'LowWinRate', 'colorCount', 'colorRatio',
+    'baseColorCount', 'colorOffset',
     'closeRates', 'closeMean', 'closeStd', 'closeRange', 'spreadParam', 'debtPersistenceWeight',
     'simRuns', 'sim1Wins', 'sim5Wins', 'sim15Wins', 'totalTiles',
     'optimalRuns', 'optimalWins', 'optimalLosses', 'optimalWinRate',
@@ -329,6 +358,8 @@ function printHelp(): void {
 
 Options:
   --ratio <n>         Fixed random-color ratio. Default: 0.55
+  --color-offsets <n> Comma-separated offsets from ratio-derived base color count.
+                      Example: -3,-2,-1,0,1,2,3
   --levels <ids>      Comma-separated terrain IDs. Overrides source sampling.
   --level-count <n>   Number of terrains sampled from source. Default: 20
   --attempts <n>      Boards per terrain. Default: 4
@@ -347,6 +378,7 @@ async function main(): Promise<void> {
     return;
   }
   const ratio = numArg('--ratio', 0.55);
+  const colorOffsets = intListArg('--color-offsets');
   const levelCount = Math.max(1, Math.floor(numArg('--level-count', 20)));
   const attempts = Math.max(1, Math.floor(numArg('--attempts', 4)));
   const simRuns = Math.max(1, Math.floor(numArg('--sim-runs', 30)));
@@ -358,27 +390,39 @@ async function main(): Promise<void> {
   const levels = pickLevels(levelsDir, source, levelCount, seed, arg('--levels', ''));
   const rows: OutputRow[] = [];
   let done = 0;
-  const total = levels.length * attempts;
+  const colorVariants = colorOffsets.length > 0 ? colorOffsets : [0];
+  const total = levels.length * attempts * colorVariants.length;
   for (const level of levels) {
     const terrainPath = join(levelsDir, `${level}.json`);
     const terrain = loadTerrainFromFile(terrainPath);
-    for (let attempt = 1; attempt <= attempts; attempt++) {
-      const candidateSeed = seed + Number(level) * 1009 + attempt * 9173;
-      const rng = mulberry32(candidateSeed);
-      const generated = randomElementValues(terrain, ratio, rng);
-      rows.push(evaluate(
-        terrain,
-        terrainPath,
-        generated.values,
-        generated.colorCount,
-        ratio,
-        attempt,
-        simRuns,
-        optimalRuns,
-        candidateSeed,
-      ));
-      done++;
-      process.stdout.write(`\r\x1b[2Kgenerated ${done}/${total}`);
+    const allTiles = getAllTiles(terrain);
+    const freeTiles = allTiles.filter(tile => !tile.isConst);
+    const baseColorCount = colorCountFromRatio(ratio, freeTiles.length);
+    for (const colorOffset of colorVariants) {
+      for (let attempt = 1; attempt <= attempts; attempt++) {
+        const offsetSeedPart = (colorOffset + 100) * 104729;
+        const candidateSeed = seed + Number(level) * 1009 + attempt * 9173 + offsetSeedPart;
+        const rng = mulberry32(candidateSeed);
+        const generated = colorOffsets.length > 0
+          ? randomElementValuesByColorCount(terrain, baseColorCount + colorOffset, rng)
+          : randomElementValues(terrain, ratio, rng);
+        rows.push(evaluate(
+          terrain,
+          terrainPath,
+          generated.values,
+          generated.colorCount,
+          ratio,
+          baseColorCount,
+          colorOffset,
+          attempt,
+          simRuns,
+          optimalRuns,
+          candidateSeed,
+          colorOffsets.length > 0 ? 'random-color-count-offset' : 'random-color-fixed-ratio',
+        ));
+        done++;
+        process.stdout.write(`\r\x1b[2Kgenerated ${done}/${total}`);
+      }
     }
   }
   process.stdout.write('\n');
@@ -388,6 +432,7 @@ async function main(): Promise<void> {
     rows: rows.length,
     levels,
     ratio,
+    colorOffsets: colorOffsets.length > 0 ? colorOffsets : undefined,
     attempts,
     simRuns,
     optimalRuns,
