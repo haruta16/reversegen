@@ -65,6 +65,11 @@ interface SummaryRow {
   runs: number;
   wins: number;
   losses: number;
+  uniqueRawPaths: number;
+  bestRawPathCount: number;
+  rawPathConsistency: number | null;
+  avgRawSameIndexRate: number | null;
+  avgRawLcsRate: number | null;
   uniqueEquivalentPaths: number;
   bestEquivalentPathCount: number;
   equivalent: EquivalentPath | null;
@@ -311,6 +316,36 @@ function layerWidthSimilarity(a: number[], b: number[]): number {
   return dp[a.length][b.length] / Math.max(a.length, b.length);
 }
 
+function rawPathKey(picks: number[]): string {
+  return picks.join(',');
+}
+
+function sameIndexRate(a: number[], b: number[]): number {
+  const n = Math.min(a.length, b.length);
+  if (n === 0) return a.length === b.length ? 1 : 0;
+  let same = 0;
+  for (let i = 0; i < n; i++) {
+    if (a[i] === b[i]) same++;
+  }
+  return same / Math.max(a.length, b.length);
+}
+
+function lcsRate(a: number[], b: number[]): number {
+  if (a.length === 0 || b.length === 0) return a.length === b.length ? 1 : 0;
+  const dp = Array(b.length + 1).fill(0);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = 0;
+    for (let j = 1; j <= b.length; j++) {
+      const temp = dp[j];
+      dp[j] = a[i - 1] === b[j - 1]
+        ? prev + 1
+        : Math.max(dp[j], dp[j - 1]);
+      prev = temp;
+    }
+  }
+  return dp[b.length] / Math.max(a.length, b.length);
+}
+
 function average(values: number[]): number | null {
   return values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
 }
@@ -331,6 +366,31 @@ function pairwisePathMetrics(paths: EquivalentPath[]): {
     }
   }
   return { rank: average(ranks), edge: average(edges), width: average(widths) };
+}
+
+function pairwiseRawMetrics(paths: number[][]): {
+  sameIndex: number | null;
+  lcs: number | null;
+} {
+  const sameIndex: number[] = [];
+  const lcs: number[] = [];
+  for (let i = 0; i < paths.length; i++) {
+    for (let j = i + 1; j < paths.length; j++) {
+      sameIndex.push(sameIndexRate(paths[i], paths[j]));
+      lcs.push(lcsRate(paths[i], paths[j]));
+    }
+  }
+  return { sameIndex: average(sameIndex), lcs: average(lcs) };
+}
+
+function mostCommonRaw(paths: number[][]): { key: string; count: number; unique: number } {
+  const buckets = new Map<string, number>();
+  for (const path of paths) {
+    const key = rawPathKey(path);
+    buckets.set(key, (buckets.get(key) ?? 0) + 1);
+  }
+  const sorted = [...buckets.entries()].sort((a, b) => b[1] - a[1]);
+  return { key: sorted[0]?.[0] ?? '', count: sorted[0]?.[1] ?? 0, unique: buckets.size };
 }
 
 function mostCommon(paths: EquivalentPath[]): { path: EquivalentPath | null; count: number; unique: number } {
@@ -360,6 +420,9 @@ function runOne(input: InputRow, terrainPath: string, runs: number, seedBase: nu
 
   const batch = solvePlayerShortestBatch(game, runs, seedBase + input.index * 1009);
   const winning = batch.results.filter(result => result.win);
+  const rawPaths = winning.map(result => result.picks);
+  const commonRaw = mostCommonRaw(rawPaths);
+  const rawMetrics = pairwiseRawMetrics(rawPaths);
   const equivalentPaths = winning.map(result => equivalentPath(result.picks, terrainTiles));
   const common = mostCommon(equivalentPaths);
   const pairMetrics = pairwisePathMetrics(equivalentPaths);
@@ -371,6 +434,7 @@ function runOne(input: InputRow, terrainPath: string, runs: number, seedBase: nu
     grade: input.grade,
     seed: result.seed,
     pathIndex,
+    rawPathKey: rawPathKey(result.picks),
     picks: result.picks,
     equivalentExpression: equivalentPaths[pathIndex].expression,
     layers: equivalentPaths[pathIndex].layers,
@@ -384,6 +448,11 @@ function runOne(input: InputRow, terrainPath: string, runs: number, seedBase: nu
       runs,
       wins: batch.wins,
       losses: batch.losses,
+      uniqueRawPaths: commonRaw.unique,
+      bestRawPathCount: commonRaw.count,
+      rawPathConsistency: winning.length > 0 ? commonRaw.count / winning.length : null,
+      avgRawSameIndexRate: rawMetrics.sameIndex,
+      avgRawLcsRate: rawMetrics.lcs,
       uniqueEquivalentPaths: common.unique,
       bestEquivalentPathCount: common.count,
       equivalent: common.path,
@@ -403,7 +472,10 @@ function formatNumber(value: number | null | undefined): string {
 function writeSummary(path: string, rows: SummaryRow[]): void {
   const headers = [
     'sourceIndex', 'strategy', 'levelResId', 'ReplayKey', 'grade',
-    'runs', 'wins', 'losses', 'uniqueEquivalentPaths', 'bestEquivalentPathCount',
+    'runs', 'wins', 'losses',
+    'uniqueRawPaths', 'bestRawPathCount', 'rawPathConsistency',
+    'avgRawSameIndexRate', 'avgRawLcsRate',
+    'uniqueEquivalentPaths', 'bestEquivalentPathCount',
     'totalClicks', 'layerCount', 'avgBranchWidth', 'maxBranchWidth',
     'forcedChainRate', 'interchangeableRate',
     'avgPathRankSameRate', 'avgPathEdgeJaccard', 'avgPathLayerWidthSimilarity',
@@ -421,6 +493,11 @@ function writeSummary(path: string, rows: SummaryRow[]): void {
       row.runs,
       row.wins,
       row.losses,
+      row.uniqueRawPaths,
+      row.bestRawPathCount,
+      formatNumber(row.rawPathConsistency),
+      formatNumber(row.avgRawSameIndexRate),
+      formatNumber(row.avgRawLcsRate),
       row.uniqueEquivalentPaths,
       row.bestEquivalentPathCount,
       eq?.totalClicks ?? '',
@@ -441,6 +518,39 @@ function writeSummary(path: string, rows: SummaryRow[]): void {
 
 function writePathJsonl(path: string, records: unknown[]): void {
   writeFileSync(path, `${records.map(record => JSON.stringify(record)).join('\n')}\n`, 'utf8');
+}
+
+function writeRawPathPairs(path: string, records: unknown[]): void {
+  const bySource = new Map<number, Array<{ sourceIndex: number; pathIndex: number; picks: number[]; rawPathKey: string }>>();
+  for (const record of records as Array<{ sourceIndex?: number; pathIndex?: number; picks?: number[]; rawPathKey?: string }>) {
+    if (record.sourceIndex == null || record.pathIndex == null || !Array.isArray(record.picks)) continue;
+    const list = bySource.get(record.sourceIndex) ?? [];
+    list.push({
+      sourceIndex: record.sourceIndex,
+      pathIndex: record.pathIndex,
+      picks: record.picks,
+      rawPathKey: record.rawPathKey ?? rawPathKey(record.picks),
+    });
+    bySource.set(record.sourceIndex, list);
+  }
+
+  const headers = ['sourceIndex', 'leftPathIndex', 'rightPathIndex', 'exactSame', 'sameIndexRate', 'lcsRate'];
+  const lines = [headers.join(',')];
+  for (const paths of bySource.values()) {
+    for (let i = 0; i < paths.length; i++) {
+      for (let j = i + 1; j < paths.length; j++) {
+        lines.push([
+          paths[i].sourceIndex,
+          paths[i].pathIndex,
+          paths[j].pathIndex,
+          paths[i].rawPathKey === paths[j].rawPathKey ? 1 : 0,
+          formatNumber(sameIndexRate(paths[i].picks, paths[j].picks)),
+          formatNumber(lcsRate(paths[i].picks, paths[j].picks)),
+        ].map(csvCell).join(','));
+      }
+    }
+  }
+  writeFileSync(path, `\uFEFF${lines.join('\n')}\n`, 'utf8');
 }
 
 function writePairs(path: string, rows: SummaryRow[]): void {
@@ -513,9 +623,10 @@ Options:
   --help                 Show help.
 
 Outputs:
-  summary.csv            One row per replay with canonical equivalent sequence and freedom features.
-  paths.jsonl            One row per winning path with picks/layers/edges.
-  pairs.csv              Pairwise similarity across sampled replays.
+  summary.csv            One row per replay with raw-path consistency plus equivalent-layer diagnostics.
+  paths.jsonl            One row per winning path with raw picks/layers/edges.
+  raw_path_pairs.csv     Pairwise raw click-sequence consistency within each replay.
+  pairs.csv              Pairwise layer-width similarity across sampled replays.
 `);
 }
 
@@ -546,6 +657,11 @@ async function main(): Promise<void> {
         runs,
         wins: 0,
         losses: 0,
+        uniqueRawPaths: 0,
+        bestRawPathCount: 0,
+        rawPathConsistency: null,
+        avgRawSameIndexRate: null,
+        avgRawLcsRate: null,
         uniqueEquivalentPaths: 0,
         bestEquivalentPathCount: 0,
         equivalent: null,
@@ -566,6 +682,11 @@ async function main(): Promise<void> {
         runs,
         wins: 0,
         losses: 0,
+        uniqueRawPaths: 0,
+        bestRawPathCount: 0,
+        rawPathConsistency: null,
+        avgRawSameIndexRate: null,
+        avgRawLcsRate: null,
         uniqueEquivalentPaths: 0,
         bestEquivalentPathCount: 0,
         equivalent: null,
@@ -579,9 +700,11 @@ async function main(): Promise<void> {
 
   const summaryPath = join(outputDir, 'summary.csv');
   const pathsPath = join(outputDir, 'paths.jsonl');
+  const rawPathPairsPath = join(outputDir, 'raw_path_pairs.csv');
   const pairsPath = join(outputDir, 'pairs.csv');
   writeSummary(summaryPath, summaries);
   writePathJsonl(pathsPath, pathRecords);
+  writeRawPathPairs(rawPathPairsPath, pathRecords);
   writePairs(pairsPath, summaries);
 
   const solved = summaries.filter(row => row.equivalent);
@@ -592,6 +715,7 @@ async function main(): Promise<void> {
     outputDir,
     summary: summaryPath,
     paths: pathsPath,
+    rawPathPairs: rawPathPairsPath,
     pairs: pairsPath,
   }, null, 2));
 }
