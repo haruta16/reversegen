@@ -750,7 +750,7 @@ const server = createServer(async (req, res) => {
         algorithm,
         costArray, colorCount, // CostLadder params
         closeRates, dock, spreadParam, debtPersistenceWeight, // LayerClosure params
-        colorAllocationMode,                                 // LayerClosure
+        colorAllocationMode, colorAllocationMaxRatio,        // LayerClosure
         levelId, levelsDir, terrainPath, levelHash,
       } = body as {
         algorithm?: string;
@@ -758,6 +758,7 @@ const server = createServer(async (req, res) => {
         closeRates?: string; dock?: string; spreadParam?: string; // LayerClosure
         debtPersistenceWeight?: string;                    // LayerClosure
         colorAllocationMode?: string;                      // LayerClosure
+        colorAllocationMaxRatio?: string;                  // LayerClosure
         levelId?: string; levelsDir?: string; terrainPath?: string; levelHash?: string;
       };
 
@@ -790,11 +791,14 @@ const server = createServer(async (req, res) => {
         const dp = isNaN(dpRaw) ? 0 : Math.max(0, Math.min(1, dpRaw));
 
         const allocMode = (colorAllocationMode === 'single-heavy' ? 'single-heavy' : 'balanced') as import('../src/types.js').ColorAllocationMode;
+        const allocRatioRaw = parseFloat(colorAllocationMaxRatio || '1');
+        const allocRatio = isNaN(allocRatioRaw) ? 1 : Math.max(0.01, Math.min(1, allocRatioRaw));
         const result = generateBoardLayerClosure({
           terrain, closeRates: rates, colorCount: k,
           dock: dk, levelHash, spreadParam: spread,
           debtPersistenceWeight: dp,
           colorAllocationMode: allocMode,
+          colorAllocationMaxRatio: allocRatio,
         });
 
         const ordered = getCanonicalTileOrder(allTiles);

@@ -722,6 +722,10 @@ def validate_strategy(strategy: dict[str, Any], strategy_path: Path | None = Non
     color_allocation = policy(generation, "color_allocation")
     if color_allocation and color_allocation.get("mode") not in MODE_ENUMS["color_allocation"]:
         errors.append("generation.color_allocation.mode: 枚举值无效")
+    if color_allocation.get("mode") == "single_heavy" and color_allocation.get("ratio") is not None:
+        ratio = color_allocation.get("ratio")
+        if not isinstance(ratio, (int, float)) or not 0 < float(ratio) <= 1:
+            errors.append("generation.color_allocation.ratio: 必须在 0 到 1 之间")
     for name in ["spread", "debt"]:
         p = policy(generation, name)
         if p.get("mode") not in MODE_ENUMS["spread_debt"]:
@@ -737,51 +741,63 @@ def validate_strategy(strategy: dict[str, Any], strategy_path: Path | None = Non
     acceptance = evaluation.get("acceptance", {})
     if acceptance is not None and not isinstance(acceptance, dict):
         errors.append("evaluation.acceptance: 必须是对象")
-    elif isinstance(acceptance, dict) and "optimal" in acceptance:
-        optimal = acceptance.get("optimal")
-        if not isinstance(optimal, dict):
-            errors.append("evaluation.acceptance.optimal: 必须是对象")
-        else:
-            validate_int(optimal.get("runs"), "evaluation.acceptance.optimal.runs", errors, 1)
-            constraints = optimal.get("grade_constraints")
-            if not isinstance(constraints, dict) or not constraints:
-                errors.append("evaluation.acceptance.optimal.grade_constraints: 必须是非空对象")
+    elif isinstance(acceptance, dict):
+        for key in ["min_sim1_wins", "min_sim5_wins", "min_sim15_wins"]:
+            if key in acceptance:
+                validate_int(acceptance[key], f"evaluation.acceptance.{key}", errors, 0)
+                if isinstance(acceptance[key], int) and isinstance(evaluation.get("sim_runs"), int) and acceptance[key] > evaluation["sim_runs"]:
+                    warnings.append(f"evaluation.acceptance.{key}: 大于 sim_runs，通常无法命中")
+        if "min_passrate" in acceptance:
+            value = acceptance["min_passrate"]
+            if not isinstance(value, (int, float)):
+                errors.append("evaluation.acceptance.min_passrate: 必须是数字")
+            elif not 0 <= float(value) <= 1:
+                errors.append("evaluation.acceptance.min_passrate: 必须在0到1之间")
+        if "optimal" in acceptance:
+            optimal = acceptance.get("optimal")
+            if not isinstance(optimal, dict):
+                errors.append("evaluation.acceptance.optimal: 必须是对象")
             else:
-                ratio_keys = {
-                    "min_win_rate", "min_win_rate_exclusive", "max_win_rate_exclusive",
-                    "max_loss_remaining_ratio",
-                }
-                for grade, constraint in constraints.items():
-                    path = f"evaluation.acceptance.optimal.grade_constraints.{grade}"
-                    if not str(grade).isdigit() or int(grade) < 0:
-                        errors.append(f"{path}: 档位键必须是非负整数")
-                    if not isinstance(constraint, dict):
-                        errors.append(f"{path}: 必须是对象")
-                        continue
-                    allowed_keys = {
+                validate_int(optimal.get("runs"), "evaluation.acceptance.optimal.runs", errors, 1)
+                constraints = optimal.get("grade_constraints")
+                if not isinstance(constraints, dict) or not constraints:
+                    errors.append("evaluation.acceptance.optimal.grade_constraints: 必须是非空对象")
+                else:
+                    ratio_keys = {
                         "min_win_rate", "min_win_rate_exclusive", "max_win_rate_exclusive",
-                        "min_win_starvation_per_tile", "max_win_starvation_per_tile",
                         "max_loss_remaining_ratio",
                     }
-                    for key in constraint.keys() - allowed_keys:
-                        errors.append(f"{path}.{key}: 未知字段")
-                    for key, value in constraint.items():
-                        if not isinstance(value, (int, float)):
-                            errors.append(f"{path}.{key}: 必须是数字")
-                        elif key in ratio_keys and not 0 <= float(value) <= 1:
-                            errors.append(f"{path}.{key}: 必须在0到1之间")
-                        elif key.startswith(("min_win_starvation", "max_win_starvation")) and not 0 <= float(value) <= 1:
-                            errors.append(f"{path}.{key}: 必须在0到1之间")
-                    min_starve = constraint.get("min_win_starvation_per_tile")
-                    max_starve = constraint.get("max_win_starvation_per_tile")
-                    if isinstance(min_starve, (int, float)) and isinstance(max_starve, (int, float)) and min_starve > max_starve:
-                        errors.append(f"{path}: 断色下限不能大于上限")
-                    low = constraint.get("min_win_rate", constraint.get("min_win_rate_exclusive"))
-                    high = constraint.get("max_win_rate_exclusive")
-                    if isinstance(low, (int, float)) and isinstance(high, (int, float)) and low >= high:
-                        errors.append(f"{path}: Optimal胜率下限必须小于上限")
-                    if constraint.get("max_loss_remaining_ratio") == 0 and isinstance(high, (int, float)) and high <= 1:
-                        warnings.append(f"{path}: 失败剩余率上限为0且胜率要求小于100%，通常几乎无法命中")
+                    for grade, constraint in constraints.items():
+                        path = f"evaluation.acceptance.optimal.grade_constraints.{grade}"
+                        if not str(grade).isdigit() or int(grade) < 0:
+                            errors.append(f"{path}: 档位键必须是非负整数")
+                        if not isinstance(constraint, dict):
+                            errors.append(f"{path}: 必须是对象")
+                            continue
+                        allowed_keys = {
+                            "min_win_rate", "min_win_rate_exclusive", "max_win_rate_exclusive",
+                            "min_win_starvation_per_tile", "max_win_starvation_per_tile",
+                            "max_loss_remaining_ratio",
+                        }
+                        for key in constraint.keys() - allowed_keys:
+                            errors.append(f"{path}.{key}: 未知字段")
+                        for key, value in constraint.items():
+                            if not isinstance(value, (int, float)):
+                                errors.append(f"{path}.{key}: 必须是数字")
+                            elif key in ratio_keys and not 0 <= float(value) <= 1:
+                                errors.append(f"{path}.{key}: 必须在0到1之间")
+                            elif key.startswith(("min_win_starvation", "max_win_starvation")) and not 0 <= float(value) <= 1:
+                                errors.append(f"{path}.{key}: 必须在0到1之间")
+                        min_starve = constraint.get("min_win_starvation_per_tile")
+                        max_starve = constraint.get("max_win_starvation_per_tile")
+                        if isinstance(min_starve, (int, float)) and isinstance(max_starve, (int, float)) and min_starve > max_starve:
+                            errors.append(f"{path}: 断色下限不能大于上限")
+                        low = constraint.get("min_win_rate", constraint.get("min_win_rate_exclusive"))
+                        high = constraint.get("max_win_rate_exclusive")
+                        if isinstance(low, (int, float)) and isinstance(high, (int, float)) and low >= high:
+                            errors.append(f"{path}: Optimal胜率下限必须小于上限")
+                        if constraint.get("max_loss_remaining_ratio") == 0 and isinstance(high, (int, float)) and high <= 1:
+                            warnings.append(f"{path}: 失败剩余率上限为0且胜率要求小于100%，通常几乎无法命中")
 
     for key in ["attempts_per_level", "attempts_per_missing_grade", "max_attempts_per_missing", "template_attempts"]:
         if key in search:
@@ -819,6 +835,8 @@ def validate_strategy(strategy: dict[str, Any], strategy_path: Path | None = Non
         isinstance(acceptance, dict) and isinstance(acceptance.get("optimal"), dict)
     ):
         warnings.append("search.optimal_first=true 但未配置 evaluation.acceptance.optimal，不会产生预筛效果。")
+    if isinstance(acceptance, dict) and acceptance and executor not in {"run-batch-generation", "backfill-missing-grades"}:
+        warnings.append(f"{executor}: 当前执行器不会应用 evaluation.acceptance，请移除该配置或切换执行器。")
 
     if executor == "run-batch-generation":
         if not coerce_int_list(scope.get("include_levels")) and not str(scope.get("level_range", "")).strip():
@@ -1141,6 +1159,8 @@ def command_for(strategy: dict[str, Any], run_dir: Path, args: argparse.Namespac
         if not levels:
             raise SystemExit("run-batch-generation 需要 scope.include_levels/scope.level_range，或 plan --levels 覆盖。")
         output = generation_dir / "batch.csv"
+        plan = analysis_dir / "batch_plan.csv"
+        status = logs_dir / "batch_status.json"
         closure = policy(generation, "closure")
         color = policy(generation, "color")
         color_alloc = policy(generation, "color_allocation")
@@ -1150,6 +1170,8 @@ def command_for(strategy: dict[str, Any], run_dir: Path, args: argparse.Namespac
             "npx", "tsx", "tools/run-batch-generation.ts",
             "--levels", ",".join(levels),
             "--output", str(output),
+            "--plan", str(plan),
+            "--status", str(status),
             "--levels-dir", scope.get("levels_dir", "../TileMatchShell/Tools/Config/Json/Levels"),
             "--close-rates", closure_arg(closure),
             "--color-count", color_count_arg(color),
@@ -1164,6 +1186,8 @@ def command_for(strategy: dict[str, Any], run_dir: Path, args: argparse.Namespac
             "--concurrency", concurrency or "2",
             "--run",
         ]
+        if color_alloc.get("mode") == "single_heavy" and color_alloc.get("ratio") is not None:
+            cmd += ["--heavy-color-max-ratio", str(color_alloc["ratio"])]
         if closure.get("mode") == "random_range":
             add_range_flags(cmd, closure, "--close-min", "--close-max")
         if color.get("mode") == "range":
@@ -1173,7 +1197,9 @@ def command_for(strategy: dict[str, Any], run_dir: Path, args: argparse.Namespac
         add_range_flags(cmd, spread, "--spread-min", "--spread-max")
         add_range_flags(cmd, debt, "--debt-min", "--debt-max")
         add_acceptance_flags(cmd, evaluation)
-        artifacts["primary_output"] = str(output)
+        if search.get("resume"):
+            cmd.append("--resume")
+        artifacts.update({"primary_output": str(output), "analysis_output": str(plan), "report_output": str(status)})
 
     elif executor == "backfill-missing-grades":
         output = generation_dir / "backfill.csv"
@@ -1206,6 +1232,8 @@ def command_for(strategy: dict[str, Any], run_dir: Path, args: argparse.Namespac
             ]
         else:
             cmd += ["--color-ratio", color_ratio_arg(color)]
+        if color_alloc.get("mode") == "single_heavy" and color_alloc.get("ratio") is not None:
+            cmd += ["--heavy-color-max-ratio", str(color_alloc["ratio"])]
         if generation.get("placement_mode") == "random-color":
             cmd += ["--placement-mode", "random-color"]
         if search.get("max_attempts_per_missing") is not None:

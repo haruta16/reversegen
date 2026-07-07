@@ -1,7 +1,7 @@
 {
   "version": 1,
   "commonFields": {
-    "evaluation": ["optimalRuns", "optimalEnabled", "optimalWrap"]
+    "evaluation": []
   },
   "workflows": {
     "run-batch-generation": {
@@ -11,8 +11,8 @@
       "fields": {
         "scope": ["terrainSource", "levelRange", "includeLevels", "excludeLevels", "levelsDir"],
         "target": ["gradePicks", "targetCount", "fillPolicy", "fallbackPolicy"],
-        "evaluation": ["gradeStrategy", "simRuns", "thresholdProfile"],
-        "search": ["attemptsPerLevel", "concurrency"],
+        "evaluation": ["gradeStrategy", "simRuns", "thresholdProfile", "minSim1Wins", "minSim5Wins", "minSim15Wins", "minPassrate", "optimalRuns", "optimalEnabled", "optimalWrap"],
+        "search": ["attemptsPerLevel", "concurrency", "resume"],
         "outputs": ["capPerLevelGrade", "writeCsv", "writeReplay", "writeCalibration", "writeConfig", "adapterMode"]
       },
       "supportedGenerators": ["layer-closure", "random-color"]
@@ -98,7 +98,7 @@
     "range": {"label": "比例范围", "fields": ["min", "max", "jitter"]},
     "fixed": {"label": "固定值", "fields": ["value"]},
     "balanced": {"label": "均匀分配", "fields": []},
-    "single_heavy": {"label": "单色极重", "fields": []}
+    "single_heavy": {"label": "单色集中", "fields": ["ratio"]}
   },
   "fieldGroups": {
     "scope": ["terrainSource", "levelRange", "includeLevels", "excludeLevels", "levelsDir", "sourceCsv", "firstBackfillCsv", "latestBackfillCsv", "workbook", "templateWorkbook"],

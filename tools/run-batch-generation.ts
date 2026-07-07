@@ -61,8 +61,10 @@ interface Options {
   spreadRange?: NumericRange;
   debtRange?: NumericRange;
   colorAllocationMode: 'balanced' | 'single-heavy';
+  colorAllocationMaxRatio?: number;
   acceptance: BatchAcceptanceConfig;
   resume: boolean;
+  skipAttemptedOnResume: boolean;
   run: boolean;
 }
 
@@ -72,6 +74,8 @@ interface TerrainPlan {
   existing: Record<number, number>;
   needed: Record<number, number>;
   totalNeeded: number;
+  skipped: boolean;
+  skipReason: string;
 }
 
 interface TerrainJob {
@@ -94,6 +98,7 @@ interface JobStatus {
   found: number;
   attempts: number;
   status: 'pending' | 'running' | 'done' | 'partial' | 'error';
+  error?: string;
 }
 
 // ── Parse args ──
@@ -136,6 +141,7 @@ function parseArgs(argv: string[]): Options {
     colorAllocationMode: 'balanced',
     acceptance: {},
     resume: false,
+    skipAttemptedOnResume: false,
     run: false,
   };
 
@@ -172,12 +178,18 @@ function parseArgs(argv: string[]): Options {
       else if (v === 'balanced') opts.colorAllocationMode = 'balanced';
       else throw new Error(`未知花色配额模式: ${v}`);
     }
+    else if (arg === '--heavy-color-max-ratio') {
+      const value = parseNumber(next(), NaN);
+      if (!(value > 0 && value <= 1)) throw new Error('主色最大占比必须在 0 到 1 之间');
+      opts.colorAllocationMaxRatio = value;
+    }
     else if (arg === '--accept-min-sim1-wins') opts.acceptance.minSim1Wins = parseNumber(next(), 0);
     else if (arg === '--accept-min-sim5-wins') opts.acceptance.minSim5Wins = parseNumber(next(), 0);
     else if (arg === '--accept-min-sim15-wins') opts.acceptance.minSim15Wins = parseNumber(next(), 0);
     else if (arg === '--accept-min-passrate') opts.acceptance.minPassrate = parseNumber(next(), 0);
     else if (arg === '--optimal-acceptance-json') opts.acceptance.optimal = JSON.parse(next() ?? '{}') as OptimalAcceptanceConfig;
     else if (arg === '--resume') opts.resume = true;
+    else if (arg === '--skip-attempted-on-resume') opts.skipAttemptedOnResume = true;
     else if (arg === '--run') opts.run = true;
     else if (arg === '--help' || arg === '-h') { printHelp(); process.exit(0); }
   }
@@ -217,6 +229,7 @@ Options:
   --status <json>          Status tracking JSON. Default: \${output}.status.json
   --run                    Execute generation after planning.
   --resume                 Count existing output rows and resume.
+  --skip-attempted-on-resume With --resume, skip terrains already exhausted in status JSON.
   --close-rates <value>    random or comma list, e.g. 0.3,0.6,0.8
   --color-count <value>    random or fixed integer
   --color-ratio <n>        Used when color-count=random. Default: 0.6
@@ -233,6 +246,11 @@ Options:
   --spread-min/max <n>     Random spread bounds
   --debt-min/max <n>       Random debt bounds
   --color-allocation <mode> balanced | single-heavy (default: balanced)
+  --heavy-color-max-ratio <n> single-heavy 主色最大 triplet 占比 (0,1]
+  --accept-min-sim1-wins <n>  Count/write only rows with sim1Wins >= n
+  --accept-min-sim5-wins <n>  Count/write only rows with sim5Wins >= n
+  --accept-min-sim15-wins <n> Count/write only rows with sim15Wins >= n
+  --accept-min-passrate <n>   Count/write only rows with passrate >= n
   --optimal-acceptance-json <json> Per-grade Optimal acceptance
 `);
 }
@@ -262,12 +280,16 @@ function readExistingFile(path: string): Map<string, Map<number, number>> {
 
   const header = lines[0].split(',');
   const li = header.indexOf('levelResId');
+  const ki = header.indexOf('ReplayKey');
   const gi = header.indexOf('grade');
   if (li < 0 || gi < 0) return counts;
 
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(',');
     const lid = (cols[li] ?? '').trim();
+    const replayKey = ki >= 0 ? (cols[ki] ?? '').trim() : '';
+    // 历史版本会把 attemptIndex=0 的探顶牌局写入 CSV；续跑库存必须忽略它。
+    if (/^batch-\d+-0$/.test(replayKey)) continue;
     const g = Number(cols[gi]);
     if (!lid || !Number.isInteger(g)) continue;
     let m = counts.get(lid);
@@ -277,7 +299,52 @@ function readExistingFile(path: string): Map<string, Map<number, number>> {
   return counts;
 }
 
-function buildPlans(levels: string[], levelsDir: string, targetGrades: number[], targetPerTier: number, existing: Map<string, Map<number, number>>): TerrainPlan[] {
+function readAttemptedTerrainStatus(path: string, maxAttempts: number): Set<string> {
+  const skipped = new Set<string>();
+  if (!existsSync(path)) return skipped;
+
+  const parsed = JSON.parse(readFileSync(path, 'utf8')) as { jobs?: Record<string, Partial<JobStatus>> };
+  for (const [jobId, job] of Object.entries(parsed.jobs ?? {})) {
+    const attempts = Number(job.attempts ?? 0);
+    if ((job.status === 'partial' || job.status === 'running') && attempts >= maxAttempts) {
+      skipped.add(String(job.levelResId ?? jobId));
+    }
+  }
+  return skipped;
+}
+
+function readSkippedTerrainPlan(path: string): Set<string> {
+  const skipped = new Set<string>();
+  if (!existsSync(path)) return skipped;
+
+  const raw = readFileSync(path, 'utf8').replace(/^[﻿]/, '');
+  const lines = raw.split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return skipped;
+
+  const header = lines[0].split(',');
+  const li = header.indexOf('levelResId');
+  const si = header.indexOf('skipped');
+  if (li < 0 || si < 0) return skipped;
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',');
+    const levelId = (cols[li] ?? '').trim();
+    const wasSkipped = (cols[si] ?? '').trim() === '1';
+    if (levelId && wasSkipped) {
+      skipped.add(levelId);
+    }
+  }
+  return skipped;
+}
+
+function buildPlans(
+  levels: string[],
+  levelsDir: string,
+  targetGrades: number[],
+  targetPerTier: number,
+  existing: Map<string, Map<number, number>>,
+  skipAttempted: Set<string> = new Set(),
+): TerrainPlan[] {
   return levels.map((levelId) => {
     const path = join(levelsDir, `${levelId}.json`);
     if (!existsSync(path)) throw new Error(`地形不存在: ${path}`);
@@ -285,27 +352,36 @@ function buildPlans(levels: string[], levelsDir: string, targetGrades: number[],
     const needed: Record<number, number> = {};
     const ex: Record<number, number> = {};
     let total = 0;
+    const skipped = skipAttempted.has(levelId);
     for (const g of targetGrades) {
       const have = em.get(g) ?? 0;
       ex[g] = have;
       needed[g] = Math.max(0, targetPerTier - have);
       total += needed[g];
     }
-    return { levelResId: levelId, terrainPath: path, existing: ex, needed, totalNeeded: total };
+    return {
+      levelResId: levelId,
+      terrainPath: path,
+      existing: ex,
+      needed,
+      totalNeeded: skipped ? 0 : total,
+      skipped,
+      skipReason: skipped ? 'attempts_exhausted' : '',
+    };
   });
 }
 
 function writePlanCsv(path: string, plans: TerrainPlan[], targetGrades: number[]): void {
   ensureDir(path);
   const grades = targetGrades.sort((a, b) => a - b);
-  const header = ['levelResId', ...grades.flatMap(g => [`G${g}_existing`, `G${g}_needed`]), 'totalNeeded'];
+  const header = ['levelResId', ...grades.flatMap(g => [`G${g}_existing`, `G${g}_needed`]), 'totalNeeded', 'skipped', 'skipReason'];
   const lines = [header.join(',')];
   for (const p of plans) {
     const row = [p.levelResId];
     for (const g of grades) {
       row.push(String(p.existing[g] ?? 0), String(p.needed[g] ?? 0));
     }
-    row.push(String(p.totalNeeded));
+    row.push(String(p.totalNeeded), p.skipped ? '1' : '0', p.skipReason);
     lines.push(row.join(','));
   }
   writeFileSync(path, '﻿' + lines.join('\n') + '\n', 'utf8');
@@ -313,13 +389,15 @@ function writePlanCsv(path: string, plans: TerrainPlan[], targetGrades: number[]
 
 function summarizePlans(plans: TerrainPlan[], targetGrades: number[]): Record<string, unknown> {
   const active = plans.filter(p => p.totalNeeded > 0);
-  const complete = plans.length - active.length;
+  const skipped = plans.filter(p => p.skipped).length;
+  const complete = plans.filter(p => p.totalNeeded <= 0 && !p.skipped).length;
   const neededByGrade: Record<string, number> = {};
   for (const g of targetGrades) neededByGrade[`G${g}`] = active.reduce((s, p) => s + (p.needed[g] ?? 0), 0);
   return {
     terrains: plans.length,
     active: active.length,
     complete,
+    skipped,
     totalNeeded: active.reduce((s, p) => s + p.totalNeeded, 0),
     neededByGrade,
   };
@@ -372,6 +450,7 @@ function buildJobs(plans: TerrainPlan[], opts: Options): TerrainJob[] {
         spreadRange: opts.spreadRange,
         debtRange: opts.debtRange,
         colorAllocationMode: opts.colorAllocationMode,
+        colorAllocationMaxRatio: opts.colorAllocationMaxRatio,
       },
       simRuns: opts.simRuns,
       acceptance: jsonClone(opts.acceptance),
@@ -409,20 +488,36 @@ interface WorkerDoneMsg { type: 'done'; jobId: string; attempts: number; foundBy
 interface WorkerErrorMsg { type: 'error'; jobId: string; error: string; }
 type WorkerMsg = WorkerRowMsg | WorkerProgressMsg | WorkerDoneMsg | WorkerErrorMsg;
 
+function isClosedIpcError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ERR_IPC_CHANNEL_CLOSED';
+}
+
+/** Send without ever turning a closed parent channel into an uncaught worker error. */
+function sendToParent(message: WorkerMsg): Promise<boolean> {
+  return new Promise(resolve => {
+    if (!process.connected || typeof process.send !== 'function') {
+      resolve(false);
+      return;
+    }
+    try {
+      process.send(message, error => {
+        if (error && !isClosedIpcError(error)) {
+          console.error(`[worker-ipc] ${error.message}`);
+        }
+        resolve(!error);
+      });
+    } catch (error) {
+      if (!isClosedIpcError(error)) console.error(`[worker-ipc] ${String(error)}`);
+      resolve(false);
+    }
+  });
+}
+
 async function runWorkerJob(job: TerrainJob): Promise<void> {
   const terrain = loadTerrainFromFile(job.terrainPath);
 
   const probe = determineMaxGrade(terrain, job.unified, 0, job.terrainPath, job.simRuns, job.seedBase);
   const maxGrade = probe.maxGrade;
-  if (process.send) {
-    process.send({
-      type: 'row',
-      jobId: job.jobId,
-      row: probe.row,
-      attempts: 1,
-      foundByGrade: { [probe.row.grade]: 1 },
-    } satisfies WorkerRowMsg);
-  }
 
   const targetGrades = Object.keys(job.targetNeeds).map(Number);
   let lastProgressAttempts = 0;
@@ -437,51 +532,46 @@ async function runWorkerJob(job: TerrainJob): Promise<void> {
       acceptedOnly: true,
       gradeTargets: job.targetNeeds,
     },
-    undefined,
+    () => !process.connected,
     (collected, attempts) => {
       if (attempts - lastProgressAttempts >= 10 || attempts >= job.maxAttempts) {
         lastProgressAttempts = attempts;
-        if (process.send) {
-          process.send({
+        void sendToParent({
             type: 'progress',
             jobId: job.jobId,
             attempts,
             foundByGrade: collected,
           } satisfies WorkerProgressMsg);
-        }
       }
     },
   );
 
   for (const row of result.rows) {
-    if (process.send) {
-      process.send({
+    if (!await sendToParent({
         type: 'row',
         jobId: job.jobId,
         row,
         attempts: result.attempts,
         foundByGrade: result.collected,
-      } satisfies WorkerRowMsg);
-    }
+      } satisfies WorkerRowMsg)) break;
   }
 
-  if (process.send) {
-    process.send({
+  await sendToParent({
       type: 'done',
       jobId: job.jobId,
       attempts: result.attempts,
       foundByGrade: result.collected,
     } satisfies WorkerDoneMsg);
-  }
 }
 
 // ── Job execution ──
 
-function runJobs(jobs: TerrainJob[], opts: Options): Promise<{ totalFound: number }> {
+function runJobs(jobs: TerrainJob[], opts: Options): Promise<{ totalFound: number; failedJobs: number }> {
   return new Promise((resolve, reject) => {
     let next = 0;
     let doneJobs = 0;
     let totalFound = 0;
+    let failedJobs = 0;
     const totalNeeded = jobs.reduce((s, j) => s + Object.values(j.targetNeeds).reduce((a, b) => a + b, 0), 0);
     const totalAttemptLimit = jobs.reduce((s, j) => s + j.maxAttempts, 0);
     let lastLoggedPercent = -1;
@@ -533,9 +623,27 @@ function runJobs(jobs: TerrainJob[], opts: Options): Promise<{ totalFound: numbe
 
     const script = fileURLToPath(import.meta.url);
     const runOne = (job: TerrainJob): Promise<void> => {
-      return new Promise((res, rej) => {
+      return new Promise((res) => {
         jobState[job.jobId].status = 'running';
         saveStatus();
+        let settled = false;
+        let receivedDone = false;
+        let reportedError = '';
+
+        const finish = (error?: string) => {
+          if (settled) return;
+          settled = true;
+          doneJobs++;
+          if (error) {
+            failedJobs++;
+            jobState[job.jobId].status = 'error';
+            jobState[job.jobId].error = error;
+            console.error(`[worker ${job.jobId}] ${error}`);
+          }
+          saveStatus();
+          updateDisplay();
+          res();
+        };
 
         const child = fork(script, ['--worker'], {
           execArgv: process.execArgv.filter(a => !['--eval', '-e', '--print', '-p'].includes(a)),
@@ -543,6 +651,7 @@ function runJobs(jobs: TerrainJob[], opts: Options): Promise<{ totalFound: numbe
         });
 
         child.on('message', (msg: WorkerMsg) => {
+          if (settled) return;
           if (msg.type === 'row') {
             appendRow(opts.output, msg.row);
             const g = msg.row.grade;
@@ -567,25 +676,26 @@ function runJobs(jobs: TerrainJob[], opts: Options): Promise<{ totalFound: numbe
             const found = Object.values(msg.foundByGrade).reduce((a, b) => a + b, 0);
             jobState[job.jobId].found = found;
             jobState[job.jobId].status = found >= needed ? 'done' : 'partial';
-            doneJobs++;
+            receivedDone = true;
             saveStatus();
             updateDisplay();
-            res();
           } else if (msg.type === 'error') {
             jobState[job.jobId].status = 'error';
+            jobState[job.jobId].error = msg.error;
+            reportedError = msg.error;
             saveStatus();
-            rej(new Error(msg.error));
           }
         });
 
-        child.on('error', rej);
-        child.on('exit', (code) => {
-          if (code !== 0 && jobState[job.jobId].status !== 'error') {
-            rej(new Error(`Worker ${job.jobId} exited with code ${code}`));
-          }
+        child.on('error', error => finish(error.message));
+        child.on('exit', (code, signal) => {
+          if (receivedDone && code === 0) finish();
+          else finish(reportedError || `退出码 ${code ?? 'null'}${signal ? `，信号 ${signal}` : ''}`);
         });
 
-        child.send(job);
+        child.send(job, error => {
+          if (error) finish(`启动消息发送失败: ${error.message}`);
+        });
       });
     };
 
@@ -598,7 +708,7 @@ function runJobs(jobs: TerrainJob[], opts: Options): Promise<{ totalFound: numbe
 
     Promise.all(workers).then(() => {
       if (process.stdout.isTTY) process.stdout.write('\n');
-      resolve({ totalFound });
+      resolve({ totalFound, failedJobs });
     }).catch(reject);
   });
 }
@@ -611,7 +721,13 @@ async function main(): Promise<void> {
 
   // Phase 1: Plan
   const existing = opts.resume ? readExistingFile(opts.output) : new Map<string, Map<number, number>>();
-  const plans = buildPlans(opts.levels, opts.levelsDir, targetGrades, opts.targetPerTier, existing);
+  const skipAttempted = opts.resume && opts.skipAttemptedOnResume
+    ? readAttemptedTerrainStatus(opts.status, opts.maxAttempts)
+    : new Set<string>();
+  if (opts.resume && opts.skipAttemptedOnResume) {
+    for (const levelId of readSkippedTerrainPlan(opts.plan)) skipAttempted.add(levelId);
+  }
+  const plans = buildPlans(opts.levels, opts.levelsDir, targetGrades, opts.targetPerTier, existing, skipAttempted);
   const activePlans = plans.filter(p => p.totalNeeded > 0);
   writePlanCsv(opts.plan, plans, targetGrades);
 
@@ -640,23 +756,33 @@ async function main(): Promise<void> {
   const result = await runJobs(jobs, opts);
   const totalNeeded = activePlans.reduce((s, p) => s + p.totalNeeded, 0);
   console.log(`\n完成 | 命中 ${result.totalFound}/${totalNeeded} | 输出 ${opts.output}`);
+  if (result.failedJobs > 0) {
+    throw new Error(`${result.failedJobs} 个 Worker 失败；其他任务已继续完成，详情见 ${opts.status}`);
+  }
 }
 
 // ── Entry ──
 
 if (process.argv.includes('--worker')) {
   setLogLevel(LogLevel.Silent);
+  process.on('error', error => {
+    if (!isClosedIpcError(error)) console.error(error);
+  });
   process.on('message', (job: TerrainJob) => {
     runWorkerJob(job)
-      .then(() => process.exit(0))
-      .catch((err) => {
-        if (process.send) {
-          process.send({
+      .then(async () => {
+        if (process.connected) process.disconnect();
+        process.exit(0);
+      })
+      .catch(async (err) => {
+        const error = err instanceof Error ? (err.stack || err.message) : String(err);
+        console.error(`[worker ${job?.jobId ?? '?'}] ${error}`);
+        await sendToParent({
             type: 'error',
             jobId: job?.jobId ?? '?',
-            error: err instanceof Error ? err.message : String(err),
+            error,
           } satisfies WorkerErrorMsg);
-        }
+        if (process.connected) process.disconnect();
         process.exit(1);
       });
   });

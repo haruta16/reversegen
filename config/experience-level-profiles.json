@@ -1,0 +1,242 @@
+{
+  "version": 1,
+  "name": "ReverseGen level experience profiles",
+  "purpose": "把现有关卡生成 Feature 参数映射成可量化的体验类型，用于批量产出、回放分析和后续自适应搜索。",
+  "metricDefinitions": {
+    "actualCloseMean": {
+      "source": "Batch CSV actualCloseRates",
+      "formula": "平均逐层实际闭合率；若最后一层为自动全闭合，则分析时默认排除最后一层。",
+      "direction": "越高越宽松，越低越容易形成跨层债务。"
+    },
+    "inputCloseMean": {
+      "source": "Batch CSV closeRates",
+      "formula": "生成时输入闭合率均值。",
+      "direction": "用于回看配置意图；实际体验以 actualCloseMean 为准。"
+    },
+    "colorRatio": {
+      "source": "colorCount / floor(totalTiles / 3)",
+      "formula": "CSV 未导出 freeTiles 时使用 totalTiles 近似；正式执行器使用 freeTiles。",
+      "direction": "越高花色越多，选择密度和等待链通常越高。"
+    },
+    "spreadParam": {
+      "source": "Batch CSV spreadParam",
+      "formula": "同色方块在依赖图中的分散倾向。",
+      "direction": "越高，同色更分散，跨层等待更强。"
+    },
+    "debtPersistenceWeight": {
+      "source": "Batch CSV debtPersistenceWeight",
+      "formula": "旧债务延续到下一层的软目标权重。",
+      "direction": "越高，旧债更容易持续存在。"
+    },
+    "winStarvationPerTile": {
+      "source": "optimalStarvationOnWin / totalTiles",
+      "formula": "Optimal 胜局平均断色次数按地形总牌数归一。",
+      "direction": "越高表示即使最优可过，也更常需要承受断色等待。"
+    },
+    "lossRemainingRatio": {
+      "source": "optimalRemainingRatioOnLoss",
+      "formula": "Optimal 败局剩余牌比例。",
+      "direction": "越高表示失败更早发生，需要作为硬过滤控制。"
+    }
+  },
+  "closureBands": [
+    {
+      "id": "low_closure",
+      "label": "低闭合压迫",
+      "actualCloseMeanRange": [0.0, 0.4],
+      "expectedExperience": "前中期很少即时闭合，债务累积明显，适合高压或后段困难样本。"
+    },
+    {
+      "id": "mixed_closure",
+      "label": "混合闭合",
+      "actualCloseMeanRange": [0.4, 0.6],
+      "expectedExperience": "局部释放和跨层等待并存，适合中高难节奏变化。"
+    },
+    {
+      "id": "standard_closure",
+      "label": "标准闭合",
+      "actualCloseMeanRange": [0.6, 0.78],
+      "expectedExperience": "有明显消除反馈，但仍保留一定债务，适合作为多数中档样本底座。"
+    },
+    {
+      "id": "high_closure",
+      "label": "高闭合宽松",
+      "actualCloseMeanRange": [0.78, 1.000001],
+      "expectedExperience": "前中期释放强，低压顺滑；若仍出现高档，通常来自花色配额或地形结构。"
+    }
+  ],
+  "terrainAdaptation": {
+    "closure": {
+      "currentExecutableModes": ["random", "random_range", "fixed_points", "full_layer_max", "per_layer_list"],
+      "recommendedProductionMode": "random_range",
+      "notes": [
+        "跨所有地形时优先使用范围而不是固定数组，因为每个地形依赖深度不同。",
+        "范围最终会落到每层累计可闭合 triplet 整数上，能避免不可行百分比。",
+        "固定列表只适合少量深度相近地形，或者后续实现 closure_curve 自适应。"
+      ],
+      "advancedParametersToAdd": [
+        "closure_curve: early_relief | linear | late_pressure | valley | spike，用地形 depthCount 自动展开成逐层目标。",
+        "closure_band_by_grade: 按目标 G 档给闭合率范围，例如 G1 高闭合、G5 低闭合。",
+        "target_actual_close_tolerance: 生成后用 actualCloseRates 回筛，保证配置意图真的命中。",
+        "early_min_closed_triplets: 前 1-2 层最低闭合组数，避免浅层地形开局过空。",
+        "debt_tile_cap_by_depth: 限制每个深度的债务 tile 数，防止某些地形被低闭合直接推成必输。"
+      ]
+    },
+    "color": {
+      "currentFormula": "colorCount = floor(ratio * floor(freeTiles / 3)) + jitter",
+      "advancedParametersToAdd": [
+        "color_ratio_by_triplet_count: 小地形降低 ratio 上限，大地形允许更高 ratio。",
+        "min_color_count/max_color_count: 防止极小或极大地形出现异常花色数。",
+        "color_count_by_grade: 同体验下按目标档位微调花色密度。"
+      ]
+    },
+    "spreadAndDebt": {
+      "advancedParametersToAdd": [
+        "spread_debt_coupling: 控制 spread 与 debt 同向、反向或独立采样。",
+        "depth_sensitive_debt: 浅层地形降低 debt 上限，深层地形允许更高持续债。",
+        "actual_retention_band: 用 weightedDebtRetentionRate 回筛实际债务持续效果。"
+      ]
+    },
+    "qualityGates": {
+      "recommended": [
+        "G4/G5 至少保留 min_win_rate_exclusive > 0 或 min_sim1_wins，避免纯必死样本。",
+        "对高压体验使用 max_loss_remaining_ratio，排除过早死局。",
+        "对低压体验使用 max_win_starvation_per_tile，避免名义宽松但实际断色多。"
+      ]
+    }
+  },
+  "profiles": [
+    {
+      "id": "relaxed_flow",
+      "label": "顺滑释放型",
+      "intent": "低花色、低分散、低持续债，主体验是连贯消除和较少断色。",
+      "recommendedGrades": [1, 2, 3],
+      "generation": {
+        "placement_mode": "layer-closure",
+        "closure": { "mode": "random_range", "min": 0.75, "max": 1.0 },
+        "color": { "mode": "range", "min": 0.3, "max": 0.4, "jitter": 0 },
+        "spread": { "mode": "random_range", "min": 0.0, "max": 0.33 },
+        "debt": { "mode": "random_range", "min": 0.0, "max": 0.33 },
+        "color_allocation": { "mode": "balanced" }
+      },
+      "expectedMetricRanges": {
+        "actualCloseMean": [0.78, 1.0],
+        "colorRatio": [0.25, 0.45],
+        "spreadParam": [0.0, 0.33],
+        "debtPersistenceWeight": [0.0, 0.33],
+        "winStarvationPerTile": [0.0, 0.16],
+        "lossRemainingRatio": [0.0, 0.15]
+      }
+    },
+    {
+      "id": "balanced_choice",
+      "label": "均衡选择型",
+      "intent": "中等花色、中等分散和债务持续，提供稳定选择压力但不强调折磨感。",
+      "recommendedGrades": [1, 2, 3, 4],
+      "generation": {
+        "placement_mode": "layer-closure",
+        "closure": { "mode": "random_range", "min": 0.55, "max": 0.82 },
+        "color": { "mode": "range", "min": 0.4, "max": 0.5, "jitter": 0 },
+        "spread": { "mode": "random_range", "min": 0.33, "max": 0.66 },
+        "debt": { "mode": "random_range", "min": 0.33, "max": 0.66 },
+        "color_allocation": { "mode": "balanced" }
+      },
+      "expectedMetricRanges": {
+        "actualCloseMean": [0.6, 0.82],
+        "colorRatio": [0.35, 0.55],
+        "spreadParam": [0.33, 0.66],
+        "debtPersistenceWeight": [0.33, 0.66],
+        "winStarvationPerTile": [0.12, 0.26],
+        "lossRemainingRatio": [0.0, 0.25]
+      }
+    },
+    {
+      "id": "sustained_pressure",
+      "label": "持续压力型",
+      "intent": "高花色、高分散、高持续债，让压力持续存在但仍通过 Optimal 过滤过早死局。",
+      "recommendedGrades": [2, 3, 4, 5],
+      "generation": {
+        "placement_mode": "layer-closure",
+        "closure": { "mode": "random_range", "min": 0.35, "max": 0.72 },
+        "color": { "mode": "range", "min": 0.5, "max": 0.6, "jitter": 0 },
+        "spread": { "mode": "random_range", "min": 0.66, "max": 1.0 },
+        "debt": { "mode": "random_range", "min": 0.66, "max": 1.0 },
+        "color_allocation": { "mode": "balanced" }
+      },
+      "expectedMetricRanges": {
+        "actualCloseMean": [0.45, 0.76],
+        "colorRatio": [0.45, 0.68],
+        "spreadParam": [0.66, 1.0],
+        "debtPersistenceWeight": [0.66, 1.0],
+        "winStarvationPerTile": [0.24, 0.4],
+        "lossRemainingRatio": [0.0, 0.4]
+      }
+    },
+    {
+      "id": "single_color_anchor",
+      "label": "主色牵引型",
+      "intent": "低花色低分散，但用单个主花色占比制造强牵引；适合测试同色集中带来的局部爽感和后段卡点。",
+      "recommendedGrades": [1, 2, 3, 4, 5],
+      "generation": {
+        "placement_mode": "layer-closure",
+        "closure": { "mode": "random" },
+        "color": { "mode": "range", "min": 0.3, "max": 0.4, "jitter": 0 },
+        "spread": { "mode": "random_range", "min": 0.0, "max": 0.33 },
+        "debt": { "mode": "random_range", "min": 0.0, "max": 0.33 },
+        "color_allocation": { "mode": "single_heavy", "ratio": 0.5 }
+      },
+      "expectedMetricRanges": {
+        "actualCloseMean": [0.68, 1.0],
+        "colorRatio": [0.25, 0.45],
+        "spreadParam": [0.0, 0.33],
+        "debtPersistenceWeight": [0.0, 0.33],
+        "winStarvationPerTile": [0.0, 0.18],
+        "lossRemainingRatio": [0.0, 0.4]
+      }
+    },
+    {
+      "id": "delayed_pressure",
+      "label": "低闭合延迟压力型",
+      "intent": "主动压低闭合率，叠加中高花色和高债务持续，专门补足当前样本中缺失的低闭合体验。",
+      "recommendedGrades": [3, 4, 5],
+      "generation": {
+        "placement_mode": "layer-closure",
+        "closure": { "mode": "random_range", "min": 0.05, "max": 0.45 },
+        "color": { "mode": "range", "min": 0.45, "max": 0.6, "jitter": 1 },
+        "spread": { "mode": "random_range", "min": 0.45, "max": 0.85 },
+        "debt": { "mode": "random_range", "min": 0.65, "max": 1.0 },
+        "color_allocation": { "mode": "balanced" }
+      },
+      "expectedMetricRanges": {
+        "actualCloseMean": [0.0, 0.55],
+        "colorRatio": [0.4, 0.68],
+        "spreadParam": [0.45, 0.85],
+        "debtPersistenceWeight": [0.65, 1.0],
+        "winStarvationPerTile": [0.22, 0.45],
+        "lossRemainingRatio": [0.0, 0.4]
+      }
+    },
+    {
+      "id": "front_relief_late_pressure",
+      "label": "前松后紧型",
+      "intent": "前层给释放感，后层逐步降低闭合并延续旧债；当前建议作为进阶参数目标，现有执行器需用 closure_curve 才能跨深度稳定表达。",
+      "recommendedGrades": [2, 3, 4],
+      "generation": {
+        "placement_mode": "layer-closure",
+        "closure": { "mode": "per_layer_list", "values": [0.85, 0.72, 0.58, 0.42] },
+        "color": { "mode": "range", "min": 0.4, "max": 0.55, "jitter": 1 },
+        "spread": { "mode": "random_range", "min": 0.35, "max": 0.75 },
+        "debt": { "mode": "random_range", "min": 0.45, "max": 0.85 },
+        "color_allocation": { "mode": "balanced" }
+      },
+      "expectedMetricRanges": {
+        "actualCloseMean": [0.45, 0.8],
+        "colorRatio": [0.35, 0.62],
+        "spreadParam": [0.35, 0.75],
+        "debtPersistenceWeight": [0.45, 0.85],
+        "winStarvationPerTile": [0.14, 0.34],
+        "lossRemainingRatio": [0.0, 0.35]
+      }
+    }
+  ]
+}

@@ -28,7 +28,7 @@ import { getAllTiles } from './terrain-loader.js';
 // ═══════════════════════════════════════════════════════════
 
 export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput {
-  const { terrain, colorCount, dock, closeRates, spreadParam, debtPersistenceWeight, colorAllocationMode, colorAllocationRng } = input;
+  const { terrain, colorCount, dock, closeRates, spreadParam, debtPersistenceWeight, colorAllocationMode, colorAllocationMaxRatio, colorAllocationRng } = input;
   const p = Math.max(0, Math.min(1, debtPersistenceWeight ?? 0));
 
   // ── 1. 提取全量牌，算依赖深度（const 也参与）──
@@ -54,7 +54,7 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
   const freeTilesPerDepth = depthLayers.map(l => l.filter(t => !t.isConst).length);
   const allTilesPerDepth = depthLayers.map(l => l.length);
   const totalTriplets = freeTiles.length / 3;
-  const colorTotalTiles = assignColorTotals(totalTriplets, colorCount, colorAllocationMode, colorAllocationRng);
+  const colorTotalTiles = assignColorTotals(totalTriplets, colorCount, colorAllocationMode, colorAllocationRng, colorAllocationMaxRatio);
   const heavyColor = colorAllocationMode === 'single-heavy'
     ? colorTotalTiles.indexOf(Math.max(...colorTotalTiles)) + 1
     : 0;
@@ -132,6 +132,7 @@ export function assignColorTotals(
   colorCount: number,
   mode: ColorAllocationMode = 'balanced',
   rng: () => number = Math.random,
+  maxHeavyRatio?: number,
 ): number[] {
   if (colorCount > totalTriplets) {
     if (mode === 'single-heavy' && totalTriplets === colorCount) {
@@ -144,14 +145,23 @@ export function assignColorTotals(
   }
 
   if (mode === 'single-heavy') {
-    // 随机选一个主花色，其余各 1 组
+    // 随机选一个主花色；限制主色后，剩余组数在其他花色间均分。
     const heavyColor = Math.floor(rng() * colorCount);
+    const unconstrainedHeavy = totalTriplets - colorCount + 1;
+    const ratio = maxHeavyRatio == null ? 1 : Math.max(0, Math.min(1, maxHeavyRatio));
+    const cappedHeavy = Math.floor(totalTriplets * ratio);
+    const heavyTriplets = colorCount === 1
+      ? totalTriplets
+      : Math.max(1, Math.min(unconstrainedHeavy, cappedHeavy));
+    const rest = totalTriplets - heavyTriplets;
+    const otherBase = colorCount > 1 ? Math.floor(rest / (colorCount - 1)) : 0;
+    let otherExtra = colorCount > 1 ? rest % (colorCount - 1) : 0;
     const result: number[] = [];
     for (let c = 0; c < colorCount; c++) {
       if (c === heavyColor) {
-        result.push((totalTriplets - colorCount + 1) * 3);
+        result.push(heavyTriplets * 3);
       } else {
-        result.push(3); // 1 组 = 3 张牌
+        result.push((otherBase + (otherExtra-- > 0 ? 1 : 0)) * 3);
       }
     }
     return result;

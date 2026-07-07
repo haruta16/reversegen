@@ -195,6 +195,8 @@ export interface LayerClosureInput {
    * - 'single-heavy': 随机选一个主花色集中分配，其余花色各 1 组
    */
   colorAllocationMode?: ColorAllocationMode;
+  /** single-heavy 主色最多占总 triplet 的比例；未设置时保持旧的极端分配。 */
+  colorAllocationMaxRatio?: number;
   /** 花色配额随机源；批量任务传入种子 RNG，默认使用 Math.random。 */
   colorAllocationRng?: () => number;
   /** Dock 槽位容量（用于必输判定等指标，不影响花色分配） */

@@ -66,6 +66,7 @@ export interface UnifiedParams {
   spreadRange?: NumericRange;
   debtRange?: NumericRange;
   colorAllocationMode: ColorAllocationMode;
+  colorAllocationMaxRatio?: number;
 }
 
 export interface BatchConfig {
@@ -81,6 +82,7 @@ export interface BatchConfig {
   spreadRange?: NumericRange;
   debtRange?: NumericRange;
   colorAllocationMode: ColorAllocationMode;
+  colorAllocationMaxRatio?: number;
   targetGrades?: number[];
   acceptance?: BatchAcceptanceConfig;
   acceptedOnly?: boolean;
@@ -96,13 +98,15 @@ export interface GenerationParams {
   spreadParam: number;
   debtPersistenceWeight: number;
   colorAllocationMode?: ColorAllocationMode;
+  colorAllocationMaxRatio?: number;
 }
 
 export interface BatchRow {
   terrainIndex: number; terrainPath: string; levelResId: string;
   attemptIndex: number; isMaxGradeProbe: boolean;
   colorCount: number; closeRates: number[]; spreadParam: number; debtPersistenceWeight: number;
-  colorAllocationMode?: ColorAllocationMode; heavyColor?: number; colorTripletCounts?: number[];
+  colorAllocationMode?: ColorAllocationMode; colorAllocationMaxRatio?: number;
+  heavyColor?: number; colorTripletCounts?: number[];
   freeTiles: number; totalTiles: number; depthCount: number;
   peakDebt: number; peakExpDebt: number; oi: number; consecutiveOI: number;
   suitSpreadNorm: number; isDoomed: boolean;
@@ -264,6 +268,7 @@ export function randomizeParams(
     debtPersistenceWeight: params.debtPersistenceWeight === 'random'
       ? randomInRange(rng, params.debtRange) : params.debtPersistenceWeight,
     colorAllocationMode: params.colorAllocationMode,
+    colorAllocationMaxRatio: params.colorAllocationMaxRatio,
   };
 }
 
@@ -308,6 +313,7 @@ export function buildHardestParams(
       ? (unified.debtRange?.max ?? 1.0)
       : unified.debtPersistenceWeight,
     colorAllocationMode: unified.colorAllocationMode,
+    colorAllocationMaxRatio: unified.colorAllocationMaxRatio,
   };
 }
 
@@ -351,7 +357,9 @@ function mkEmptyRow(idx: number, path: string, p: GenerationParams, attempt: num
     isMaxGradeProbe: isProbe,
     colorCount: p.colorCount, closeRates: p.closeRates,
     spreadParam: p.spreadParam, debtPersistenceWeight: p.debtPersistenceWeight,
-    colorAllocationMode: p.colorAllocationMode, heavyColor: 0, colorTripletCounts: [],
+    colorAllocationMode: p.colorAllocationMode,
+    colorAllocationMaxRatio: p.colorAllocationMaxRatio,
+    heavyColor: 0, colorTripletCounts: [],
     freeTiles: 0, totalTiles: 0, depthCount: 0,
     peakDebt: 0, peakExpDebt: 0, oi: 0, consecutiveOI: 0,
     suitSpreadNorm: 0, isDoomed: false, actualCloseRates: [], weightedDebtRetentionRate: 0,
@@ -381,6 +389,7 @@ export function generateAndEvaluateOne(
       terrain, closeRates: params.closeRates, colorCount: params.colorCount,
       dock: 7, spreadParam: params.spreadParam, debtPersistenceWeight: params.debtPersistenceWeight,
       colorAllocationMode: params.colorAllocationMode,
+      colorAllocationMaxRatio: params.colorAllocationMaxRatio,
       colorAllocationRng: mulberry32(seed + 31337),
     });
     const m = result.metrics;
@@ -405,6 +414,7 @@ export function generateAndEvaluateOne(
       colorCount: params.colorCount, closeRates: params.closeRates,
       spreadParam: params.spreadParam, debtPersistenceWeight: params.debtPersistenceWeight,
       colorAllocationMode: m.colorAllocationMode ?? params.colorAllocationMode,
+      colorAllocationMaxRatio: params.colorAllocationMaxRatio,
       heavyColor: m.heavyColor ?? 0,
       colorTripletCounts: m.colorTripletCounts ?? [],
       freeTiles, totalTiles: allTiles.length, depthCount: m.depthCount,
@@ -575,7 +585,7 @@ export const BATCH_CSV_HEADERS = [
   'highWinRate', 'MiddleWinRate', 'LowWinRate',
   // 后 12 列：生成参数 + sim 详情 + 实际闭合率 + 元信息
   'colorCount', 'closeRates', 'spreadParam', 'debtPersistenceWeight',
-  'colorAllocationMode', 'heavyColor', 'colorTripletCounts',
+  'colorAllocationMode', 'colorAllocationMaxRatio', 'heavyColor', 'colorTripletCounts',
   'simRuns', 'sim1Wins', 'sim5Wins', 'sim15Wins', 'totalTiles',
   'optimalRuns', 'optimalWins', 'optimalLosses', 'optimalWinRate',
   'optimalForcedPickOnWin', 'optimalStarvationOnWin',
@@ -606,7 +616,7 @@ export function serializeBatchRow(row: BatchRow): string {
     row.sim1WinRate, row.sim5WinRate, row.sim15WinRate,
     // 后 12
     row.colorCount, row.closeRates.join(','), row.spreadParam, row.debtPersistenceWeight,
-    row.colorAllocationMode, row.heavyColor, (row.colorTripletCounts || []).join(','),
+    row.colorAllocationMode, row.colorAllocationMaxRatio ?? '', row.heavyColor, (row.colorTripletCounts || []).join(','),
     row.simRuns, row.sim1Wins, row.sim5Wins, row.sim15Wins, row.totalTiles,
     row.optimalRuns ?? '', row.optimalWins ?? '', row.optimalLosses ?? '', row.optimalWinRate ?? '',
     row.optimalForcedPickOnWin ?? '', row.optimalStarvationOnWin ?? '',
@@ -647,12 +657,10 @@ export async function runTerrainGeneration(
   tp.phase = 'maxgrade';
   if (onProgress) onProgress(tp, 0);
   const seed = (Date.now() + terrainIndex * 10000) & 0x7fffffff;
-  const { maxGrade, row: probe } = determineMaxGrade(terrain, unified, terrainIndex, terrainPath, config.simRuns, seed);
+  const { maxGrade } = determineMaxGrade(terrain, unified, terrainIndex, terrainPath, config.simRuns, seed);
   tp.maxGrade = maxGrade;
-  if (!config.acceptedOnly) tp.rows.push(probe);
   for (let g = 0; g <= Math.max(maxGrade, 5); g++) tp.collected[g] = 0;
-  if (!config.acceptedOnly && probe.success && probe.grade >= 0) tp.collected[probe.grade] = 1;
-  if (onProgress) onProgress(tp, config.acceptedOnly ? 0 : 1);
+  if (onProgress) onProgress(tp, 0);
   await yieldTick();
 
   // Phase 2
@@ -664,18 +672,12 @@ export async function runTerrainGeneration(
     isAborted,
     (cts, att, latestRow) => {
       tp.collected = { ...cts };
-      if (!config.acceptedOnly && probe.success && probe.grade >= 0) {
-        tp.collected[probe.grade] = Math.max(tp.collected[probe.grade], 1);
-      }
       tp.attempts = att;
       if (latestRow) tp.rows.push(latestRow);
       if (onProgress) onProgress(tp, latestRow ? 1 : 0);
     },
   );
   tp.attempts = attempts; tp.collected = collected;
-  if (!config.acceptedOnly && probe.success && probe.grade >= 0) {
-    tp.collected[probe.grade] = Math.max(tp.collected[probe.grade], 1);
-  }
   tp.phase = 'done';
   if (onProgress) onProgress(tp, 0);
   return tp;
@@ -784,6 +786,7 @@ export async function runBatchGeneration(
     spreadRange: config.spreadRange,
     debtRange: config.debtRange,
     colorAllocationMode: config.colorAllocationMode,
+    colorAllocationMaxRatio: config.colorAllocationMaxRatio,
   };
 
   const updateTerrain = (terrain: TerrainProgress, rowsAdded: number) => {

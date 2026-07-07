@@ -69,6 +69,8 @@ export interface GenerateBoardLayerClosureInput {
    * 'balanced' = 均匀分配 / 'single-heavy' = 单色极重（一个主花色集中，其余各 1 组）。
    */
   colorAllocationMode?: ColorAllocationMode;
+  /** single-heavy 主色占总 triplet 的比例上限。 */
+  colorAllocationMaxRatio?: number;
   /** 花色配额随机源；批量任务可传入种子 RNG。 */
   colorAllocationRng?: () => number;
 }
@@ -134,6 +136,7 @@ export function generateBoardLayerClosure(
     spreadParam,
     debtPersistenceWeight,
     colorAllocationMode,
+    colorAllocationMaxRatio,
     colorAllocationRng,
   } = input;
 
@@ -152,6 +155,7 @@ export function generateBoardLayerClosure(
     spreadParam,
     debtPersistenceWeight,
     colorAllocationMode,
+    colorAllocationMaxRatio,
     colorAllocationRng,
   });
 

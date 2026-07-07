@@ -7,6 +7,7 @@ dist/
 
 # Generated runtime and analysis artifacts
 output/
+outputs/
 replays/generated/
 __pycache__/
 *.pyc
