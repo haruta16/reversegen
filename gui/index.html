@@ -171,6 +171,28 @@ canvas{width:100%;border-radius:6px;margin-top:4px;display:block}
 }
 .code-actions{display:flex;gap:6px;margin-top:6px}
 
+/* ── Generation parameter snapshot ── */
+.param-summary{
+  height:30px;margin-top:10px;display:grid;grid-template-columns:minmax(0,1fr) 42px 30px;
+  align-items:stretch;background:var(--ink);border:1px solid var(--line);border-radius:6px;
+  color:var(--dim);overflow:hidden;transition:border-color .2s,box-shadow .2s;
+}
+.param-summary:focus-within{border-color:var(--gold);box-shadow:0 0 0 3px var(--accent-focus)}
+.param-summary input{
+  min-width:0;width:100%;height:28px;padding:7px 8px;border:0;border-radius:0;background:transparent;
+  color:var(--dim);font:9px/14px var(--mono);box-shadow:none;
+}
+.param-summary input:focus{border:0;box-shadow:none}
+.param-parse,.param-copy{
+  display:flex;align-items:center;justify-content:center;border:0;border-left:1px solid var(--line2);
+  background:transparent;color:var(--dim);cursor:pointer;transition:background .15s,color .15s;
+}
+.param-parse{font:600 9px var(--sans)}
+.param-parse:hover,.param-copy:hover{background:var(--accent-soft);color:var(--gold)}
+.param-parse:focus-visible,.param-copy:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}
+.param-copy svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.param-copy.copied{color:var(--ok);background:var(--accent-soft)}
+
 /* ── Color distribution ── */
 .color-grid{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;min-height:20px}
 .color-cell{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-family:var(--mono)}
@@ -336,7 +358,15 @@ kbd{
         </div>
       </div>
 
-      <button class="btn btn-primary" onclick="generate()" id="btnGen" style="margin-top:12px">
+      <div class="param-summary" role="group" aria-label="当前生成参数">
+        <input type="text" id="generationParamSummary" aria-label="当前生成参数串" spellcheck="false" onkeydown="if(event.key==='Enter'){event.preventDefault();parseGenerationParamSummary()}">
+        <button type="button" class="param-parse" onclick="parseGenerationParamSummary()" aria-label="解析生成参数串" title="解析生成参数串">解析</button>
+        <button type="button" class="param-copy" id="btnCopyParams" onclick="copyGenerationParams()" aria-label="复制生成参数" title="复制生成参数">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M15 9V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"></path></svg>
+        </button>
+      </div>
+
+      <button class="btn btn-primary" onclick="generate()" id="btnGen" style="margin-top:8px">
         ⚡ 生成牌局 <kbd>⌘↵</kbd>
       </button>
       <div class="msg" id="genErr"></div>
@@ -349,7 +379,7 @@ kbd{
     <div class="panel-bd">
       <textarea id="decodeInput" placeholder="粘贴 ReplayCode..." style="min-height:34px;font-size:10px"></textarea>
       <button class="btn btn-outline" onclick="decodeCode()" style="width:100%;margin-top:5px">解码并加载</button>
-      <button class="btn btn-outline" onclick="importParams()" style="width:100%;margin-top:5px">📥 导入参数到输入区</button>
+      <button class="btn btn-outline" onclick="importParams()" style="width:100%;margin-top:5px">提取 Replay 参数</button>
       <div class="msg" id="decodeOut"></div>
     </div>
   </div>
@@ -578,14 +608,14 @@ async function scanLevels(){
 // ═══════════════════════════════════
 async function loadLevel(){
   var id=document.getElementById('levelId').value.trim();
-  if(!id){toast('请输入关卡ID','err');return}
+  if(!id){toast('请输入关卡ID','err');return false}
   try{
     var body={levelId:id};
     var dir=document.getElementById('levelsDir').value.trim();
     if(dir)body.levelsDir=dir;
     var r=await fetch('/api/terrain-info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var d=await r.json();
-    if(!d.ok){toast(d.error,'err');return}
+    if(!d.ok){toast(d.error,'err');return false}
     S.level=d;
 
     var info=document.getElementById('levelInfo');
@@ -606,7 +636,8 @@ async function loadLevel(){
     updateClosurePresets(d);
     validateParams();
     toast('关卡加载完成 · '+d.freeTiles+'自由牌 · '+d.steps+'步');
-  }catch(e){toast(e.message,'err')}
+    return true;
+  }catch(e){toast(e.message,'err');return false}
 }
 
 function updateCostHint(steps){
@@ -711,6 +742,7 @@ function syncCloseRates(trigger){
     rates.push(pct/100);
   });
   document.getElementById('closeRates').value=rates.join(',');
+  updateGenerationParamSummary();
 }
 
 function updateSpreadLabel(){
@@ -724,6 +756,199 @@ function updateDebtLabel(){
 }
 
 // ═══════════════════════════════════
+//  Generation parameter snapshot
+// ═══════════════════════════════════
+function collectGenerationParams(){
+  var body={
+    levelId:document.getElementById('levelId').value.trim(),
+    algorithm:S.algo,
+    colorCount:document.getElementById('colorCount').value,
+  };
+  var dir=document.getElementById('levelsDir').value.trim();
+  if(dir)body.levelsDir=dir;
+  if(S.algo==='closure'){
+    body.closeRates=document.getElementById('closeRates').value.trim();
+    body.dock=document.getElementById('dock').value;
+    body.spreadParam=(parseInt(document.getElementById('spreadParam').value)/100).toFixed(2);
+    body.debtPersistenceWeight=(parseInt(document.getElementById('debtPersistence').value)/100).toFixed(2);
+    body.colorAllocationMode=document.getElementById('colorAllocation').value;
+    body.colorAllocationMaxRatio=parseFloat(document.getElementById('heavyColorMaxRatio').value).toFixed(2);
+  }else{
+    body.targetStd=document.getElementById('targetStd').value;
+    body.costArray=document.getElementById('costArray').value.trim();
+  }
+  return body;
+}
+
+function decodeBase64Url(text){
+  if(!/^[A-Za-z0-9_-]+$/.test(text))throw new Error('参数串包含非法字符');
+  var base64=text.replace(/-/g,'+').replace(/_/g,'/');
+  while(base64.length%4)base64+='=';
+  var binary=atob(base64),bytes=new Uint8Array(binary.length);
+  for(var i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+function encodeGenerationParamString(params){
+  function pct(value){
+    var n=parseFloat(value);
+    return Number.isFinite(n)?String(parseFloat((n*100).toFixed(2))):'';
+  }
+  if(params.algorithm==='cost-ladder'){
+    return[
+      String(params.costArray||''),
+      String(params.colorCount||''),
+      String(params.targetStd||''),
+      String(params.levelId||''),
+    ].join(':');
+  }
+  var closeRates=readParamCloseRates(params.closeRates).map(pct);
+  if(!closeRates.length||Number(closeRates[closeRates.length-1])!==100)closeRates.push('100');
+  return[
+    closeRates.join(','),
+    String(params.colorCount||''),
+    String(params.dock||''),
+    pct(params.spreadParam),
+    pct(params.debtPersistenceWeight),
+    params.colorAllocationMode==='single-heavy'?'1':'0',
+    pct(params.colorAllocationMaxRatio),
+    String(params.levelId||''),
+  ].join(':');
+}
+
+function decodePositionalGenerationParamString(raw){
+  var current=collectGenerationParams();
+  var parts=raw.replace(/：/g,':').split(':').map(function(part){return part.trim()});
+  if(parts.length===9&&parts[8]==='')parts.pop();
+  var params;
+  if(parts.length===8){
+    params={
+      levelId:parts[7],algorithm:'closure',colorCount:parts[1],
+      closeRates:parts[0].split(',').map(function(value){return String(parseFloat(value)/100)}).join(','),
+      dock:parts[2],spreadParam:String(parseFloat(parts[3])/100),
+      debtPersistenceWeight:String(parseFloat(parts[4])/100),
+      colorAllocationMode:parts[5]==='1'?'single-heavy':'balanced',
+      colorAllocationMaxRatio:String(parseFloat(parts[6])/100),
+    };
+  }else if(parts.length===4){
+    params={
+      levelId:parts[3],algorithm:'cost-ladder',colorCount:parts[1],
+      costArray:parts[0],targetStd:parts[2],
+    };
+  }else throw new Error('参数数量无效：闭合算法需要 8 段，Cost 算法需要 4 段');
+  if(current.levelsDir)params.levelsDir=current.levelsDir;
+  return params;
+}
+
+function decodeReadableGenerationParamString(raw){
+  var current=collectGenerationParams(),fields={};
+  var known=['主色上限','闭合率','Cost','Dock','花色','分布','债务','配额','关卡','σ'];
+  raw.replace(/：/g,':').split(':').forEach(function(segment){
+    var part=segment.trim();if(!part)return;
+    var idx=part.indexOf('='),key='',value='';
+    if(idx>=0){key=part.slice(0,idx).trim();value=part.slice(idx+1).trim()}
+    else{
+      for(var i=0;i<known.length;i++){
+        if(part.indexOf(known[i])===0){key=known[i];value=part.slice(known[i].length).trim();break}
+      }
+    }
+    if(!key||known.indexOf(key)<0)throw new Error('无法识别字段：'+part);
+    fields[key]=value;
+  });
+
+  var isCost=Object.prototype.hasOwnProperty.call(fields,'Cost');
+  var params={
+    levelId:Object.prototype.hasOwnProperty.call(fields,'关卡')?fields['关卡']:current.levelId,
+    algorithm:isCost?'cost-ladder':'closure',
+    colorCount:Object.prototype.hasOwnProperty.call(fields,'花色')?fields['花色']:current.colorCount,
+  };
+  if(current.levelsDir)params.levelsDir=current.levelsDir;
+  if(isCost){
+    params.costArray=fields.Cost;
+    params.targetStd=Object.prototype.hasOwnProperty.call(fields,'σ')?fields['σ']:(current.targetStd||'1.0');
+  }else{
+    if(!Object.prototype.hasOwnProperty.call(fields,'闭合率'))throw new Error('参数串缺少闭合率');
+    var rates=fields['闭合率'].split(',').map(function(value){return String(parseFloat(value)/100)});
+    params.closeRates=rates.join(',');
+    params.dock=Object.prototype.hasOwnProperty.call(fields,'Dock')?fields.Dock:(current.dock||'7');
+    params.spreadParam=Object.prototype.hasOwnProperty.call(fields,'分布')?String(parseFloat(fields['分布'])/100):(current.spreadParam||'0.50');
+    params.debtPersistenceWeight=Object.prototype.hasOwnProperty.call(fields,'债务')?String(parseFloat(fields['债务'])/100):(current.debtPersistenceWeight||'0.00');
+    params.colorAllocationMode=Object.prototype.hasOwnProperty.call(fields,'配额')
+      ?(fields['配额']==='单色极重'?'single-heavy':'balanced')
+      :(current.colorAllocationMode||'balanced');
+    params.colorAllocationMaxRatio=Object.prototype.hasOwnProperty.call(fields,'主色上限')?String(parseFloat(fields['主色上限'])/100):(current.colorAllocationMaxRatio||'0.50');
+  }
+  return params;
+}
+
+function decodeGenerationParamString(code){
+  var raw=code.trim();
+  if(raw.charAt(0)==='{')return JSON.parse(raw); // 兼容旧版已复制的 JSON
+  if(raw.indexOf('RGP1.')===0){
+    var params=JSON.parse(decodeBase64Url(raw.slice(5)));
+    if(!params||typeof params!=='object'||Array.isArray(params))throw new Error('参数串内容无效');
+    return params;
+  }
+  if(/^(?:闭合率|Cost)/i.test(raw))return decodeReadableGenerationParamString(raw); // 兼容带字段名的旧参数串
+  return decodePositionalGenerationParamString(raw);
+}
+
+function updateGenerationParamSummary(){
+  var el=document.getElementById('generationParamSummary');
+  if(!el)return'';
+  var text=encodeGenerationParamString(collectGenerationParams());
+  el.value=text;
+  el.title=text;
+  return text;
+}
+
+async function parseGenerationParamSummary(){
+  var el=document.getElementById('generationParamSummary');
+  var out=document.getElementById('genErr');
+  var code=el.value.trim();
+  if(!code){out.textContent='请输入生成参数串';out.className='msg msg-err';return}
+  out.textContent='解析中...';out.className='msg';
+  var ok=await applyGenerationParamString(code,out);
+  if(!ok){el.value=code;el.title=code}
+}
+
+function copyGenerationParams(){
+  var field=document.getElementById('generationParamSummary');
+  var text=field.value.trim();
+  if(!text)text=updateGenerationParamSummary();
+  var btn=document.getElementById('btnCopyParams');
+  function copied(){
+    btn.classList.add('copied');
+    btn.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>';
+    btn.setAttribute('aria-label','生成参数已复制');
+    clearTimeout(btn._copyTimer);
+    btn._copyTimer=setTimeout(function(){
+      btn.classList.remove('copied');
+      btn.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M15 9V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"></path></svg>';
+      btn.setAttribute('aria-label','复制生成参数');
+    },1600);
+    toast('生成参数已复制','ok');
+  }
+  function fallback(){
+    var input=document.createElement('textarea');
+    input.value=text;input.setAttribute('readonly','');input.style.position='fixed';input.style.opacity='0';
+    document.body.appendChild(input);input.select();
+    try{document.execCommand('copy')?copied():toast('复制失败','err')}catch(e){toast('复制失败','err')}
+    document.body.removeChild(input);
+  }
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(copied).catch(fallback)}
+  else fallback();
+}
+
+var GENERATION_PARAM_INPUTS='#levelId,#levelsDir,#dock,#colorCount,#colorAllocation,#heavyColorMaxRatio,#spreadParam,#debtPersistence,#targetStd,#costArray,#closeRateSliders .slider';
+document.addEventListener('input',function(event){
+  if(event.target&&event.target.matches&&event.target.matches(GENERATION_PARAM_INPUTS))updateGenerationParamSummary();
+});
+document.addEventListener('change',function(event){
+  if(event.target&&event.target.matches&&event.target.matches(GENERATION_PARAM_INPUTS))updateGenerationParamSummary();
+});
+
+// ═══════════════════════════════════
 //  Algorithm switch
 // ═══════════════════════════════════
 function switchAlgo(algo){
@@ -732,6 +957,7 @@ function switchAlgo(algo){
   document.getElementById('panelCost').style.display=algo==='cost-ladder'?'':'none';
   document.getElementById('panelClosure').style.display=algo==='closure'?'':'none';
   validateParams();
+  updateGenerationParamSummary();
 }
 
 // ═══════════════════════════════════
@@ -755,19 +981,15 @@ document.getElementById('costArray').addEventListener('input',validateParams);
 async function generate(){
   var btn=document.getElementById('btnGen');
   if(!S.level){toast('请先加载关卡','err');return}
-  var algo=S.algo;
-  var body={levelId:document.getElementById('levelId').value.trim(),algorithm:algo};
-  var dir=document.getElementById('levelsDir').value.trim();if(dir)body.levelsDir=dir;
-  body.colorCount=document.getElementById('colorCount').value;
-
-  if(algo==='closure'){
-    body.closeRates=document.getElementById('closeRates').value.trim();
-    body.dock=document.getElementById('dock').value;
-    body.spreadParam=(parseInt(document.getElementById('spreadParam').value)/100).toFixed(2);
-    body.debtPersistenceWeight=(parseInt(document.getElementById('debtPersistence').value)/100).toFixed(2);
-    body.colorAllocationMode=document.getElementById('colorAllocation').value;
-    body.colorAllocationMaxRatio=document.getElementById('heavyColorMaxRatio').value;
-  }else{body.costArray=document.getElementById('costArray').value.trim()}
+  var body=collectGenerationParams();
+  var compatibility=inspectTerrainCompatibility(body,S.level);
+  if(compatibility.error){
+    document.getElementById('genErr').textContent=compatibility.error;
+    document.getElementById('genErr').className='msg msg-err';
+    toast('地形无法满足参数','err');
+    return;
+  }
+  document.getElementById('genErr').textContent='';document.getElementById('genErr').className='msg';
 
   btn.innerHTML='<span class="spinner"></span> 生成中...';btn.disabled=true;
   try{
@@ -1053,12 +1275,110 @@ async function decodeCode(){
   }catch(e){out.textContent=e.message;out.className='msg msg-err'}
 }
 
+function generationParamShapeError(params){
+  if(!params||typeof params!=='object')return'参数串内容无效';
+  if(params.algorithm!=='closure'&&params.algorithm!=='cost-ladder')return'参数串缺少有效算法';
+  if(!String(params.levelId||'').trim())return'参数串缺少关卡 ID';
+  var colorCount=parseInt(params.colorCount);
+  if(!Number.isFinite(colorCount)||colorCount<1||colorCount>99)return'花色数必须在 1–99 之间';
+  if(params.algorithm==='closure'){
+    var dock=parseInt(params.dock),spread=parseFloat(params.spreadParam),debt=parseFloat(params.debtPersistenceWeight),ratio=parseFloat(params.colorAllocationMaxRatio);
+    if(!Number.isFinite(dock)||dock<1||dock>20)return'Dock 容量必须在 1–20 之间';
+    if(!Number.isFinite(spread)||spread<0||spread>1)return'同色分布必须在 0–1 之间';
+    if(!Number.isFinite(debt)||debt<0||debt>1)return'债务持续权重必须在 0–1 之间';
+    if(!Number.isFinite(ratio)||ratio<.01||ratio>1)return'主色最大占比必须在 0.01–1 之间';
+  }
+  return'';
+}
+
+function readParamCloseRates(value){
+  var raw=Array.isArray(value)?value:String(value||'').split(',');
+  if(raw.length===1&&String(raw[0]).trim()==='')return[];
+  return raw.map(function(v){return Number(v)});
+}
+
+function inspectTerrainCompatibility(params,level){
+  if(params.algorithm==='cost-ladder'){
+    var costText=String(params.costArray||'').trim();
+    var costs=costText?costText.split(',').map(Number):[];
+    if(costs.some(function(v){return!Number.isFinite(v)||v<1}))return{error:'Cost 数组包含无效数值'};
+    if(costs.length!==level.steps)return{error:'地形无法满足参数：需要 '+level.steps+' 步 Cost，参数串为 '+costs.length+' 步'};
+    return{error:'',costs:costs};
+  }
+
+  var rates=readParamCloseRates(params.closeRates);
+  var depthCount=Number(level.depthCount)||0,expected=Math.max(0,depthCount-1);
+  if(rates.length===depthCount&&Math.abs(rates[rates.length-1]-1)<.0001)rates=rates.slice(0,-1);
+  if(!depthCount)return{error:'地形无法满足参数：缺少深度层信息'};
+  if(rates.some(function(v){return!Number.isFinite(v)||v<0||v>1}))return{error:'闭合率必须是 0–1 之间的数字'};
+  if(rates.length!==expected)return{error:'地形无法满足参数：地形需要 '+expected+' 个闭合率，参数串提供 '+rates.length+' 个'};
+
+  var colorCount=parseInt(params.colorCount)||8,cumulative=0,previousClosed=0;
+  for(var i=0;i<rates.length;i++){
+    cumulative+=Number(level.tilesPerDepth[i])||0;
+    var maxClosed=Math.floor(cumulative/3)*3;
+    var minClosed=cumulative-Math.min(cumulative,2*colorCount);
+    while(minClosed%3!==0)minClosed++;
+    if(minClosed>maxClosed)minClosed=maxClosed;
+    var closed=Math.round(rates[i]*cumulative/3)*3;
+    if(closed<minClosed||closed>maxClosed){
+      var minPct=cumulative?Math.round(minClosed/cumulative*100):0,maxPct=cumulative?Math.round(maxClosed/cumulative*100):100;
+      return{error:'地形无法满足参数：前 '+(i+1)+' 层闭合率 '+Math.round(rates[i]*100)+'% 超出 '+minPct+'%–'+maxPct+'% 可用范围'};
+    }
+    if(closed<previousClosed)return{error:'地形无法满足参数：前 '+(i+1)+' 层的累计闭合数不能小于上一层'};
+    previousClosed=closed;
+  }
+  return{error:'',rates:rates};
+}
+
+async function applyGenerationParamString(code,out){
+  var params;
+  try{params=decodeGenerationParamString(code)}catch(e){out.textContent='参数串解析失败：'+e.message;out.className='msg msg-err';return false}
+  var shapeError=generationParamShapeError(params);
+  if(shapeError){out.textContent='参数串解析失败：'+shapeError;out.className='msg msg-err';return false}
+
+  document.getElementById('levelId').value=String(params.levelId).trim();
+  document.getElementById('levelsDir').value=params.levelsDir?String(params.levelsDir):'';
+  document.getElementById('colorCount').value=String(parseInt(params.colorCount));
+  var loaded=await loadLevel();
+  if(!loaded){out.textContent='地形加载失败，无法进入生成参数';out.className='msg msg-err';return false}
+
+  var compatibility=inspectTerrainCompatibility(params,S.level);
+  if(compatibility.error){out.textContent=compatibility.error;out.className='msg msg-err';toast('地形无法满足参数','err');return false}
+
+  if(params.algorithm==='closure'){
+    document.getElementById('dock').value=String(parseInt(params.dock));
+    document.getElementById('spreadParam').value=String(Math.round(parseFloat(params.spreadParam)*100));
+    document.getElementById('debtPersistence').value=String(Math.round(parseFloat(params.debtPersistenceWeight)*100));
+    document.getElementById('colorAllocation').value=params.colorAllocationMode==='single-heavy'?'single-heavy':'balanced';
+    document.getElementById('heavyColorMaxRatio').value=String(parseFloat(params.colorAllocationMaxRatio));
+    var sliders=document.querySelectorAll('#closeRateSliders .slider');
+    sliders.forEach(function(slider,i){
+      slider.value=String(compatibility.rates[i]*100);
+      slider.dataset.prevDc=String(Math.round(compatibility.rates[i]*Number(slider.dataset.total)/3)*3);
+    });
+    updateSpreadLabel();updateDebtLabel();syncCloseRates();
+  }else{
+    document.getElementById('targetStd').value=String(params.targetStd==null?1:params.targetStd);
+    document.getElementById('costArray').value=String(params.costArray||'').trim();
+  }
+  switchAlgo(params.algorithm);
+  validateParams();updateGenerationParamSummary();
+  out.textContent='已进入生成参数 · 关卡#'+String(params.levelId).trim();out.className='msg msg-ok';
+  toast('参数串解析完成','ok');
+  return true;
+}
+
 async function importParams(){
   var code=document.getElementById('decodeInput').value.trim();
   var out=document.getElementById('decodeOut');
   if(!code){out.textContent='';return}
   out.textContent='解析中...';out.className='msg';
   try{
+    if(/^RGP\d+\./.test(code)||code.charAt(0)==='{'||/^(?:闭合率|Cost)/i.test(code)||code.indexOf(':')>=0){
+      await applyGenerationParamString(code,out);
+      return;
+    }
     // 调用新 API：提取所有可导入参数
     var r=await fetch('/api/replay-params',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code})});
     var d=await r.json();
@@ -1082,22 +1402,28 @@ async function importParams(){
     document.getElementById('dock').value=dock;
 
     // 2. 加载地形（会创建滑块和默认值）
-    await loadLevel();
+    var loaded=await loadLevel();
+    if(!loaded){out.textContent='地形加载失败，无法进入生成参数';out.className='msg msg-err';return}
+
+    var replayCompatibility=inspectTerrainCompatibility({
+      algorithm:'closure',colorCount:colorCount,closeRates:closeRates,
+    },S.level);
+    if(replayCompatibility.error){out.textContent=replayCompatibility.error;out.className='msg msg-err';toast('地形无法满足参数','err');return}
 
     // 3. 覆盖滑块为导入的闭合率（loadLevel 已创建滑块 HTML）
     if(closeRates.length>0){
       var sliders=document.querySelectorAll('#closeRateSliders .slider');
       // closeRates 长度 = depthCount，最后一个是 1.0（自动）
       // 滑块数量 = depthCount - 1（最后一层不显示）
-      for(var i=0;i<Math.min(sliders.length,closeRates.length-1);i++){
-        var rate=closeRates[i];
+      for(var i=0;i<Math.min(sliders.length,replayCompatibility.rates.length);i++){
+        var rate=replayCompatibility.rates[i];
         sliders[i].value=Math.round(rate*100);
         sliders[i].dataset.prevDc='0';
       }
       syncCloseRates();
 
       // 更新 closeRates hidden 字段（syncCloseRates 可能已经设置了，但再确认一次）
-      var rates=closeRates.slice(0,-1); // 不含最后一层 1.0
+      var rates=replayCompatibility.rates; // 不含最后一层 1.0
       document.getElementById('closeRates').value=rates.join(',');
     }
 
@@ -1545,6 +1871,7 @@ function generateCost(){
   }
   document.getElementById('costArray').value=arr.join(',');
   validateParams();
+  updateGenerationParamSummary();
   toast('Cost已生成 σ='+calcStd(arr).toFixed(2),'ok');
 }
 
@@ -1560,6 +1887,7 @@ document.addEventListener('keydown',function(e){
 // ═══════════════════════════════════
 scanLevels();
 switchSimStrategy();
+updateGenerationParamSummary();
 </script>
 </body>
 </html>
