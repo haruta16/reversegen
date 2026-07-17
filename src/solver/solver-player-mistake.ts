@@ -83,6 +83,49 @@ export interface MistakeConfig {
   mistakeRate: number;
   /** 最大步数限制（默认 2000） */
   maxSteps?: number;
+  /** Keep per-run pick paths. Batch search should normally leave this false. */
+  collectTrace?: boolean;
+}
+
+interface MistakeRunSummary {
+  win: boolean;
+  failReason: string | null;
+  stepCount: number;
+  picks?: number[];
+}
+
+function runMistakeSimulation(
+  game: OfflineGame,
+  seed: number,
+  config: MistakeConfig,
+  collectTrace: boolean,
+): MistakeRunSummary {
+  const maxSteps = config.maxSteps ?? 2000;
+  const g = game.clone();
+  const picks = collectTrace ? [] as number[] : undefined;
+  const rng = mulberry32(seed);
+
+  for (let step = 0; step < maxSteps; step++) {
+    if (g.isWin) break;
+    if (g.isDead) return { win: false, failReason: `Dock full at step ${step}`, stepCount: step, picks };
+
+    const tile = selectTile(g, rng, config.mistakeRate);
+    if (!tile) return { win: false, failReason: `No clickable tiles at step ${step}`, stepCount: step, picks };
+
+    g.collect(tile);
+    picks?.push(tile.id);
+  }
+
+  const stepCount = picks?.length ?? Math.min(maxSteps, game.deskTiles.length + game.dockTiles.length);
+  // Without a trace, count completed actions from the remaining board rather
+  // than allocating a picks array. Every action removes one desk tile.
+  const actions = collectTrace ? stepCount : Math.max(0, game.deskTiles.length - g.deskTiles.length);
+  return {
+    win: g.isWin,
+    failReason: g.isWin ? null : (g.isDead ? 'Dock full' : `Max steps (${maxSteps}) reached`),
+    stepCount: actions,
+    picks,
+  };
 }
 
 /**
@@ -93,47 +136,10 @@ export function solvePlayerMistake(
   seed: number,
   config: MistakeConfig,
 ): PlayerSimResult {
-  const maxSteps = config.maxSteps ?? 2000;
-  const g = game.clone();
-  const picks: number[] = [];
-  const rng = mulberry32(seed);
-
-  for (let step = 0; step < maxSteps; step++) {
-    if (g.isWin) break;
-    if (g.isDead) {
-      return {
-        win: false,
-        failReason: `Dock full at step ${step}`,
-        picks,
-        stepCount: picks.length,
-        seed,
-      };
-    }
-
-    const tile = selectTile(g, rng, config.mistakeRate);
-    if (!tile) {
-      return {
-        win: false,
-        failReason: `No clickable tiles at step ${step}`,
-        picks,
-        stepCount: picks.length,
-        seed,
-      };
-    }
-
-    g.collect(tile);
-    picks.push(tile.id);
-  }
-
+  const result = runMistakeSimulation(game, seed, config, config.collectTrace !== false);
   return {
-    win: g.isWin,
-    failReason: g.isWin
-      ? null
-      : g.isDead
-        ? 'Dock full'
-        : `Max steps (${maxSteps}) reached`,
-    picks,
-    stepCount: picks.length,
+    ...result,
+    picks: result.picks ?? [],
     seed,
   };
 }
@@ -150,13 +156,18 @@ export function solvePlayerMistakeBatch(
   const startTime = performance.now();
   let wins = 0;
   let losses = 0;
-  const results: PlayerSimResult[] = [];
+  const collectTrace = config.collectTrace ?? true;
+  const results = collectTrace ? [] as PlayerSimResult[] : undefined;
   let totalWinSteps = 0;
   let totalLossSteps = 0;
 
   for (let i = 0; i < runs; i++) {
-    const result = solvePlayerMistake(game, baseSeed + i, config);
-    results.push(result);
+    const result = collectTrace
+      ? solvePlayerMistake(game, baseSeed + i, { ...config, collectTrace: true })
+      : runMistakeSimulation(game, baseSeed + i, config, false);
+    if (collectTrace) {
+      results!.push({ ...result, picks: result.picks ?? [], seed: baseSeed + i });
+    }
     if (result.win) {
       wins++;
       totalWinSteps += result.stepCount;

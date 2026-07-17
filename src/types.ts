@@ -199,6 +199,8 @@ export interface LayerClosureInput {
   colorAllocationMaxRatio?: number;
   /** 花色配额随机源；批量任务传入种子 RNG，默认使用 Math.random。 */
   colorAllocationRng?: () => number;
+  /** 本次生成的统一随机源；同时控制花色配额和 tile 落位。 */
+  rng?: () => number;
   /** Dock 槽位容量（用于必输判定等指标，不影响花色分配） */
   dock: number;
   /**

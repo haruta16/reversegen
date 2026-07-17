@@ -264,6 +264,7 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
         <div><label>分档策略</label>
           <select id="gradeStrategy"><option value="strategy2" selected>评估策略2 · 三率 passrate</option></select>
         </div>
+        <div><label>根 Seed</label><input type="number" id="strategySeed" value="20260630" step="1"></div>
       </div>
     </div>
   </div>
@@ -439,6 +440,7 @@ async function startBatch(){
     targetPerTier: parseInt(document.getElementById('targetPerTier').value)||10,
     maxAttempts: parseInt(document.getElementById('maxAttempts').value)||500,
     concurrency: parseInt(document.getElementById('concurrency').value)||1,
+    seed: parseInt(document.getElementById('strategySeed').value)||20260630,
   };
 
   S.running=true;S.allRows=[];
@@ -553,7 +555,7 @@ function renderProgress(d){
     html+='<div class="progress-row">'+
       '<span class="pname">'+name+'</span>'+
       '<span style="font-size:9px;color:var(--dim);width:32px;flex-shrink:0;text-align:center">'+
-        (t.phase==='maxgrade'?'探顶':t.phase==='collecting'?'收样':t.phase==='done'?'完成':'就绪')+'</span>'+
+        (t.phase==='collecting'?'收样':t.phase==='done'?'完成':'就绪')+'</span>'+
       '<div class="pbar-outer"><div class="pbar-fill" style="width:'+pct+'%;background:'+barColor+'"></div></div>'+
       '<span class="pstat">';
     if(t.maxGrade>=0){

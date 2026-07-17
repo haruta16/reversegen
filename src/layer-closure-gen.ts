@@ -29,6 +29,7 @@ import { getAllTiles } from './terrain-loader.js';
 
 export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput {
   const { terrain, colorCount, dock, closeRates, spreadParam, debtPersistenceWeight, colorAllocationMode, colorAllocationMaxRatio, colorAllocationRng } = input;
+  const rng = input.rng ?? colorAllocationRng ?? Math.random;
   const p = Math.max(0, Math.min(1, debtPersistenceWeight ?? 0));
 
   // ── 1. 提取全量牌，算依赖深度（const 也参与）──
@@ -54,7 +55,7 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
   const freeTilesPerDepth = depthLayers.map(l => l.filter(t => !t.isConst).length);
   const allTilesPerDepth = depthLayers.map(l => l.length);
   const totalTriplets = freeTiles.length / 3;
-  const colorTotalTiles = assignColorTotals(totalTriplets, colorCount, colorAllocationMode, colorAllocationRng, colorAllocationMaxRatio);
+  const colorTotalTiles = assignColorTotals(totalTriplets, colorCount, colorAllocationMode, rng, colorAllocationMaxRatio);
   const heavyColor = colorAllocationMode === 'single-heavy'
     ? colorTotalTiles.indexOf(Math.max(...colorTotalTiles)) + 1
     : 0;
@@ -67,7 +68,7 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
   // ── 4. 矩阵 → 具体方块贴花色（仅自由牌参与选择）──
   const sp = spreadParam ?? 0.5;
   const tileDepSets = computeTileDepSets(allTiles, tileMap);
-  const assignments = placeSuitsFromMatrixWithSpread(matrix, depthLayers, tileDepSets, sp);
+  const assignments = placeSuitsFromMatrixWithSpread(matrix, depthLayers, tileDepSets, sp, rng);
 
   // ── 5. 真实闭合率（const 花色参与累积）──
   const actualCloseRates = computeCloseRatesFromAssignments(assignments, depthLayers);
@@ -593,6 +594,7 @@ function placeSuitsFromMatrixWithSpread(
   depthLayers: TerrainTile[][],
   tileDepSets: Map<number, Set<number>>,
   spreadParam: number,
+  rng: () => number,
 ): Map<number, number> {
   const assignments = new Map<number, number>();
   const D = depthLayers.length;
@@ -643,7 +645,7 @@ function placeSuitsFromMatrixWithSpread(
         }
 
         // ── 选择 ──
-        const chosenTileId = selectTile(candidates, scores, spreadParam);
+        const chosenTileId = selectTile(candidates, scores, spreadParam, rng);
 
         pool.delete(chosenTileId);
         assignments.set(chosenTileId, color);
@@ -676,31 +678,32 @@ function selectTile(
   candidates: number[],
   scores: number[],
   spreadParam: number,
+  rng: () => number,
 ): number {
   // ── 极端值：确定性选择 ──
-  if (spreadParam <= 0) return pickMin(candidates, scores);
-  if (spreadParam >= 1) return pickMax(candidates, scores);
+  if (spreadParam <= 0) return pickMin(candidates, scores, rng);
+  if (spreadParam >= 1) return pickMax(candidates, scores, rng);
 
   // ── 中性：均匀随机 ──
   const bias = Math.abs(spreadParam - 0.5) * 2; // 0(中性) ~ 1(极端)
   if (bias < 0.001) {
-    return candidates[Math.floor(Math.random() * candidates.length)];
+    return candidates[Math.floor(rng() * candidates.length)];
   }
 
   // ── 中间值：coin flip 混合 ──
-  if (Math.random() < bias) {
+  if (rng() < bias) {
     // 倾向策略
     return spreadParam < 0.5
-      ? pickMin(candidates, scores)
-      : pickMax(candidates, scores);
+      ? pickMin(candidates, scores, rng)
+      : pickMax(candidates, scores, rng);
   } else {
     // 随机
-    return candidates[Math.floor(Math.random() * candidates.length)];
+    return candidates[Math.floor(rng() * candidates.length)];
   }
 }
 
 /** 从候选列表中选增量最小的 tile（多个并列时随机打破平局） */
-function pickMin(candidates: number[], scores: number[]): number {
+function pickMin(candidates: number[], scores: number[], rng: () => number): number {
   let minScore = Infinity;
   let minIndices: number[] = [];
   for (let i = 0; i < scores.length; i++) {
@@ -711,11 +714,11 @@ function pickMin(candidates: number[], scores: number[]): number {
       minIndices.push(i);
     }
   }
-  return candidates[minIndices[Math.floor(Math.random() * minIndices.length)]];
+  return candidates[minIndices[Math.floor(rng() * minIndices.length)]];
 }
 
 /** 从候选列表中选增量最大的 tile（多个并列时随机打破平局） */
-function pickMax(candidates: number[], scores: number[]): number {
+function pickMax(candidates: number[], scores: number[], rng: () => number): number {
   let maxScore = -Infinity;
   let maxIndices: number[] = [];
   for (let i = 0; i < scores.length; i++) {
@@ -726,7 +729,7 @@ function pickMax(candidates: number[], scores: number[]): number {
       maxIndices.push(i);
     }
   }
-  return candidates[maxIndices[Math.floor(Math.random() * maxIndices.length)]];
+  return candidates[maxIndices[Math.floor(rng() * maxIndices.length)]];
 }
 
 // ═══════════════════════════════════════════════════════════

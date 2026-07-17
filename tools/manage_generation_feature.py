@@ -147,6 +147,7 @@ DEFAULT_SCHEMA: dict[str, Any] = {
             "properties": {
                 "grade_strategy": {"type": "string"},
                 "sim_runs": {"type": "integer", "minimum": 0},
+                "simulation_engine": {"enum": ["typescript", "rust"]},
                 "threshold_profile": {"type": "string"},
                 "acceptance": {
                     "type": "object",
@@ -166,6 +167,7 @@ DEFAULT_SCHEMA: dict[str, Any] = {
                                 },
                             },
                         },
+                        "collect_trace": {"type": "boolean"},
                     },
                 },
             },
@@ -515,7 +517,13 @@ def coerce_int_list(value: Any) -> list[int]:
 
 def policy(generation: dict[str, Any], name: str) -> dict[str, Any]:
     p = generation.get(name)
-    return p if isinstance(p, dict) else {"mode": "random"}
+    if isinstance(p, dict):
+        return p
+    # Older strategy JSONs predate explicit color allocation. They retain the
+    # runtime default of balanced allocation rather than becoming invalid.
+    if name == "color_allocation":
+        return {"mode": "balanced"}
+    return {"mode": "random"}
 
 
 def policy_summary(policy_obj: dict[str, Any]) -> str:
@@ -737,6 +745,8 @@ def validate_strategy(strategy: dict[str, Any], strategy_path: Path | None = Non
     validate_int(evaluation.get("sim_runs"), "evaluation.sim_runs", errors, 0)
     if not str(evaluation.get("threshold_profile", "")).strip():
         errors.append("evaluation.threshold_profile: 不能为空")
+    if evaluation.get("simulation_engine") not in (None, "typescript", "rust"):
+        errors.append("evaluation.simulation_engine: 必须是 typescript 或 rust")
 
     acceptance = evaluation.get("acceptance", {})
     if acceptance is not None and not isinstance(acceptance, dict):
@@ -820,6 +830,9 @@ def validate_strategy(strategy: dict[str, Any], strategy_path: Path | None = Non
         if key in search and not isinstance(search[key], bool):
             errors.append(f"search.{key}: 必须是布尔值")
 
+    for key in ["collect_trace"]:
+        if key in evaluation and not isinstance(evaluation[key], bool):
+            errors.append(f"evaluation.{key}: 必须是布尔值")
     for key in ["write_csv", "write_replay_json", "write_calibration_xlsx", "write_config_json"]:
         if key in strategy.get("outputs", {}) and not isinstance(strategy["outputs"][key], bool):
             errors.append(f"outputs.{key}: 必须是布尔值")
@@ -1199,6 +1212,14 @@ def command_for(strategy: dict[str, Any], run_dir: Path, args: argparse.Namespac
         add_acceptance_flags(cmd, evaluation)
         if search.get("resume"):
             cmd.append("--resume")
+        if search.get("optimal_first") is True:
+            cmd.append("--optimal-first")
+        if evaluation.get("simulation_engine") == "rust":
+            cmd += ["--sim-engine", "rust"]
+        if evaluation.get("collect_trace") is True:
+            trace_output = generation_dir / "batch.traces.jsonl"
+            cmd += ["--collect-trace", "--trace-output", str(trace_output)]
+            artifacts["trace_output"] = str(trace_output)
         artifacts.update({"primary_output": str(output), "analysis_output": str(plan), "report_output": str(status)})
 
     elif executor == "backfill-missing-grades":
@@ -1266,6 +1287,8 @@ def command_for(strategy: dict[str, Any], run_dir: Path, args: argparse.Namespac
             ]
         if search.get("optimal_first") is True:
             cmd.append("--optimal-first")
+        if evaluation.get("simulation_engine") == "rust":
+            cmd += ["--sim-engine", "rust"]
         add_acceptance_flags(cmd, evaluation)
         add_closure_flags(cmd, closure)
         add_range_flags(cmd, spread, "--search-spread-min", "--search-spread-max")

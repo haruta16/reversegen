@@ -13,6 +13,10 @@
     "test:algo": "npx tsx --test test/unit/reverse-gen.test.ts",
     "test:serializer": "npx tsx --test test/unit/serializer.test.ts",
     "gui": "npx tsx gui/server.ts ",
+    "strategy:validate": "npx tsx tools/run-strategy.ts --validate",
+    "strategy:plan": "npx tsx tools/run-strategy.ts",
+    "strategy:run": "npx tsx tools/run-strategy.ts --run",
+    "strategy:rust:build": "cargo build --release --manifest-path rust/strategy-sim/Cargo.toml",
     "replay:check": "npx tsx cli/replay-selection.ts check",
     "replay:build": "npx tsx cli/replay-selection.ts build"
   },

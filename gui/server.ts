@@ -6,11 +6,10 @@
  */
 
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
-import { readFileSync, existsSync, readdirSync, writeFileSync, appendFileSync, unlinkSync, mkdirSync, rmSync, renameSync, statSync } from 'node:fs';
-import { join, dirname, basename } from 'node:path';
-import { tmpdir } from 'node:os';
+import { readFileSync, existsSync, readdirSync, writeFileSync, appendFileSync, unlinkSync, mkdirSync, renameSync, statSync } from 'node:fs';
+import { join, dirname, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { exec, execFile } from 'node:child_process';
+import { exec, execFile, fork, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   appendReplaySelection,
@@ -62,21 +61,93 @@ import {
   PileType,
 } from '../src/solver/index.js';
 import {
-  runBatchGeneration,
   serializeBatchCsv,
-  serializeBatchRow,
-  BATCH_CSV_HEADERS,
-  type BatchConfig,
   type BatchProgress,
   type BatchRow,
 } from '../src/batch-generator.js';
+import { validateStrategyDefinition } from '../src/strategy/definition.js';
+import type { StrategyDefinition, StrategyRunRecord } from '../src/strategy/types.js';
+import {
+  compileEditorStrategyV2,
+  strategyRecordToBatchRow,
+  strategyV2ToEditor,
+  webBatchConfigToStrategyV2,
+  type StrategyEditorMeta,
+  type WebBatchConfig,
+} from '../src/strategy/web-adapter.js';
 
 /** 内存中的分析结果缓存 (keyed by terrainHash)，最多保留 50 条，LRU 淘汰 */
 const ANALYSIS_CACHE_MAX = 50;
 const analysisCache = new Map<string, ReturnType<typeof analyzeTriples>>();
 
-/** 批量任务状态存储 (jobId → progress + csvPath) */
-const batchJobs = new Map<string, { progress: BatchProgress; rows: BatchRow[]; csvPath: string; abort: boolean }>();
+interface WebBatchJob {
+  jobId: string;
+  definition: StrategyDefinition;
+  terrainPaths: string[];
+  outputDir: string;
+  strategyPath: string;
+  child: ChildProcess;
+  startedAt: number;
+  state: 'running' | 'done' | 'error' | 'aborted';
+  error?: string;
+}
+
+/** 网页批量任务也由 strategy v2 执行，这里只保留 UI 轮询所需的进程信息。 */
+const batchJobs = new Map<string, WebBatchJob>();
+
+function readStrategyRecords(path: string): StrategyRunRecord[] {
+  if (!existsSync(path)) return [];
+  const records: StrategyRunRecord[] = [];
+  for (const line of readFileSync(path, 'utf-8').split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try { records.push(JSON.parse(line) as StrategyRunRecord); }
+    catch { /* the writer may currently be appending the final line */ }
+  }
+  return records;
+}
+
+function webBatchRows(job: WebBatchJob): BatchRow[] {
+  const terrainIndexes = new Map(job.terrainPaths.map((path, index) => [basename(path, '.json'), index]));
+  return readStrategyRecords(join(job.outputDir, 'accepted.jsonl')).map(record =>
+    strategyRecordToBatchRow(record, terrainIndexes.get(record.candidate.terrain_id) ?? 0));
+}
+
+function webBatchProgress(job: WebBatchJob): BatchProgress {
+  const statusPath = join(job.outputDir, 'status.json');
+  const status = existsSync(statusPath) ? readJsonFile<any>(statusPath) : { jobs: {} };
+  const rows = webBatchRows(job);
+  const rowsByLevel = new Map<string, BatchRow[]>();
+  for (const row of rows) {
+    const levelRows = rowsByLevel.get(row.levelResId) ?? [];
+    levelRows.push(row);
+    rowsByLevel.set(row.levelResId, levelRows);
+  }
+  const maxGrade = Math.max(...job.definition.target.grades);
+  return {
+    jobId: job.jobId,
+    status: job.state,
+    terrains: job.terrainPaths.map((terrainPath, terrainIndex) => {
+      const level = basename(terrainPath, '.json');
+      const state = status.jobs?.[level] ?? {};
+      return {
+        terrainIndex,
+        terrainPath,
+        phase: state.status === 'running'
+          ? 'collecting'
+          : state.status === 'complete' || state.status === 'partial' || state.status === 'error'
+            ? 'done'
+            : 'idle',
+        maxGrade,
+        collected: state.accepted ?? {},
+        attempts: Number(state.attempts_completed ?? 0),
+        rows: rowsByLevel.get(level) ?? [],
+      };
+    }),
+    totalRows: rows.length,
+    startedAt: job.startedAt,
+    error: job.error,
+  };
+}
 
 function cacheGet(key: string): ReturnType<typeof analyzeTriples> | undefined {
   // LRU: delete + re-insert to move to end
@@ -100,15 +171,10 @@ function cacheSet(key: string, value: ReturnType<typeof analyzeTriples>): void {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const GUI_DIR = __dirname;
 const PROJECT_ROOT = join(__dirname, '..');
-const GENERATION_FEATURE_DIR = join(PROJECT_ROOT, 'output', 'generation_feature');
-const GENERATION_STRATEGIES_DIR = join(GENERATION_FEATURE_DIR, 'strategies');
-const GENERATION_HISTORY_DIR = join(GENERATION_FEATURE_DIR, 'strategy_history');
-const GENERATION_RUNS_DIR = join(GENERATION_FEATURE_DIR, 'runs');
-const GENERATION_SCHEMA_PATH = join(GENERATION_FEATURE_DIR, 'strategy.schema.json');
+const GENERATION_STRATEGIES_DIR = join(PROJECT_ROOT, 'strategies');
+const GENERATION_RUNS_DIR = join(PROJECT_ROOT, 'output', 'runs');
+const GENERATION_SCHEMA_PATH = join(PROJECT_ROOT, 'config', 'strategy-v2.schema.json');
 const GENERATION_CATALOG_PATH = join(PROJECT_ROOT, 'config', 'generation-feature-catalog.json');
-const GENERATION_RUNS_LOG = join(GENERATION_FEATURE_DIR, 'runs.jsonl');
-const MANAGE_GENERATION_FEATURE = join(PROJECT_ROOT, 'tools', 'manage_generation_feature.py');
-const BUNDLED_PYTHON = '/Users/wenhaowang/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3';
 const GENERATION_STRATEGY_ID = /^[a-z0-9][a-z0-9_-]{2,79}$/;
 
 type GenerationStrategy = Record<string, any>;
@@ -168,7 +234,25 @@ function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
 
 function generationStrategyPath(strategyId: string): string {
   if (!GENERATION_STRATEGY_ID.test(strategyId)) throw new Error('策略 ID 仅允许小写字母、数字、下划线和连字符');
-  return join(GENERATION_STRATEGIES_DIR, `${strategyId}.json`);
+  return join(GENERATION_STRATEGIES_DIR, strategyId, 'strategy.v2.json');
+}
+
+function generationStrategyUiPath(strategyId: string): string {
+  generationStrategyPath(strategyId);
+  return join(GENERATION_STRATEGIES_DIR, strategyId, 'ui.json');
+}
+
+function readStrategyUiMeta(strategyId: string): StrategyEditorMeta {
+  const path = generationStrategyUiPath(strategyId);
+  return existsSync(path) ? readJsonFile<StrategyEditorMeta>(path) : {};
+}
+
+function editorMeta(strategy: GenerationStrategy): StrategyEditorMeta {
+  return {
+    name: String(strategy.meta?.name || strategy.meta?.strategy_id || ''),
+    status: String(strategy.meta?.status || 'active'),
+    notes: String(strategy.meta?.notes || ''),
+  };
 }
 
 function readJsonFile<T = any>(path: string): T {
@@ -228,6 +312,14 @@ function readGenerationCatalog(): any {
       if (!policyFields.has(field)) throw new Error(`参数 mode ${mode} 引用了未知输入字段 ${field}`);
     }
   }
+  const batchWorkflow = catalog.workflows['run-batch-generation'];
+  batchWorkflow.supportedGenerators = ['layer-closure'];
+  batchWorkflow.fields.evaluation = ['gradeStrategy', 'simRuns', 'simulationEngine', 'thresholdProfile', 'collectTrace', 'traceSampleRate', 'optimalRuns', 'optimalEnabled', 'optimalWrap'];
+  batchWorkflow.fields.search = ['attemptsPerLevel', 'concurrency', 'strategySeed'];
+  batchWorkflow.fields.outputs = ['outputDirectory', 'writeConfig'];
+  catalog.workflows = { 'run-batch-generation': batchWorkflow };
+  catalog.generators = { 'layer-closure': catalog.generators['layer-closure'] };
+  catalog.generators['layer-closure'].policyModes.closure = ['random', 'random_range', 'per_layer_list'];
   return catalog;
 }
 
@@ -238,40 +330,42 @@ function writeJsonAtomic(path: string, value: unknown): void {
   renameSync(temp, path);
 }
 
-function strategySummary(strategy: GenerationStrategy, path: string) {
-  const meta = strategy.meta || {};
+function strategySummary(strategy: StrategyDefinition, path: string, ui: StrategyEditorMeta = {}) {
   const target = strategy.target || {};
-  const adapter = strategy.adapter || {};
-  const scope = strategy.scope || {};
   return {
-    strategyId: String(meta.strategy_id || basename(path, '.json')),
-    name: String(meta.name || ''),
-    version: Number(meta.version || 0),
-    purpose: String(meta.purpose || ''),
-    status: String(meta.status || 'draft'),
-    executor: String(adapter.executor || ''),
+    strategyId: strategy.id || basename(path, '.v2.json'),
+    name: String(ui.name || strategy.id),
+    version: strategy.version,
+    purpose: String(strategy.description || ''),
+    status: String(ui.status || 'active'),
+    executor: 'run-batch-generation',
     grades: Array.isArray(target.grades) ? target.grades : [],
-    targetCount: Number(target.target_count_per_grade || 0),
-    sourceCsv: String(scope.source_csv || ''),
+    targetCount: Number(target.count_per_grade || 0),
+    sourceCsv: '',
     updatedAt: statSync(path).mtime.toISOString(),
   };
 }
 
 function listGenerationStrategies() {
   mkdirSync(GENERATION_STRATEGIES_DIR, { recursive: true });
-  return readdirSync(GENERATION_STRATEGIES_DIR)
-    .filter(name => name.endsWith('.json'))
-    .map(name => {
-      const path = join(GENERATION_STRATEGIES_DIR, name);
-      try { return strategySummary(readJsonFile<GenerationStrategy>(path), path); }
+  return readdirSync(GENERATION_STRATEGIES_DIR, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && GENERATION_STRATEGY_ID.test(entry.name))
+    .map(entry => {
+      const path = generationStrategyPath(entry.name);
+      if (!existsSync(path)) return null;
+      try {
+        const strategy = validateStrategyDefinition(readJsonFile(path));
+        return strategySummary(strategy, path, readStrategyUiMeta(strategy.id));
+      }
       catch (error) {
         return {
-          strategyId: basename(name, '.json'), name: basename(name, '.json'), version: 0,
+          strategyId: entry.name, name: entry.name, version: 0,
           purpose: String(error), status: 'invalid', executor: '', grades: [], targetCount: 0,
           sourceCsv: '', updatedAt: statSync(path).mtime.toISOString(),
         };
       }
     })
+    .filter((item): item is Exclude<typeof item, null> => item !== null)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
@@ -279,114 +373,105 @@ function historyStamp(): string {
   return new Date().toISOString().replace(/[-:]/g, '').replace('T', '_').replace('Z', '').replace('.', '_');
 }
 
-function writeGenerationStrategySnapshot(strategy: GenerationStrategy, reason: string, stableName = false): void {
-  const id = String(strategy.meta?.strategy_id || '');
-  const version = Number(strategy.meta?.version || 1);
-  const dir = join(GENERATION_HISTORY_DIR, id);
+function writeGenerationStrategySnapshot(
+  strategy: StrategyDefinition,
+  ui: StrategyEditorMeta,
+  reason: string,
+  stableName = false,
+): void {
+  const id = strategy.id;
+  const version = strategy.version;
+  const dir = join(GENERATION_STRATEGIES_DIR, id, 'versions');
   mkdirSync(dir, { recursive: true });
   const suffix = stableName ? 'baseline' : historyStamp();
   const path = join(dir, `v${version}_${suffix}.json`);
   if (stableName && existsSync(path)) return;
-  writeJsonAtomic(path, { recordedAt: new Date().toISOString(), reason, strategy });
+  writeJsonAtomic(path, { recordedAt: new Date().toISOString(), reason, strategy, ui });
 }
 
 function listGenerationStrategyHistory(strategyId: string) {
   generationStrategyPath(strategyId);
-  const dir = join(GENERATION_HISTORY_DIR, strategyId);
+  const dir = join(GENERATION_STRATEGIES_DIR, strategyId, 'versions');
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter(name => name.endsWith('.json'))
     .map(name => {
       const value = readJsonFile<any>(join(dir, name));
-      const strategy = value.strategy || value;
+      const strategy = validateStrategyDefinition(value.strategy || value);
+      const ui = value.ui ?? readStrategyUiMeta(strategy.id);
+      const editor = strategyV2ToEditor(strategy, ui);
       return {
         file: name,
         recordedAt: value.recordedAt || statSync(join(dir, name)).mtime.toISOString(),
         reason: value.reason || 'history',
-        version: Number(strategy.meta?.version || 0),
-        name: String(strategy.meta?.name || ''),
-        status: String(strategy.meta?.status || ''),
-        strategy,
+        version: strategy.version,
+        name: String(ui.name || strategy.id),
+        status: String(ui.status || 'active'),
+        strategy: editor,
       };
     })
     .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
 }
 
-function validateGenerationStrategy(strategy: GenerationStrategy): Promise<{ ok: boolean; errors: string[]; warnings: string[] }> {
-  return new Promise(resolve => {
-    const hash = createHash('sha1').update(JSON.stringify(strategy)).digest('hex').slice(0, 12);
-    const temp = join(tmpdir(), `reversegen-strategy-${Date.now()}-${hash}.json`);
-    writeFileSync(temp, `${JSON.stringify(strategy, null, 2)}\n`, 'utf-8');
-    const python = existsSync(BUNDLED_PYTHON) ? BUNDLED_PYTHON : 'python3';
-    execFile(python, [MANAGE_GENERATION_FEATURE, 'validate', '--strategy', temp], { cwd: PROJECT_ROOT }, (_error, stdout, stderr) => {
-      try { unlinkSync(temp); } catch { /* ignore */ }
-      try {
-        const result = JSON.parse(stdout || '{}');
-        resolve({ ok: Boolean(result.ok), errors: result.errors || [], warnings: result.warnings || [] });
-      } catch {
-        resolve({ ok: false, errors: [stderr || '策略校验器未返回有效结果'], warnings: [] });
-      }
-    });
-  });
+async function validateGenerationStrategy(strategy: GenerationStrategy): Promise<{ ok: boolean; errors: string[]; warnings: string[] }> {
+  try {
+    compileEditorStrategyV2(strategy);
+    return { ok: true, errors: [], warnings: [] };
+  } catch (error) {
+    return { ok: false, errors: [error instanceof Error ? error.message : String(error)], warnings: [] };
+  }
 }
 
-function planGenerationStrategy(strategyPath: string, strategyId: string): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const python = existsSync(BUNDLED_PYTHON) ? BUNDLED_PYTHON : 'python3';
-    execFile(
-      python,
-      [MANAGE_GENERATION_FEATURE, 'plan', '--strategy', strategyPath, '--run-id', strategyId],
-      { cwd: PROJECT_ROOT },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error((stderr || stdout || error.message).trim()));
-          return;
-        }
-        try { resolve(JSON.parse(stdout || '{}')); }
-        catch { reject(new Error('运行计划生成器未返回有效结果')); }
-      },
-    );
-  });
+async function planGenerationStrategy(strategyPath: string, strategyId: string): Promise<any> {
+  const strategy = validateStrategyDefinition(readJsonFile(strategyPath));
+  return {
+    schema_version: 2,
+    strategy: { id: strategy.id, version: strategy.version, file: strategyPath },
+    output_root: join(GENERATION_RUNS_DIR, strategy.id),
+    command: `npm run strategy:run -- --strategy ${strategyPath}`,
+    levels: strategy.scope.levels.length,
+    max_attempts_per_level: strategy.target.max_attempts_per_level,
+    strategyId,
+  };
 }
 
 function refreshGenerationStrategyIndex(): void {
-  const python = existsSync(BUNDLED_PYTHON) ? BUNDLED_PYTHON : 'python3';
-  execFile(python, [MANAGE_GENERATION_FEATURE, 'list-strategies', '--json'], { cwd: PROJECT_ROOT }, () => {});
+  // strategy v2 files in /strategies are the index; no generated legacy index is needed.
 }
 
 function listGenerationRuns() {
-  const latest = new Map<string, any>();
-  if (existsSync(GENERATION_RUNS_LOG)) {
-    for (const line of readFileSync(GENERATION_RUNS_LOG, 'utf-8').split(/\r?\n/)) {
-      if (!line.trim()) continue;
-      try {
-        const event = JSON.parse(line);
-        const current = latest.get(event.run_id) || {};
-        latest.set(event.run_id, { ...current, ...event });
-      } catch { /* ignore malformed history line */ }
-    }
-  }
   if (!existsSync(GENERATION_RUNS_DIR)) return [];
-  return readdirSync(GENERATION_RUNS_DIR)
-    .map(runId => {
-      const configPath = join(GENERATION_RUNS_DIR, runId, 'run_config.json');
-      if (!existsSync(configPath)) return null;
-      try {
-        const config = readJsonFile<any>(configPath);
-        const event = latest.get(runId) || {};
-        return {
-          runId,
-          strategyId: config.strategy?.meta?.strategy_id || event.strategy_id || '',
-          strategyName: config.strategy?.meta?.name || '',
-          strategyVersion: config.strategy?.meta?.version || '',
-          status: event.status || 'planned',
-          createdAt: config.created_at || event.created_at || statSync(configPath).mtime.toISOString(),
-          updatedAt: event.updated_at || config.updated_at || '',
-          artifacts: config.artifacts || {},
-          strategySnapshot: config.strategy || {},
-        };
-      } catch { return null; }
-    })
+  const summaries = new Map(listGenerationStrategies().map(item => [item.strategyId, item]));
+  return readdirSync(GENERATION_RUNS_DIR, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .flatMap(strategyEntry => readdirSync(join(GENERATION_RUNS_DIR, strategyEntry.name), { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(runEntry => {
+        try {
+          const outputDir = join(GENERATION_RUNS_DIR, strategyEntry.name, runEntry.name);
+          const manifestPath = join(outputDir, 'manifest.json');
+          if (!existsSync(manifestPath)) return null;
+          const manifest = readJsonFile<any>(manifestPath);
+          const artifacts = manifest.artifacts ?? {};
+          const snapshotPath = join(outputDir, artifacts.strategy_snapshot ?? 'strategy.snapshot.json');
+          return {
+            runId: String(manifest.run_id ?? runEntry.name),
+            strategyId: String(manifest.strategy?.id ?? strategyEntry.name),
+            strategyName: summaries.get(strategyEntry.name)?.name ?? strategyEntry.name,
+            strategyVersion: Number(manifest.strategy?.version ?? 0),
+            status: manifest.status === 'complete' ? 'done' : String(manifest.status ?? 'planned'),
+            createdAt: String(manifest.created_at ?? statSync(manifestPath).birthtime.toISOString()),
+            updatedAt: String(manifest.updated_at ?? statSync(manifestPath).mtime.toISOString()),
+            artifacts: {
+              directory: outputDir,
+              records: join(outputDir, artifacts.records ?? 'records.jsonl'),
+              accepted: join(outputDir, artifacts.accepted ?? 'accepted.jsonl'),
+              status: join(outputDir, artifacts.status ?? 'status.json'),
+            },
+            strategySnapshot: existsSync(snapshotPath) ? readJsonFile(snapshotPath) : undefined,
+          };
+        } catch { return null; }
+      }))
     .filter(Boolean)
     .sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt)));
 }
@@ -572,8 +657,8 @@ const server = createServer(async (req, res) => {
           colorAllocationModes: layerClosure.policyModes?.color_allocation || [],
           scalarModes: layerClosure.policyModes?.spread || [],
           statuses: ['draft', 'active', 'deprecated', 'archived'],
-          fillPolicies: ['all', 'missing_only', 'replace_filtered', 'probe_only', 'cap_only', 'none'],
-          fallbackPolicies: ['none', 'downward_only', 'lowest_available', 'allow_any'],
+          fillPolicies: ['all'],
+          fallbackPolicies: ['none'],
         },
       });
     } catch (err) { json(res, { ok: false, error: String(err) }, 500); }
@@ -596,18 +681,22 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/generation-strategies' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const strategy = JSON.parse(JSON.stringify(body.strategy || {})) as GenerationStrategy;
-      const strategyId = String(strategy.meta?.strategy_id || '');
+      const editor = JSON.parse(JSON.stringify(body.strategy || {})) as GenerationStrategy;
+      const strategyId = String(editor.meta?.strategy_id || '');
       const path = generationStrategyPath(strategyId);
       if (existsSync(path)) { json(res, { ok: false, error: `策略 ${strategyId} 已存在，请使用复制后的新 ID` }, 409); return; }
-      strategy.meta.version = 1;
-      const validation = await validateGenerationStrategy(strategy);
+      editor.meta.version = 1;
+      const validation = await validateGenerationStrategy(editor);
       if (!validation.ok) { json(res, validation, 422); return; }
+      const strategy = compileEditorStrategyV2(editor);
+      const ui = editorMeta(editor);
       writeJsonAtomic(path, strategy);
-      writeGenerationStrategySnapshot(strategy, 'created');
+      writeJsonAtomic(generationStrategyUiPath(strategyId), ui);
+      writeGenerationStrategySnapshot(strategy, ui, 'created');
       const plan = await planGenerationStrategy(path, strategyId);
       refreshGenerationStrategyIndex();
-      json(res, { ok: true, strategy, validation, plan, summary: strategySummary(strategy, path) }, 201);
+      const response = strategyV2ToEditor(strategy, ui);
+      json(res, { ok: true, strategy: response, validation, plan, summary: strategySummary(strategy, path, ui) }, 201);
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
     return;
   }
@@ -633,7 +722,9 @@ const server = createServer(async (req, res) => {
       const strategyId = decodeURIComponent(strategyItemMatch[1]);
       const path = generationStrategyPath(strategyId);
       if (!existsSync(path)) { json(res, { ok: false, error: '策略不存在' }, 404); return; }
-      json(res, { ok: true, strategy: readJsonFile(path), summary: strategySummary(readJsonFile(path), path) });
+      const strategy = validateStrategyDefinition(readJsonFile(path));
+      const ui = readStrategyUiMeta(strategyId);
+      json(res, { ok: true, strategy: strategyV2ToEditor(strategy, ui), summary: strategySummary(strategy, path, ui) });
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
     return;
   }
@@ -643,18 +734,23 @@ const server = createServer(async (req, res) => {
       const strategyId = decodeURIComponent(strategyItemMatch[1]);
       const path = generationStrategyPath(strategyId);
       if (!existsSync(path)) { json(res, { ok: false, error: '策略不存在' }, 404); return; }
-      const previous = readJsonFile<GenerationStrategy>(path);
-      const strategy = JSON.parse(JSON.stringify(body.strategy || {})) as GenerationStrategy;
-      if (String(strategy.meta?.strategy_id || '') !== strategyId) throw new Error('更新时不能修改策略 ID，请使用复制策略');
-      writeGenerationStrategySnapshot(previous, 'baseline before first visual edit', true);
-      strategy.meta.version = Number(previous.meta?.version || 0) + 1;
-      const validation = await validateGenerationStrategy(strategy);
+      const previous = validateStrategyDefinition(readJsonFile(path));
+      const previousUi = readStrategyUiMeta(strategyId);
+      const editor = JSON.parse(JSON.stringify(body.strategy || {})) as GenerationStrategy;
+      if (String(editor.meta?.strategy_id || '') !== strategyId) throw new Error('更新时不能修改策略 ID，请使用复制策略');
+      writeGenerationStrategySnapshot(previous, previousUi, 'baseline before first visual edit', true);
+      editor.meta.version = previous.version + 1;
+      const validation = await validateGenerationStrategy(editor);
       if (!validation.ok) { json(res, validation, 422); return; }
+      const strategy = compileEditorStrategyV2(editor);
+      const ui = editorMeta(editor);
       writeJsonAtomic(path, strategy);
-      writeGenerationStrategySnapshot(strategy, 'updated');
+      writeJsonAtomic(generationStrategyUiPath(strategyId), ui);
+      writeGenerationStrategySnapshot(strategy, ui, 'updated');
       const plan = await planGenerationStrategy(path, strategyId);
       refreshGenerationStrategyIndex();
-      json(res, { ok: true, strategy, validation, plan, summary: strategySummary(strategy, path) });
+      const response = strategyV2ToEditor(strategy, ui);
+      json(res, { ok: true, strategy: response, validation, plan, summary: strategySummary(strategy, path, ui) });
     } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
     return;
   }
@@ -1531,7 +1627,7 @@ const server = createServer(async (req, res) => {
         avgStepsOnLoss: result.avgStepsOnLoss,
         elapsedMs: Math.round(result.elapsedMs),
         // 只返回前 10 个详细结果（避免数据太大）
-        sampleResults: result.results.slice(0, 10).map(r => ({
+        sampleResults: (result.results ?? []).slice(0, 10).map(r => ({
           win: r.win,
           failReason: r.failReason,
           stepCount: r.stepCount,
@@ -1598,7 +1694,7 @@ const server = createServer(async (req, res) => {
         remainingTilesOnLoss,
         remainingRatioOnLoss,
         optimalMetrics,
-        sampleResults: result.results.slice(0, 10).map(r => ({
+        sampleResults: (result.results ?? []).slice(0, 10).map(r => ({
           win: r.win,
           failReason: r.failReason,
           stepCount: r.stepCount,
@@ -1636,7 +1732,7 @@ const server = createServer(async (req, res) => {
         avgStepsOnWin: result.avgStepsOnWin,
         avgStepsOnLoss: result.avgStepsOnLoss,
         elapsedMs: Math.round(result.elapsedMs),
-        sampleResults: result.results.slice(0, 10).map(r => ({
+        sampleResults: (result.results ?? []).slice(0, 10).map(r => ({
           win: r.win,
           failReason: r.failReason,
           stepCount: r.stepCount,
@@ -1675,7 +1771,7 @@ const server = createServer(async (req, res) => {
         avgStepsOnWin: result.avgStepsOnWin,
         avgStepsOnLoss: result.avgStepsOnLoss,
         elapsedMs: Math.round(result.elapsedMs),
-        sampleResults: result.results.slice(0, 10).map(r => ({
+        sampleResults: (result.results ?? []).slice(0, 10).map(r => ({
           win: r.win,
           failReason: r.failReason,
           stepCount: r.stepCount,
@@ -1716,7 +1812,7 @@ const server = createServer(async (req, res) => {
         avgStepsOnWin: result.avgStepsOnWin,
         avgStepsOnLoss: result.avgStepsOnLoss,
         elapsedMs: Math.round(result.elapsedMs),
-        sampleResults: result.results.slice(0, 10).map(r => ({
+        sampleResults: (result.results ?? []).slice(0, 10).map(r => ({
           win: r.win,
           failReason: r.failReason,
           stepCount: r.stepCount,
@@ -1928,80 +2024,64 @@ const server = createServer(async (req, res) => {
 
   // ── API: Batch Generate — Start ──
   if (url.pathname === '/api/batch-generate/start' && req.method === 'POST') {
-    console.log('[batch] start route hit');
     const body = await parseBody(req);
-    console.log('[batch] body parsed:', JSON.stringify(body).slice(0, 200));
-    console.log('[batch] step1: before try');
     try {
-      console.log('[batch] step2: casting config');
-      const config = body as unknown as BatchConfig;
-      console.log('[batch] step3: validating terrainPaths');
-      if (!config.terrainPaths || !Array.isArray(config.terrainPaths) || config.terrainPaths.length === 0) {
-        throw new Error('请至少加载一个地形');
-      }
-      console.log('[batch] step4: terrainPaths OK, count:', config.terrainPaths.length);
-      config.simRuns = config.simRuns || 200;
-      config.targetPerTier = config.targetPerTier || 10;
-      config.maxAttempts = config.maxAttempts || 500;
-      config.concurrency = Math.max(1, Math.min(config.terrainPaths.length, Math.floor(Number(config.concurrency || 1))));
-      config.colorAllocationMode = config.colorAllocationMode || 'balanced';
-
+      const raw = body as unknown as Partial<WebBatchConfig>;
+      const terrainPaths = Array.isArray(raw.terrainPaths) ? raw.terrainPaths.map(String) : [];
+      const config: WebBatchConfig = {
+        terrainPaths,
+        closeRates: raw.closeRates === 'random' ? 'random' : String(raw.closeRates ?? '0.3,0.6,0.8'),
+        colorCount: raw.colorCount === 'random' ? 'random' : Number(raw.colorCount ?? 8),
+        colorCountRatio: Number(raw.colorCountRatio ?? 0.6),
+        spreadParam: raw.spreadParam === 'random' ? 'random' : Number(raw.spreadParam ?? 0),
+        debtPersistenceWeight: raw.debtPersistenceWeight === 'random' ? 'random' : Number(raw.debtPersistenceWeight ?? 0),
+        simRuns: Number(raw.simRuns ?? 200),
+        targetPerTier: Number(raw.targetPerTier ?? 10),
+        maxAttempts: Number(raw.maxAttempts ?? 500),
+        concurrency: Math.max(1, Math.min(terrainPaths.length, Math.floor(Number(raw.concurrency ?? 1)))),
+        seed: Number(raw.seed ?? 20260630),
+        targetGrades: raw.targetGrades,
+      };
       const jobId = `batch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-      console.log('[batch] step5: jobId:', jobId);
-      const csvPath = join(tmpdir(), `reversegen_batch_${jobId}.csv`);
-      console.log('[batch] step6: csvPath:', csvPath);
-      writeFileSync(csvPath, `﻿${BATCH_CSV_HEADERS.join(',')}\n`, 'utf-8');
-      console.log('[batch] step7: csv header written');
-
-      const initialProgress: BatchProgress = {
-        jobId, status: 'running',
-        terrains: config.terrainPaths.map((p, i) => ({
-          terrainIndex: i, terrainPath: p,
-          phase: 'idle' as const, maxGrade: 0, collected: {}, attempts: 0, rows: [],
-        })),
-        totalRows: 0, startedAt: Date.now(),
+      const outputDir = join(GENERATION_RUNS_DIR, jobId, jobId);
+      const strategyPath = join(outputDir, 'strategy.request.v2.json');
+      const definition = webBatchConfigToStrategyV2(config, jobId);
+      writeJsonAtomic(strategyPath, definition);
+      const script = join(PROJECT_ROOT, 'tools', 'run-strategy.ts');
+      const child = fork(script, ['--strategy', strategyPath, '--output-dir', outputDir, '--run'], {
+        cwd: PROJECT_ROOT,
+        execArgv: process.execArgv.filter(arg => !['--eval', '-e', '--print', '-p'].includes(arg)),
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      });
+      const job: WebBatchJob = {
+        jobId,
+        definition,
+        terrainPaths,
+        outputDir,
+        strategyPath,
+        child,
+        startedAt: Date.now(),
+        state: 'running',
       };
-
-      const jobEntry: { progress: BatchProgress; rows: BatchRow[]; csvPath: string; abort: boolean } = {
-        progress: initialProgress, rows: [] as BatchRow[], csvPath, abort: false,
-      };
-      batchJobs.set(jobId, jobEntry);
-
-      console.log('[batch] step8: firing runBatchGeneration (deferred)');
-      // async 函数内部无 await，会同步阻塞 → setTimeout 推迟
-      setTimeout(() => {
-        runBatchGeneration(config, (prog) => {
-        jobEntry.progress = prog;
-        for (const tp of prog.terrains) {
-          while (tp.rows.length > 0) {
-            const row = tp.rows.shift()!;
-            appendFileSync(csvPath, serializeBatchRow(row) + '\n', 'utf-8');
-          }
+      batchJobs.set(jobId, job);
+      let stderr = '';
+      child.stderr?.on('data', chunk => { stderr += String(chunk); });
+      child.stdout?.on('data', chunk => console.log(`[batch:${jobId}] ${String(chunk).trim()}`));
+      child.on('error', error => {
+        job.state = 'error';
+        job.error = error.message;
+      });
+      child.on('exit', code => {
+        if (job.state === 'running') {
+          job.state = code === 0 ? 'done' : 'error';
+          if (code !== 0) job.error = stderr.trim() || `strategy runner exited with code ${code}`;
         }
-        jobEntry.rows = [];
-        for (const tp of prog.terrains) { jobEntry.rows.push(...tp.rows); }
-      }, () => jobEntry.abort).then((final) => {
-        jobEntry.progress = final;
-        jobEntry.rows = [];
-        for (const tp of final.terrains) { jobEntry.rows.push(...tp.rows); }
         setTimeout(() => {
           batchJobs.delete(jobId);
-          try { rmSync(csvPath); } catch {}
         }, 30 * 60 * 1000);
-      }).catch((err) => {
-        jobEntry.progress = {
-          jobId,
-          status: 'error',
-          terrains: [],
-          totalRows: 0,
-          startedAt: Date.now(),
-          error: err instanceof Error ? err.message : String(err),
-        };
       });
-      }); // setTimeout
-      console.log('[batch] step9: sending response');
-      json(res, { ok: true, jobId });
-    } catch (err) { console.log('[batch] start error:', String(err)); json(res, { ok: false, error: String(err) }, 400); }
+      json(res, { ok: true, jobId, schemaVersion: 2, seed: definition.runtime.seed });
+    } catch (err) { json(res, { ok: false, error: err instanceof Error ? err.message : String(err) }, 400); }
     return;
   }
 
@@ -2012,8 +2092,8 @@ const server = createServer(async (req, res) => {
     if (!jobId) { json(res, { ok: false, error: 'Missing jobId' }, 400); return; }
     const job = batchJobs.get(jobId);
     if (!job) { json(res, { ok: false, error: 'Job not found' }, 404); return; }
-    job.abort = true;
-    console.log('[batch] stop requested for', jobId);
+    job.state = 'aborted';
+    job.child.kill('SIGTERM');
     json(res, { ok: true });
     return;
   }
@@ -2021,11 +2101,10 @@ const server = createServer(async (req, res) => {
   // ── API: Batch Generate — Status ──
   if (url.pathname === '/api/batch-generate/status' && req.method === 'GET') {
     const jobId = url.searchParams.get('jobId');
-    console.log('[batch] status route hit, jobId:', jobId);
     if (!jobId) { json(res, { ok: false, error: 'Missing jobId' }, 400); return; }
     const job = batchJobs.get(jobId);
-    if (!job) { console.log('[batch] job not found:', jobId); json(res, { ok: false, error: 'Job not found' }, 404); return; }
-    json(res, { ok: true, ...job.progress });
+    if (!job) { json(res, { ok: false, error: 'Job not found' }, 404); return; }
+    json(res, { ok: true, ...webBatchProgress(job), schemaVersion: 2, seed: job.definition.runtime.seed });
     return;
   }
 
@@ -2036,7 +2115,7 @@ const server = createServer(async (req, res) => {
     const job = batchJobs.get(jobId);
     if (!job) { json(res, { ok: false, error: 'Job not found' }, 404); return; }
     try {
-      const csv = readFileSync(job.csvPath, 'utf-8');
+      const csv = serializeBatchCsv(webBatchRows(job));
       res.writeHead(200, {
         'Content-Type': 'text/csv; charset=utf-8',
         'Content-Disposition': `attachment; filename="batch_result_${jobId}.csv"`,

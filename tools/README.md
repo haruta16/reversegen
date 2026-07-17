@@ -28,16 +28,54 @@
   - `/Users/wenhaowang/WorkSpace/levels_json/...`
   - 少数旧脚本仍写死 `/Users/haruta16/...`
 
-## 当前核心工具链
+## 批量策略 v2（新生产唯一入口）
 
-这部分是当前无尽关/主线测试资源产出的稳定入口。优先使用这些工具；旧研究脚本放在后文。
+新批量生成不再使用 `output/generation_feature/strategies/*.json`。策略、执行引擎、
+生成器、模拟策略、分档和筛选统一由仓库内的 v2 策略定义：
+
+- 正式策略：`strategies/current_calibration/strategy.v2.json`
+- JSON Schema：`config/strategy-v2.schema.json`
+- 唯一执行入口：`tools/run-strategy.ts`
+- Rust 策略模拟器：`rust/strategy-sim/`
+- 完整说明：`docs/strategy-pipeline-v2.md`
+
+```bash
+npm run strategy:rust:build
+npm run strategy:validate
+npm run strategy:plan
+npm run strategy:run
+```
+
+最小实跑：
+
+```bash
+npm run strategy:run -- \
+  --levels 100075 \
+  --max-attempts 1 \
+  --concurrency 1 \
+  --output-dir output/runs/current_calibration/smoke_100075_1_attempt
+```
+
+默认运行目录是被 Git 忽略的 `output/runs/<strategy_id>/<run_id>/`。每次运行产出
+`manifest.json`、`plan.json`、`strategy.snapshot.json`、`records.jsonl`、
+`accepted.jsonl`、`status.json` 和 `timing.log.jsonl`。CSV、工作簿、replay selection
+都应从 JSONL 再投影，不再作为策略内部协议。
+
+网页的“批量产关”会把页面参数编译为临时 strategy v2，再调用同一执行入口。
+“产出策略”页保留表单编辑体验，但保存的可执行文件直接是
+`strategies/<strategy_id>/strategy.v2.json`。主页的单局生成、分析和验证链路不走批量策略。
+
+## 历史生产与研究工具（不接入新策略）
+
+以下命令保留用于复现历史 CSV、工作簿和分析结果，不作为新批量生产入口。旧策略 JSON
+无需迁移到 v2，也不要与 `tools/run-strategy.ts` 混用。
 
 牌局生成与机器人评价参数的长期说明见 `docs/level-generation-strategy-feature.md`。这里保留常用命令和工具索引。
 
 | 脚本 | 作用 | 典型输入 | 主要输出/影响 |
 | --- | --- | --- | --- |
 | `manage_generation_feature.py` | 生成牌局 feature 管理入口；维护策略 JSON、运行 JSONL 和每次运行文件夹 | `output/generation_feature/strategies/*.json` | `output/generation_feature/runs/<run_id>/`、`runs.jsonl`、索引 CSV |
-| `run-batch-generation.ts` | 后台基础批量生产入口；与页面端共用 `src/batch-generator.ts` 核心逻辑 | 地形 ID、生成参数、模拟参数 | 批量生成 CSV |
+| `run-batch-generation.ts` | 历史 CSV 批量入口；不再被网页批量产关调用 | 地形 ID、生成参数、模拟参数 | 历史格式 CSV |
 | `build_calibration_variant.py` | 从任意牌局 CSV 构建固定版式的校准工具变体；支持每地形/难度最低门槛与可选上限，并刷新覆盖、前80备注和无尽池模拟 | 任意最终牌局 CSV | 校准 CSV、`output/*校准工具*.xlsx`、构建报告 JSON |
 | `build_minimum_resource_package.py` | 合并多个牌局来源，按最低数量启用整档并保留该档全部牌局，一次产出校准工具、replay JSON、LevelPool/Zones 配置和运行清单 | 原始筛选 CSV、补档 CSV | `output/strategy_runs/<run>/` 完整资源包 |
 | `export_endless_config_from_workbook.py` | 从校准工具导出 `LevelPool`、`Zones`，其余配置字段保持底板不变 | 校准工作簿、配置底板 | 新配置 JSON、构建报告 |

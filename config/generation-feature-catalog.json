@@ -11,9 +11,9 @@
       "fields": {
         "scope": ["terrainSource", "levelRange", "includeLevels", "excludeLevels", "levelsDir"],
         "target": ["gradePicks", "targetCount", "fillPolicy", "fallbackPolicy"],
-        "evaluation": ["gradeStrategy", "simRuns", "thresholdProfile", "minSim1Wins", "minSim5Wins", "minSim15Wins", "minPassrate", "optimalRuns", "optimalEnabled", "optimalWrap"],
-        "search": ["attemptsPerLevel", "concurrency", "resume"],
-        "outputs": ["capPerLevelGrade", "writeCsv", "writeReplay", "writeCalibration", "writeConfig", "adapterMode"]
+        "evaluation": ["gradeStrategy", "simRuns", "simulationEngine", "thresholdProfile", "collectTrace", "traceSampleRate", "minSim1Wins", "minSim5Wins", "minSim15Wins", "minPassrate", "optimalRuns", "optimalEnabled", "optimalWrap"],
+        "search": ["attemptsPerLevel", "concurrency", "strategySeed", "resume"],
+        "outputs": ["outputDirectory", "capPerLevelGrade", "writeCsv", "writeReplay", "writeCalibration", "writeConfig", "adapterMode"]
       },
       "supportedGenerators": ["layer-closure", "random-color"]
     },
@@ -103,8 +103,8 @@
   "fieldGroups": {
     "scope": ["terrainSource", "levelRange", "includeLevels", "excludeLevels", "levelsDir", "sourceCsv", "firstBackfillCsv", "latestBackfillCsv", "workbook", "templateWorkbook"],
     "target": ["gradePicks", "targetCount", "fillPolicy", "fallbackPolicy", "minExistingCount"],
-    "evaluation": ["gradeStrategy", "simRuns", "thresholdProfile", "minSim1Wins", "minSim5Wins", "minSim15Wins", "minPassrate", "optimalRuns", "optimalEnabled", "optimalWrap"],
-    "search": ["attemptsPerLevel", "attemptsPerMissing", "maxAttemptsMissing", "templateAttempts", "concurrency", "adaptiveExplore", "adaptivePool", "adaptiveSamples", "adaptiveStep", "shuffle", "resume", "reuseTemplates", "outputOnly", "adaptiveSearch", "optimalFirst"],
-    "outputs": ["minPerLevelGrade", "capPerLevelGrade", "writeCsv", "writeReplay", "writeCalibration", "writeConfig", "adapterMode"]
+    "evaluation": ["gradeStrategy", "simRuns", "simulationEngine", "thresholdProfile", "collectTrace", "traceSampleRate", "minSim1Wins", "minSim5Wins", "minSim15Wins", "minPassrate", "optimalRuns", "optimalEnabled", "optimalWrap"],
+    "search": ["attemptsPerLevel", "attemptsPerMissing", "maxAttemptsMissing", "templateAttempts", "concurrency", "strategySeed", "adaptiveExplore", "adaptivePool", "adaptiveSamples", "adaptiveStep", "shuffle", "resume", "reuseTemplates", "outputOnly", "adaptiveSearch", "optimalFirst"],
+    "outputs": ["outputDirectory", "minPerLevelGrade", "capPerLevelGrade", "writeCsv", "writeReplay", "writeCalibration", "writeConfig", "adapterMode"]
   }
 }

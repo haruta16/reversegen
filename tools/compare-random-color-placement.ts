@@ -165,7 +165,7 @@ function evaluate(
 ): CandidateResult {
   const allTiles = getAllTiles(terrain);
   const optimal = solvePlayerShortestBatch(createGame({ terrainTiles: allTiles, elementValues: values }), runs, seed);
-  const lossResults = optimal.results.filter(result => !result.win);
+  const lossResults = (optimal.results ?? []).filter(result => !result.win);
   const remainingRatio = lossResults.length > 0
     ? lossResults.reduce((sum, result) => sum + Math.max(0, allTiles.length - result.stepCount) / allTiles.length, 0) / lossResults.length
     : 0;

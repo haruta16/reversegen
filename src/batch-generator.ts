@@ -2,9 +2,8 @@
  * 批量跑关核心逻辑。
  *
  * 流程：
- *   1. Phase 1 — 每个地形用极限困难参数探测最高档位（maxGrade）
- *   2. Phase 2 — 用统一参数（各参数随机/固定按开关），收集各档位各 targetPerTier 条
- *   3. 输出 CSV
+ *   1. 用统一参数（各参数随机/固定按开关），直接收集目标档位各 targetPerTier 条
+ *   2. 输出 CSV
  *
  * 参数统一：所有地形共享同一套生成参数配置。
  */
@@ -18,7 +17,7 @@ import {
   generateBoardLayerClosure,
   computeDependencyDepth,
 } from './index.js';
-import { solvePlayerMistakeBatch, solvePlayerShortestBatch } from './solver/index.js';
+import { solvePlayerMistakeBatch, solvePlayerMistakeBatchRust, solvePlayerShortestBatch } from './solver/index.js';
 import { OfflineTile } from './solver/types.js';
 import { OfflineGame } from './solver/offline-game.js';
 import { gradeStrategy2 } from './grader.js';
@@ -54,6 +53,18 @@ export interface BatchAcceptanceConfig {
   optimal?: OptimalAcceptanceConfig;
 }
 
+/** Runtime-only controls for high-volume strategy evaluation. */
+export interface BatchEvaluationOptions {
+  /** Preserve individual runs and click paths for diagnostics. Default: false. */
+  collectTrace?: boolean;
+  /** Evaluate Optimal first and skip Strategy2 when no grade can pass Optimal. */
+  optimalFirst?: boolean;
+  /** Grades requested by this search; used to prove Optimal prefiltering is safe. */
+  targetGrades?: number[];
+  /** Strategy2 simulator used for trace-free high-volume evaluation. */
+  simulationEngine?: 'typescript' | 'rust';
+}
+
 export interface UnifiedParams {
   closeRates: ParamModeStr;
   colorCount: ParamMode;
@@ -85,6 +96,7 @@ export interface BatchConfig {
   colorAllocationMaxRatio?: number;
   targetGrades?: number[];
   acceptance?: BatchAcceptanceConfig;
+  evaluation?: BatchEvaluationOptions;
   acceptedOnly?: boolean;
   simRuns: number;
   targetPerTier: number;
@@ -119,12 +131,14 @@ export interface BatchRow {
   optimalForcedPickOnWin?: number; optimalStarvationOnWin?: number;
   optimalStepsOnLoss?: number; optimalForcedPickOnLoss?: number; optimalStarvationOnLoss?: number;
   optimalRemainingTilesOnLoss?: number; optimalRemainingRatioOnLoss?: number;
+  /** Present only when evaluation.collectTrace=true. Kept out of the CSV on purpose. */
+  simulationTrace?: unknown;
   elapsedMs: number; success: boolean; error?: string;
 }
 
 export interface TerrainProgress {
   terrainIndex: number; terrainPath: string;
-  phase: 'idle' | 'maxgrade' | 'collecting' | 'done';
+  phase: 'idle' | 'collecting' | 'done';
   maxGrade: number; collected: Record<number, number>; attempts: number;
   rows: BatchRow[];
 }
@@ -273,68 +287,12 @@ export function randomizeParams(
 }
 
 // ═══════════════════════════════════════════════════════════
-// 极限困难参数
+// 帮助函数
 // ═══════════════════════════════════════════════════════════
-
-/** 探顶用：在统一参数配置的合法范围内取最困难的极端值 */
-export function buildHardestParams(
-  unified: UnifiedParams, terrain: TerrainData, depthCount: number,
-): GenerationParams {
-  const allTiles = getAllTiles(terrain);
-  const freeTiles = allTiles.filter(t => !t.isConst).length;
-
-  // 随机模式下：每层 target = prevTarget（一个 triplet 都不新闭），rate = prevTarget / P
-  let minCloseRates: number[];
-  if (unified.closeRates === 'random') {
-    const tileMap = new Map(allTiles.map(t => [t.id, t]));
-    const freeOnly = allTiles.filter(t => !t.isConst);
-    const depthMap = computeDependencyDepth(freeOnly, tileMap);
-    const maxDepth = depthMap.size > 0 ? Math.max(...depthMap.values()) : 1;
-    minCloseRates = [];
-    let cum = 0, prev = 0;
-    for (let d = 1; d < maxDepth; d++) {
-      cum += allTiles.filter(t => depthMap.get(t.id) === d).length;
-      const P = Math.floor(cum / 3);
-      minCloseRates.push(P > 0 ? prev / P : 0);
-    }
-  } else {
-    minCloseRates = unified.closeRates.split(',').map(s => Math.max(0, Math.min(1, parseFloat(s.trim()) || 0)));
-  }
-
-  return {
-    closeRates: unified.closeRateRange
-      ? randomizeCloseRatesInRange(allTiles, () => 0, unified.closeRateRange)
-      : minCloseRates,
-    colorCount: unified.colorCount === 'random'
-      ? colorCountFromRatio(unified.colorRatioRange?.max ?? 1.0, freeTiles) + Math.max(0, unified.colorJitter ?? 0)
-      : unified.colorCount,
-    spreadParam: unified.spreadParam === 'random' ? (unified.spreadRange?.max ?? 1.0) : unified.spreadParam,
-    debtPersistenceWeight: unified.debtPersistenceWeight === 'random'
-      ? (unified.debtRange?.max ?? 1.0)
-      : unified.debtPersistenceWeight,
-    colorAllocationMode: unified.colorAllocationMode,
-    colorAllocationMaxRatio: unified.colorAllocationMaxRatio,
-  };
-}
 
 // ═══════════════════════════════════════════════════════════
 // 帮助函数
 // ═══════════════════════════════════════════════════════════
-
-function computeDepthCount(tiles: ReturnType<typeof getAllTiles>): number {
-  const tileMap = new Map(tiles.map(t => [t.id, t]));
-  const depthMap = new Map<number, number>();
-  function walk(id: number): number {
-    const c = depthMap.get(id); if (c !== undefined) return c;
-    const t = tileMap.get(id);
-    if (!t || t.dependencies.length === 0) { depthMap.set(id, 1); return 1; }
-    let maxD = 0;
-    for (const depId of t.dependencies) { const d = walk(depId); if (d > maxD) maxD = d; }
-    depthMap.set(id, maxD + 1); return maxD + 1;
-  }
-  for (const t of tiles) walk(t.id);
-  return depthMap.size > 0 ? Math.max(...depthMap.values()) : 1;
-}
 
 function buildOfflineTiles(terrain: TerrainData, assignments: Map<number, number>): OfflineTile[] {
   const allTiles = getAllTiles(terrain);
@@ -379,6 +337,7 @@ export function generateAndEvaluateOne(
   attemptIndex: number, isMaxGradeProbe: boolean,
   simRuns: number, seed: number,
   optimalAcceptance?: OptimalAcceptanceConfig,
+  evaluation: BatchEvaluationOptions = {},
 ): BatchRow {
   const t0 = performance.now();
   const allTiles = getAllTiles(terrain);
@@ -394,12 +353,66 @@ export function generateAndEvaluateOne(
     });
     const m = result.metrics;
     const offlineTiles = buildOfflineTiles(terrain, result.assignments);
+    const collectTrace = evaluation.collectTrace ?? false;
+
+    const runOptimal = () => {
+      if (!optimalAcceptance) return null;
+      const optimal = solvePlayerShortestBatch(
+        new OfflineGame(offlineTiles), optimalAcceptance.runs, seed + 700000, 2000,
+        { collectTrace },
+      );
+      const remainingTiles = optimal.losses > 0
+        ? Math.max(0, allTiles.length - optimal.stepsOnLoss)
+        : 0;
+      return {
+        optimal,
+        fields: {
+          optimalRuns: optimalAcceptance.runs,
+          optimalWins: optimal.wins,
+          optimalLosses: optimal.losses,
+          optimalWinRate: optimal.winRate,
+          optimalForcedPickOnWin: optimal.forcedPickOnWin,
+          optimalStarvationOnWin: optimal.starvationOnWin,
+          optimalStepsOnLoss: optimal.stepsOnLoss,
+          optimalForcedPickOnLoss: optimal.forcedPickOnLoss,
+          optimalStarvationOnLoss: optimal.starvationOnLoss,
+          optimalRemainingTilesOnLoss: remainingTiles,
+          optimalRemainingRatioOnLoss: allTiles.length > 0 ? remainingTiles / allTiles.length : 0,
+        },
+      };
+    };
+
+    // An Optimal-first rejection can never become an accepted row. This is
+    // equivalent to the normal path, but avoids the three Strategy2 batches.
+    const targetGrades = evaluation.targetGrades ?? Object.keys(optimalAcceptance?.grade_constraints ?? {}).map(Number);
+    const canPrefilterOptimal = targetGrades.length > 0 && targetGrades.every(
+      grade => optimalAcceptance?.grade_constraints[String(grade)] != null,
+    );
+    const optimalFirst = evaluation.optimalFirst === true && optimalAcceptance != null && canPrefilterOptimal;
+    const earlyOptimal = optimalFirst ? runOptimal() : null;
+    if (earlyOptimal && !Object.values(optimalAcceptance!.grade_constraints)
+      .some(constraint => acceptsOptimal({
+        ...mkEmptyRow(terrainIndex, terrainPath, params, attemptIndex, isMaxGradeProbe, true),
+        totalTiles: allTiles.length,
+        ...earlyOptimal.fields,
+      }, constraint))) {
+      return {
+        ...mkEmptyRow(terrainIndex, terrainPath, params, attemptIndex, isMaxGradeProbe, true),
+        levelResId: String(terrain.levelResId ?? ''), freeTiles, totalTiles: allTiles.length,
+        depthCount: m.depthCount, grade: -1, label: 'Optimal 预筛未通过',
+        replayCode: result.replayCode, ...earlyOptimal.fields,
+        simulationTrace: collectTrace ? { optimal: earlyOptimal.optimal.results } : undefined,
+        elapsedMs: Math.round(performance.now() - t0),
+      };
+    }
 
     // 三次模拟（串行，保持简单）
     function sim(rate: number, s: number) {
       const g = new OfflineGame(offlineTiles);
-      const r = solvePlayerMistakeBatch(g, simRuns, seed + s, { mistakeRate: rate });
-      return { winRate: r.winRate, wins: r.wins, losses: r.losses, elapsedMs: Math.round(r.elapsedMs) };
+      const r = evaluation.simulationEngine === 'rust'
+        ? solvePlayerMistakeBatchRust(g, simRuns, seed + s, rate, collectTrace)
+        : solvePlayerMistakeBatch(g, simRuns, seed + s, { mistakeRate: rate, collectTrace });
+      return { winRate: r.winRate, wins: r.wins, losses: r.losses, elapsedMs: Math.round(r.elapsedMs), results: r.results };
     }
     const s1 = sim(0.01, 1), s5 = sim(0.05, 2), s15 = sim(0.15, 3);
 
@@ -426,29 +439,19 @@ export function generateAndEvaluateOne(
       simRuns, sim1WinRate: s1.winRate, sim1Wins: s1.wins,
       sim5WinRate: s5.winRate, sim5Wins: s5.wins,
       sim15WinRate: s15.winRate, sim15Wins: s15.wins,
+      simulationTrace: collectTrace ? { sim1: s1.results, sim5: s5.results, sim15: s15.results } : undefined,
       elapsedMs: Math.round(performance.now() - t0), success: true,
     };
     const constraint = optimalAcceptance?.grade_constraints[String(row.grade)];
-    if (constraint && optimalAcceptance) {
-      const optimal = solvePlayerShortestBatch(
-        new OfflineGame(offlineTiles), optimalAcceptance.runs, seed + 700000,
-      );
-      const remainingTiles = optimal.losses > 0
-        ? Math.max(0, allTiles.length - optimal.stepsOnLoss)
-        : 0;
+    const finalOptimal = earlyOptimal ?? (constraint ? runOptimal() : null);
+    if (constraint && finalOptimal) {
       row = {
         ...row,
-        optimalRuns: optimalAcceptance.runs,
-        optimalWins: optimal.wins,
-        optimalLosses: optimal.losses,
-        optimalWinRate: optimal.winRate,
-        optimalForcedPickOnWin: optimal.forcedPickOnWin,
-        optimalStarvationOnWin: optimal.starvationOnWin,
-        optimalStepsOnLoss: optimal.stepsOnLoss,
-        optimalForcedPickOnLoss: optimal.forcedPickOnLoss,
-        optimalStarvationOnLoss: optimal.starvationOnLoss,
-        optimalRemainingTilesOnLoss: remainingTiles,
-        optimalRemainingRatioOnLoss: allTiles.length > 0 ? remainingTiles / allTiles.length : 0,
+        ...finalOptimal.fields,
+        simulationTrace: collectTrace ? {
+          ...(row.simulationTrace as object),
+          optimal: finalOptimal.optimal.results,
+        } : undefined,
       };
     }
     return row;
@@ -489,54 +492,45 @@ function acceptsBatchRow(row: BatchRow, acceptance: BatchAcceptanceConfig | unde
 }
 
 // ═══════════════════════════════════════════════════════════
-// Phase 1: 探顶
+// 目标档位收样
 // ═══════════════════════════════════════════════════════════
 
-export function determineMaxGrade(
-  terrain: TerrainData, unified: UnifiedParams,
-  terrainIndex: number, terrainPath: string,
-  simRuns: number, seed: number,
-): { maxGrade: number; row: BatchRow } {
-  const allTiles = getAllTiles(terrain);
-  const d = computeDepthCount(allTiles);
-  const params = buildHardestParams(unified, terrain, d);
-  const row = generateAndEvaluateOne(terrain, params, terrainIndex, terrainPath, 0, true, simRuns, seed);
-  return { maxGrade: row.success ? row.grade : 0, row };
-}
-
 // ═══════════════════════════════════════════════════════════
-// Phase 2: 收样
+//
 // ═══════════════════════════════════════════════════════════
 
 const yieldTick = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 
+const DEFAULT_TARGET_GRADES = [0, 1, 2, 3, 4, 5];
+
+function normalizeTargetGrades(grades: number[] | undefined): number[] {
+  const normalized = [...new Set((grades ?? [])
+    .filter(grade => Number.isInteger(grade) && grade >= 0))];
+  return normalized.length > 0 ? normalized : [...DEFAULT_TARGET_GRADES];
+}
+
 export async function collectGradesForTerrain(
   terrain: TerrainData, unifiedParams: UnifiedParams,
   terrainIndex: number, terrainPath: string,
-  maxGrade: number, targetPerTier: number, maxAttempts: number,
+  targetPerTier: number, maxAttempts: number,
   simRuns: number, baseSeed: number,
-  selection?: Pick<BatchConfig, 'targetGrades' | 'acceptance' | 'acceptedOnly'> & { gradeTargets?: Record<number, number> },
+  selection?: Pick<BatchConfig, 'targetGrades' | 'acceptance' | 'acceptedOnly' | 'evaluation'> & { gradeTargets?: Record<number, number> },
   isAborted?: () => boolean,
   onProgress?: (collected: Record<number, number>, attempts: number, latestRow: BatchRow | null) => void,
 ): Promise<{ rows: BatchRow[]; collected: Record<number, number>; attempts: number }> {
-  // 桶: 0..maxGrade 有 targetPerTier 要求; 超出也收但不强制
+  const desiredGrades = normalizeTargetGrades(selection?.targetGrades);
+  const maxTargetGrade = Math.max(...desiredGrades);
+
   const buckets: Record<number, BatchRow[]> = {};
-  for (let g = 0; g <= Math.max(maxGrade, 5); g++) buckets[g] = [];
+  for (let g = 0; g <= Math.max(maxTargetGrade, 5); g++) buckets[g] = [];
 
   const allRows: BatchRow[] = [];
   let attempts = 0;
-  const desiredGrades = [...new Set(
-    (selection?.targetGrades?.length
-      ? selection.targetGrades
-      : Array.from({ length: maxGrade + 1 }, (_, grade) => grade))
-      .filter(grade => Number.isInteger(grade) && grade >= 0),
-  )];
   const desiredSet = new Set(desiredGrades);
   for (const grade of desiredGrades) buckets[grade] ??= [];
 
   while (attempts < maxAttempts) {
     if (isAborted?.()) break;
-    // 仅检查 0..maxGrade 是否收满
     let allFull = true;
     for (const g of desiredGrades) {
       const tgt = selection?.gradeTargets?.[g] ?? targetPerTier;
@@ -549,7 +543,10 @@ export async function collectGradesForTerrain(
     const params = randomizeParams(unifiedParams, terrain, rng);
 
     const row = generateAndEvaluateOne(terrain, params, terrainIndex, terrainPath,
-      attempts + 1, false, simRuns, seed, selection?.acceptance?.optimal);
+      attempts + 1, false, simRuns, seed, selection?.acceptance?.optimal, {
+        ...selection?.evaluation,
+        targetGrades: desiredGrades,
+      });
     attempts++;
     const accepted = desiredSet.has(row.grade) && acceptsBatchRow(row, selection?.acceptance);
     const bucketFull = accepted && buckets[row.grade].length >= (selection?.gradeTargets?.[row.grade] ?? targetPerTier);
@@ -561,7 +558,7 @@ export async function collectGradesForTerrain(
 
     if (onProgress) {
       const cts: Record<number, number> = {};
-      for (let g = 0; g <= Math.max(maxGrade, 5); g++) cts[g] = buckets[g].length;
+      for (let g = 0; g <= Math.max(maxTargetGrade, 5); g++) cts[g] = buckets[g].length;
       onProgress(cts, attempts, !selection?.acceptedOnly || accepted ? row : null);
     }
     // 让出事件循环，允许轮询请求得到处理
@@ -570,7 +567,7 @@ export async function collectGradesForTerrain(
   }
 
   const collected: Record<number, number> = {};
-  for (let g = 0; g <= Math.max(maxGrade, 5); g++) collected[g] = buckets[g].length;
+  for (let g = 0; g <= Math.max(maxTargetGrade, 5); g++) collected[g] = buckets[g].length;
   return { rows: allRows, collected, attempts };
 }
 
@@ -653,22 +650,23 @@ export async function runTerrainGeneration(
     return tp;
   }
 
-  // Phase 1
-  tp.phase = 'maxgrade';
-  if (onProgress) onProgress(tp, 0);
+  const targetGrades = normalizeTargetGrades(config.targetGrades);
+  const maxGrade = Math.max(...targetGrades);
   const seed = (Date.now() + terrainIndex * 10000) & 0x7fffffff;
-  const { maxGrade } = determineMaxGrade(terrain, unified, terrainIndex, terrainPath, config.simRuns, seed);
   tp.maxGrade = maxGrade;
   for (let g = 0; g <= Math.max(maxGrade, 5); g++) tp.collected[g] = 0;
-  if (onProgress) onProgress(tp, 0);
-  await yieldTick();
 
-  // Phase 2
   tp.phase = 'collecting';
+  if (onProgress) onProgress(tp, 0);
   const { collected, attempts } = await collectGradesForTerrain(
-    terrain, unified, terrainIndex, terrainPath, maxGrade,
+    terrain, unified, terrainIndex, terrainPath,
     config.targetPerTier, config.maxAttempts, config.simRuns, seed,
-    { targetGrades: config.targetGrades, acceptance: config.acceptance, acceptedOnly: config.acceptedOnly },
+    {
+      targetGrades,
+      acceptance: config.acceptance,
+      acceptedOnly: config.acceptedOnly,
+      evaluation: config.evaluation,
+    },
     isAborted,
     (cts, att, latestRow) => {
       tp.collected = { ...cts };

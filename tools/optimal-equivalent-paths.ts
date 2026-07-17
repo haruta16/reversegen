@@ -419,7 +419,7 @@ function runOne(input: InputRow, terrainPath: string, runs: number, seedBase: nu
   });
 
   const batch = solvePlayerShortestBatch(game, runs, seedBase + input.index * 1009);
-  const winning = batch.results.filter(result => result.win);
+  const winning = (batch.results ?? []).filter(result => result.win);
   const rawPaths = winning.map(result => result.picks);
   const commonRaw = mostCommonRaw(rawPaths);
   const rawMetrics = pairwiseRawMetrics(rawPaths);

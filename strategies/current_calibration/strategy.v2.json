@@ -1,0 +1,79 @@
+{
+  "schema_version": 2,
+  "id": "current_calibration",
+  "version": 1,
+  "description": "空池生产：LayerClosure生成，玩家策略模拟分档，最短当前态体验指标筛选。",
+  "scope": {
+    "levels_dir": "../TileMatchShell/Tools/Config/Json/Levels",
+    "levels": [100003,100004,100005,100006,100007,100008,100009,100010,100011,100012,100013,100014,100015,100016,100017,100018,100019,100020,100021,100022,100023,100024,100025,100026,100027,100028,100029,100030,100031,100032,100033,100034,100035,100036,100037,100038,100039,100040,100041,100042,100043,100044,100045,100046,100047,100048,100049,100050,100051,100052,100053,100054,100055,100056,100057,100058,100059,100060,100061,100062,100063,100064,100065,100066,100067,100068,100069,100070,100071,100072,100073,100074,100075,100076,100077,100078,100079,100080,100081,100082,100083,100084,100085,100086,100087,100088,100089,100090,100091,100092,100093,100094,100095,100096,100097,200003,200004,200007,200010,200012,200013,200015,200024,200037,200053,200080,300001,300002,300003,400011,400012,400013,400014,400015,400017,500001,500002,500003,500004,500005,500006,500007,500008,500009,500010,500011,500012,500013,500014,500015,500016,500017,500018,500020,500021,500022,510001,510002],
+    "exclude_levels": []
+  },
+  "target": {
+    "grades": [1,2,3,4,5],
+    "count_per_grade": 8,
+    "max_attempts_per_level": 100
+  },
+  "generator": {
+    "method": "layer_closure",
+    "version": 1,
+    "parameters": {
+      "close_rates": {"kind": "random"},
+      "color_count": {"kind": "ratio_range", "min": 0.5, "max": 0.6, "jitter": 1},
+      "spread": {"kind": "range", "min": 0.7, "max": 1.0},
+      "debt": {"kind": "range", "min": 0.5, "max": 1.0},
+      "color_allocation": {"mode": "balanced"}
+    }
+  },
+  "pipeline": [
+    {
+      "id": "optimal_metrics",
+      "type": "simulate",
+      "engine": "typescript",
+      "policy": {"id": "shortest_current_state", "version": 1, "config": {}},
+      "runs": 100,
+      "max_steps": 2000
+    },
+    {
+      "id": "player_metrics",
+      "type": "simulate",
+      "engine": "rust",
+      "policy": {"id": "mistake_player", "version": 1, "config": {}},
+      "runs": 100,
+      "max_steps": 2000,
+      "variants": [
+        {"id": "mistake_01", "config": {"mistake_rate": 0.01}},
+        {"id": "mistake_05", "config": {"mistake_rate": 0.05}},
+        {"id": "mistake_15", "config": {"mistake_rate": 0.15}}
+      ]
+    },
+    {
+      "id": "current_grade",
+      "type": "grade",
+      "method": "strategy2",
+      "source": "player_metrics",
+      "inputs": {"sim1": "mistake_01", "sim5": "mistake_05", "sim15": "mistake_15"}
+    },
+    {
+      "id": "optimal_experience",
+      "type": "filter",
+      "method": "grade_metric_constraints",
+      "source": "optimal_metrics",
+      "grade_source": "current_grade",
+      "constraints": {
+        "1": {"win_rate": {"min": 0.95}, "starvation_on_win_per_tile": {"min": 0.0, "max_exclusive": 0.16}},
+        "2": {"win_rate": {"min": 0.9}, "starvation_on_win_per_tile": {"min": 0.08, "max_exclusive": 0.25}},
+        "3": {"win_rate": {"min": 0.8}, "starvation_on_win_per_tile": {"min": 0.16, "max_exclusive": 0.34}},
+        "4": {"win_rate": {"min_exclusive": 0.0, "max_exclusive": 0.8}, "loss_remaining_ratio": {"max": 0.4}},
+        "5": {"win_rate": {"min_exclusive": 0.0, "max_exclusive": 0.8}, "loss_remaining_ratio": {"max": 0.4}}
+      }
+    }
+  ],
+  "runtime": {
+    "seed": 20260630,
+    "concurrency": 5,
+    "trace": {"enabled": false, "sample_rate": 0.0}
+  },
+  "output": {
+    "format": "jsonl"
+  }
+}

@@ -29,7 +29,8 @@ export interface ShortestSimBatchResult {
   wins: number;
   losses: number;
   winRate: number;
-  results: ShortestSimResult[];
+  /** Optional detailed paths; disabled for high-volume strategy searches. */
+  results?: ShortestSimResult[];
   avgStepsOnWin: number;
   avgStepsOnLoss: number;
   forcedPickOnWin: number;
@@ -92,9 +93,10 @@ export function solvePlayerShortest(
   game: OfflineGame,
   seed: number = 0,
   maxSteps: number = 2000,
+  collectTrace: boolean = true,
 ): ShortestSimResult {
   const g = game.clone();
-  const picks: number[] = [];
+  const picks = collectTrace ? [] as number[] : undefined;
   const rng = mulberry32(seed);
   let forcedRandomPickCount = 0;
   let colorStarvationCount = 0;
@@ -105,8 +107,8 @@ export function solvePlayerShortest(
       return {
         win: false,
         failReason: `Dock full at step ${step}`,
-        picks,
-        stepCount: picks.length,
+        picks: picks ?? [],
+        stepCount: picks?.length ?? step,
         seed,
         forcedRandomPickCount,
         colorStarvationCount,
@@ -120,8 +122,8 @@ export function solvePlayerShortest(
       return {
         win: false,
         failReason: `No clickable tiles at step ${step}`,
-        picks,
-        stepCount: picks.length,
+        picks: picks ?? [],
+        stepCount: picks?.length ?? step,
         seed,
         forcedRandomPickCount,
         colorStarvationCount,
@@ -130,7 +132,7 @@ export function solvePlayerShortest(
 
     if (usedFallback) forcedRandomPickCount++;
     g.collect(tile);
-    picks.push(tile.id);
+    picks?.push(tile.id);
   }
 
   return {
@@ -140,8 +142,8 @@ export function solvePlayerShortest(
       : g.isDead
         ? 'Dock full'
         : `Max steps (${maxSteps}) reached`,
-    picks,
-    stepCount: picks.length,
+    picks: picks ?? [],
+    stepCount: picks?.length ?? maxSteps,
     seed,
     forcedRandomPickCount,
     colorStarvationCount,
@@ -153,11 +155,13 @@ export function solvePlayerShortestBatch(
   runs: number = 100,
   baseSeed: number = 0,
   maxSteps: number = 2000,
+  options: { collectTrace?: boolean } = {},
 ): ShortestSimBatchResult {
   const startTime = performance.now();
   let wins = 0;
   let losses = 0;
-  const results: ShortestSimResult[] = [];
+  const collectTrace = options.collectTrace ?? true;
+  const results = collectTrace ? [] as ShortestSimResult[] : undefined;
   let totalWinSteps = 0;
   let totalLossSteps = 0;
   let totalForcedOnWin = 0;
@@ -166,8 +170,8 @@ export function solvePlayerShortestBatch(
   let totalStarveOnLoss = 0;
 
   for (let i = 0; i < runs; i++) {
-    const result = solvePlayerShortest(game, baseSeed + i, maxSteps);
-    results.push(result);
+    const result = solvePlayerShortest(game, baseSeed + i, maxSteps, collectTrace);
+    results?.push(result);
     if (result.win) {
       wins++;
       totalWinSteps += result.stepCount;

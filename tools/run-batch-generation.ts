@@ -22,7 +22,6 @@ import {
   BATCH_CSV_HEADERS,
   generateAndEvaluateOne,
   serializeBatchRow,
-  determineMaxGrade,
   collectGradesForTerrain,
   type BatchAcceptanceConfig,
   type NumericRange,
@@ -45,6 +44,7 @@ interface Options {
   output: string;
   plan: string;
   status: string;
+  traceOutput: string;
   closeRates: ParamModeStr;
   colorCount: ParamMode;
   colorCountRatio: number;
@@ -63,6 +63,9 @@ interface Options {
   colorAllocationMode: 'balanced' | 'single-heavy';
   colorAllocationMaxRatio?: number;
   acceptance: BatchAcceptanceConfig;
+  collectTrace: boolean;
+  optimalFirst: boolean;
+  simulationEngine: 'typescript' | 'rust';
   resume: boolean;
   skipAttemptedOnResume: boolean;
   run: boolean;
@@ -87,6 +90,9 @@ interface TerrainJob {
   unified: UnifiedParams;
   simRuns: number;
   acceptance: BatchAcceptanceConfig;
+  collectTrace: boolean;
+  optimalFirst: boolean;
+  simulationEngine: 'typescript' | 'rust';
   seedBase: number;
 }
 
@@ -127,6 +133,7 @@ function parseArgs(argv: string[]): Options {
     output: 'output/batch生成.csv',
     plan: '',
     status: '',
+    traceOutput: '',
     closeRates: 'random',
     colorCount: 'random',
     colorCountRatio: 0.6,
@@ -140,6 +147,9 @@ function parseArgs(argv: string[]): Options {
     colorJitter: 0,
     colorAllocationMode: 'balanced',
     acceptance: {},
+    collectTrace: false,
+    optimalFirst: false,
+    simulationEngine: 'typescript',
     resume: false,
     skipAttemptedOnResume: false,
     run: false,
@@ -153,6 +163,7 @@ function parseArgs(argv: string[]): Options {
     else if (arg === '--output') opts.output = next() ?? opts.output;
     else if (arg === '--plan') opts.plan = next() ?? '';
     else if (arg === '--status') opts.status = next() ?? '';
+    else if (arg === '--trace-output') opts.traceOutput = next() ?? '';
     else if (arg === '--close-rates') opts.closeRates = parseModeStr(next(), opts.closeRates);
     else if (arg === '--color-count') opts.colorCount = parseMode(next(), opts.colorCount);
     else if (arg === '--color-ratio') opts.colorCountRatio = parseNumber(next(), opts.colorCountRatio);
@@ -188,6 +199,13 @@ function parseArgs(argv: string[]): Options {
     else if (arg === '--accept-min-sim15-wins') opts.acceptance.minSim15Wins = parseNumber(next(), 0);
     else if (arg === '--accept-min-passrate') opts.acceptance.minPassrate = parseNumber(next(), 0);
     else if (arg === '--optimal-acceptance-json') opts.acceptance.optimal = JSON.parse(next() ?? '{}') as OptimalAcceptanceConfig;
+    else if (arg === '--collect-trace') opts.collectTrace = true;
+    else if (arg === '--optimal-first') opts.optimalFirst = true;
+    else if (arg === '--sim-engine') {
+      const value = next();
+      if (value !== 'typescript' && value !== 'rust') throw new Error('sim-engine 必须为 typescript 或 rust');
+      opts.simulationEngine = value;
+    }
     else if (arg === '--resume') opts.resume = true;
     else if (arg === '--skip-attempted-on-resume') opts.skipAttemptedOnResume = true;
     else if (arg === '--run') opts.run = true;
@@ -198,7 +216,7 @@ function parseArgs(argv: string[]): Options {
   opts.concurrency = Math.max(1, opts.concurrency);
   if (!opts.plan) opts.plan = opts.output.replace(/\.csv$/i, '.plan.csv');
   if (!opts.status) opts.status = opts.output.replace(/\.csv$/i, '.status.json');
-
+  if (!opts.traceOutput) opts.traceOutput = opts.output.replace(/\.csv$/i, '.traces.jsonl');
   for (const [grade, constraint] of Object.entries(opts.acceptance.optimal?.grade_constraints ?? {})) {
     for (const [name, value] of Object.entries(constraint)) {
       if (name.includes('win_rate') || name.includes('starvation_per_tile') || name === 'max_loss_remaining_ratio') {
@@ -227,6 +245,7 @@ Options:
   --output <csv>           Output CSV.
   --plan <csv>             Plan CSV output. Default: \${output}.plan.csv
   --status <json>          Status tracking JSON. Default: \${output}.status.json
+  --trace-output <jsonl>   Trace output when --collect-trace is set. Default: \${output}.traces.jsonl
   --run                    Execute generation after planning.
   --resume                 Count existing output rows and resume.
   --skip-attempted-on-resume With --resume, skip terrains already exhausted in status JSON.
@@ -236,6 +255,7 @@ Options:
   --spread <value>         random or fixed 0..1
   --debt <value>           random or fixed 0..1
   --sim-runs <n>           Simulation runs. Default: 200
+  --sim-engine <engine>    typescript | rust. Default: typescript
   --target-per-tier <n>    Target rows per grade. Default: 10
   --max-attempts <n>       Max attempts per terrain. Default: 500
   --concurrency <n>        Parallel terrains. Default: 2
@@ -252,6 +272,8 @@ Options:
   --accept-min-sim15-wins <n> Count/write only rows with sim15Wins >= n
   --accept-min-passrate <n>   Count/write only rows with passrate >= n
   --optimal-acceptance-json <json> Per-grade Optimal acceptance
+  --optimal-first            Run Optimal first; candidates failing every Optimal rule skip Strategy2
+  --collect-trace            Retain per-run click paths in the trace JSONL (slower, larger output)
 `);
 }
 
@@ -422,6 +444,23 @@ function appendRow(path: string, row: BatchRow): void {
   appendFileSync(path, serializeBatchRow(row) + '\n', 'utf8');
 }
 
+function ensureTraceOutput(path: string, resume: boolean): void {
+  if (!resume || !existsSync(path)) {
+    ensureDir(path);
+    writeFileSync(path, '', 'utf8');
+  }
+}
+
+function appendTrace(path: string, row: BatchRow): void {
+  if (row.simulationTrace == null) return;
+  appendFileSync(path, JSON.stringify({
+    levelResId: row.levelResId,
+    attemptIndex: row.attemptIndex,
+    grade: row.grade,
+    trace: row.simulationTrace,
+  }) + '\n', 'utf8');
+}
+
 function buildJobs(plans: TerrainPlan[], opts: Options): TerrainJob[] {
   const jobs: TerrainJob[] = [];
   for (const p of plans) {
@@ -454,6 +493,9 @@ function buildJobs(plans: TerrainPlan[], opts: Options): TerrainJob[] {
       },
       simRuns: opts.simRuns,
       acceptance: jsonClone(opts.acceptance),
+      collectTrace: opts.collectTrace,
+      optimalFirst: opts.optimalFirst,
+      simulationEngine: opts.simulationEngine,
       seedBase: hashSeed(p.levelResId),
     });
   }
@@ -516,19 +558,22 @@ function sendToParent(message: WorkerMsg): Promise<boolean> {
 async function runWorkerJob(job: TerrainJob): Promise<void> {
   const terrain = loadTerrainFromFile(job.terrainPath);
 
-  const probe = determineMaxGrade(terrain, job.unified, 0, job.terrainPath, job.simRuns, job.seedBase);
-  const maxGrade = probe.maxGrade;
-
+  const evaluation = {
+    collectTrace: job.collectTrace,
+    optimalFirst: job.optimalFirst,
+    simulationEngine: job.simulationEngine,
+  } as const;
   const targetGrades = Object.keys(job.targetNeeds).map(Number);
   let lastProgressAttempts = 0;
 
   const result = await collectGradesForTerrain(
     terrain, job.unified, 0, job.terrainPath,
-    maxGrade, 0, job.maxAttempts,
-    job.simRuns, job.seedBase + 1,
+    0, job.maxAttempts,
+    job.simRuns, job.seedBase,
     {
       targetGrades,
       acceptance: job.acceptance,
+      evaluation,
       acceptedOnly: true,
       gradeTargets: job.targetNeeds,
     },
@@ -654,6 +699,7 @@ function runJobs(jobs: TerrainJob[], opts: Options): Promise<{ totalFound: numbe
           if (settled) return;
           if (msg.type === 'row') {
             appendRow(opts.output, msg.row);
+            if (opts.collectTrace) appendTrace(opts.traceOutput, msg.row);
             const g = msg.row.grade;
             jobState[job.jobId].foundByGrade[g] = (jobState[job.jobId].foundByGrade[g] ?? 0) + 1;
             jobState[job.jobId].found++;
@@ -750,6 +796,7 @@ async function main(): Promise<void> {
 
   // Phase 2: Execute
   ensureOutputCsv(opts.output, opts.resume);
+  if (opts.collectTrace) ensureTraceOutput(opts.traceOutput, opts.resume);
   const jobs = buildJobs(activePlans, opts);
   console.log(`\nExecuting ${jobs.length} jobs (concurrency: ${opts.concurrency})...`);
 

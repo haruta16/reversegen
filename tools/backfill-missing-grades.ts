@@ -50,7 +50,7 @@ import {
   setLogLevel,
 } from '../src/index.js';
 import { createGame } from '../src/solver/offline-game.js';
-import { solvePlayerMistakeBatch } from '../src/solver/index.js';
+import { solvePlayerMistakeBatch, solvePlayerMistakeBatchRust } from '../src/solver/index.js';
 import { solvePlayerShortestBatch } from '../src/solver/solver-player-shortest.js';
 import { gradeStrategy2, type SimSnapshot } from '../src/grader.js';
 import {
@@ -133,6 +133,7 @@ interface CliOptions {
   adaptiveMinSamples: number;
   adaptiveContinuousStep: number;
   optimalFirst: boolean;
+  simulationEngine: 'typescript' | 'rust';
   placementMode: 'layer-closure' | 'random-color';
   colorAllocationMode: 'balanced' | 'single-heavy';
   colorAllocationMaxRatio: number | null;
@@ -187,6 +188,7 @@ interface SearchJob {
   adaptiveMinSamples: number;
   adaptiveContinuousStep: number;
   optimalFirst: boolean;
+  simulationEngine: 'typescript' | 'rust';
   placementMode: 'layer-closure' | 'random-color';
   colorAllocationMode: 'balanced' | 'single-heavy';
   colorAllocationMaxRatio: number | null;
@@ -285,6 +287,7 @@ function parseArgs(argv: string[]): CliOptions {
     adaptiveMinSamples: 3,
     adaptiveContinuousStep: 0.08,
     optimalFirst: false,
+    simulationEngine: 'typescript',
     placementMode: 'layer-closure',
     colorAllocationMode: 'balanced',
     colorAllocationMaxRatio: null,
@@ -357,6 +360,11 @@ function parseArgs(argv: string[]): CliOptions {
     else if (a === '--adaptive-min-samples') opts.adaptiveMinSamples = nextNumber(opts.adaptiveMinSamples);
     else if (a === '--adaptive-continuous-step') opts.adaptiveContinuousStep = nextNumber(opts.adaptiveContinuousStep);
     else if (a === '--optimal-first') opts.optimalFirst = true;
+    else if (a === '--sim-engine') {
+      const value = next();
+      if (value !== 'typescript' && value !== 'rust') throw new Error('sim-engine 必须为 typescript 或 rust');
+      opts.simulationEngine = value;
+    }
     else if (a === '--placement-mode') {
       const value = next();
       if (value === 'layer-closure' || value === 'random-color') opts.placementMode = value;
@@ -455,6 +463,7 @@ Options:
   --adaptive-min-samples <n>       Random samples required before adaptive mutation. Default: 3
   --adaptive-continuous-step <n>   Spread/debt mutation step. Default: 0.08
   --optimal-first                  Run Optimal screening before Strategy2 simulations
+  --sim-engine <engine>            typescript | rust. Default: typescript
   --placement-mode <mode>          layer-closure | random-color. Default: layer-closure
 `);
 }
@@ -1072,7 +1081,7 @@ function evaluateOptimal(
 ): BatchRow {
   const { game, terrainTiles } = createGameForReplay(row.replayCode, terrain);
   const batch = solvePlayerShortestBatch(game, config.runs, seed);
-  const lossResults = batch.results.filter(result => !result.win);
+  const lossResults = (batch.results ?? []).filter(result => !result.win);
   const remainingTiles = lossResults.length > 0
     ? lossResults.reduce(
       (sum, result) => sum + Math.max(0, terrainTiles.length - result.stepCount),
@@ -1100,10 +1109,13 @@ function evaluateStrategy2(
   terrain: TerrainData,
   runs: number,
   seed: number,
+  simulationEngine: 'typescript' | 'rust',
 ): BatchRow {
   const { game } = createGameForReplay(row.replayCode, terrain);
   const simulate = (mistakeRate: number, offset: number) => {
-    const result = solvePlayerMistakeBatch(game, runs, seed + offset, { mistakeRate });
+    const result = simulationEngine === 'rust'
+      ? solvePlayerMistakeBatchRust(game, runs, seed + offset, mistakeRate)
+      : solvePlayerMistakeBatch(game, runs, seed + offset, { mistakeRate, collectTrace: false });
     return {
       winRate: result.winRate,
       wins: result.wins,
@@ -1654,6 +1666,7 @@ function buildSearchJobs(
       adaptiveMinSamples: opts.adaptiveMinSamples,
       adaptiveContinuousStep: opts.adaptiveContinuousStep,
       optimalFirst: opts.optimalFirst,
+      simulationEngine: opts.simulationEngine,
       placementMode: opts.placementMode,
       colorAllocationMode: opts.colorAllocationMode,
       colorAllocationMaxRatio: opts.colorAllocationMaxRatio,
@@ -1766,15 +1779,17 @@ async function runWorkerJob(job: SearchJob): Promise<void> {
           false,
           job.simRuns,
           seed,
+          undefined,
+          { simulationEngine: job.simulationEngine },
         );
     if (row.success && job.placementMode === 'random-color' && !job.optimalFirst) {
-      row = evaluateStrategy2(row, terrain, job.simRuns, seed);
+      row = evaluateStrategy2(row, terrain, job.simRuns, seed, job.simulationEngine);
     }
     if (row.success && job.optimalFirst && job.optimalAcceptance) {
       row = evaluateOptimal(row, terrain, job.optimalAcceptance, seed + 700000);
       optimalPassedGrades = gradesPassingOptimal(row, pendingGrades(), job.optimalAcceptance);
       if (optimalPassedGrades.size > 0) {
-        row = evaluateStrategy2(row, terrain, job.simRuns, seed);
+        row = evaluateStrategy2(row, terrain, job.simRuns, seed, job.simulationEngine);
       }
     }
     attempts++;

@@ -4,14 +4,19 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadTerrainFromFile } from '../../src/terrain-loader.js';
 import { decodeFromString, getCanonicalTileOrder } from '../../src/replay-serializer.js';
 import { createGame, solveDFS, solveGreedy, solveRandomBatch } from '../../src/solver/index.js';
 import { TileState } from '../../src/types.js';
 import type { TerrainData, TerrainTile } from '../../src/types.js';
 
-const LEVELS_DIR = '/Users/haruta16/workspace/tilematch/TileMatchShell/Tools/Config/Json/Levels';
-const REPLAYS_DIR = '/Users/haruta16/workspace/tilematch/TileMatchShell/Tools/Config/Json/Replays';
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const CONFIG_DIR = process.env.TILEMATCH_CONFIG_DIR
+  ?? resolve(ROOT, '../TileMatchShell/Tools/Config/Json');
+const LEVELS_DIR = resolve(CONFIG_DIR, 'Levels');
+const REPLAYS_DIR = resolve(CONFIG_DIR, 'Replays');
 
 // Pick a simple level
 const LEVEL_ID = 100003;
@@ -28,12 +33,24 @@ console.log(`Terrain: ${allTiles.length} total, ${freeTiles.length} free tiles, 
 // Load replay
 const replayPath = `${REPLAYS_DIR}/${LEVEL_ID}.json`;
 const replayJson = JSON.parse(readFileSync(replayPath, 'utf-8'));
-const grades = Object.keys(replayJson.replayInfoDict || {});
+type ReplayEntry = {
+  grade?: unknown;
+  ReplayKey: string;
+  CompletionStatus: string;
+  ReplayCode: string;
+};
+
+const replayList: ReplayEntry[] | null = Array.isArray(replayJson.replayInfoList)
+  ? replayJson.replayInfoList as ReplayEntry[]
+  : null;
+const grades: string[] = replayList
+  ? [...new Set(replayList.map(entry => String(entry.grade ?? 'unknown')))]
+  : Object.keys(replayJson.replayInfoDict || {});
 console.log(`Replay grades: ${grades.join(', ')}`);
 
 // Pick first replay
 const firstGrade = grades[0];
-const entries = replayJson.replayInfoDict[firstGrade];
+const entries = replayList ?? replayJson.replayInfoDict?.[firstGrade];
 if (!Array.isArray(entries) || entries.length === 0) {
   console.error('No replay entries found');
   process.exit(1);

@@ -182,7 +182,7 @@ function runJob(job: Job): Result {
     eliminatedTileIds: replay.eliminatedTileIds,
   });
   const batch = solvePlayerShortestBatch(game, job.simCount, 900000 + job.index * 1009);
-  const losses = batch.results.filter(result => !result.win);
+  const losses = (batch.results ?? []).filter(result => !result.win);
   const remaining = losses.length
     ? losses.reduce((sum, result) => sum + Math.max(0, tiles.length - result.stepCount), 0) / losses.length
     : 0;

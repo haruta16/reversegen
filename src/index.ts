@@ -73,6 +73,8 @@ export interface GenerateBoardLayerClosureInput {
   colorAllocationMaxRatio?: number;
   /** 花色配额随机源；批量任务可传入种子 RNG。 */
   colorAllocationRng?: () => number;
+  /** 本次生成的统一随机源；优先于旧的 colorAllocationRng。 */
+  rng?: () => number;
 }
 
 /** generateBoardLayerClosure 的输出 */
@@ -138,6 +140,7 @@ export function generateBoardLayerClosure(
     colorAllocationMode,
     colorAllocationMaxRatio,
     colorAllocationRng,
+    rng,
   } = input;
 
   const allTiles = getAllTiles(terrain);
@@ -157,6 +160,7 @@ export function generateBoardLayerClosure(
     colorAllocationMode,
     colorAllocationMaxRatio,
     colorAllocationRng,
+    rng,
   });
 
   const m = algoResult.metrics;
@@ -284,6 +288,28 @@ export {
   defaultReplaySelectionPaths,
   serializeReplaySelectionCsv,
 } from './replay-selection.js';
+
+// 批量生产策略 v2
+export { validateStrategyDefinition } from './strategy/definition.js';
+export { generateCandidate } from './strategy/generator.js';
+export { executeStrategyPipeline } from './strategy/pipeline.js';
+export { runSimulationPolicy, runSimulationPolicyVariants, SIMULATION_PROTOCOL_VERSION } from './strategy/simulation.js';
+export { deriveSeed, seededRandom } from './strategy/random.js';
+export type {
+  CandidateBoard,
+  ExecutionEngine,
+  FilterStage,
+  GeneratorSpec,
+  GradeStage,
+  LayerClosureGeneratorSpec,
+  PipelineStage,
+  SimulateStage,
+  SimulationPolicySpec,
+  SimulationSummary,
+  StageResult,
+  StrategyDefinition,
+  StrategyRunRecord,
+} from './strategy/types.js';
 export type {
   AppendReplaySelectionResult,
   BuildReplaySelectionResult,

@@ -2,9 +2,8 @@
  * 批量跑关核心逻辑。
  *
  * 流程：
- *   1. Phase 1 — 每个地形用极限困难参数探测最高档位（maxGrade）
- *   2. Phase 2 — 用统一参数（各参数随机/固定按开关），收集各档位各 targetPerTier 条
- *   3. 输出 CSV
+ *   1. 用统一参数（各参数随机/固定按开关），直接收集 G0-G5 各 targetPerTier 条
+ *   2. 输出 CSV
  *
  * 参数统一：所有地形共享同一套生成参数配置。
  */
@@ -79,7 +78,7 @@ export interface BatchRow {
 
 export interface TerrainProgress {
   terrainIndex: number; terrainPath: string;
-  phase: 'idle' | 'maxgrade' | 'collecting' | 'done';
+  phase: 'idle' | 'collecting' | 'done';
   maxGrade: number; collected: Record<number, number>; attempts: number;
   rows: BatchRow[];
 }
@@ -183,62 +182,12 @@ export function randomizeParams(
 }
 
 // ═══════════════════════════════════════════════════════════
-// 极限困难参数
+// 帮助函数
 // ═══════════════════════════════════════════════════════════
-
-/** 探顶用：在统一参数配置的合法范围内取最困难的极端值 */
-export function buildHardestParams(
-  unified: UnifiedParams, terrain: TerrainData, depthCount: number,
-): GenerationParams {
-  const allTiles = getAllTiles(terrain);
-  const freeTiles = allTiles.filter(t => !t.isConst).length;
-
-  // 随机模式下：每层 target = prevTarget（一个 triplet 都不新闭），rate = prevTarget / P
-  let minCloseRates: number[];
-  if (unified.closeRates === 'random') {
-    const tileMap = new Map(allTiles.map(t => [t.id, t]));
-    const freeOnly = allTiles.filter(t => !t.isConst);
-    const depthMap = computeDependencyDepth(freeOnly, tileMap);
-    const maxDepth = depthMap.size > 0 ? Math.max(...depthMap.values()) : 1;
-    minCloseRates = [];
-    let cum = 0, prev = 0;
-    for (let d = 1; d < maxDepth; d++) {
-      cum += allTiles.filter(t => depthMap.get(t.id) === d).length;
-      const P = Math.floor(cum / 3);
-      minCloseRates.push(P > 0 ? prev / P : 0);
-    }
-  } else {
-    minCloseRates = unified.closeRates.split(',').map(s => Math.max(0, Math.min(1, parseFloat(s.trim()) || 0)));
-  }
-
-  return {
-    closeRates: minCloseRates,
-    colorCount: unified.colorCount === 'random'
-      ? colorCountFromRatio(1.0, freeTiles)
-      : unified.colorCount,
-    spreadParam: unified.spreadParam === 'random' ? 1.0 : unified.spreadParam,
-    debtPersistenceWeight: unified.debtPersistenceWeight === 'random' ? 1.0 : unified.debtPersistenceWeight,
-  };
-}
 
 // ═══════════════════════════════════════════════════════════
 // 帮助函数
 // ═══════════════════════════════════════════════════════════
-
-function computeDepthCount(tiles: ReturnType<typeof getAllTiles>): number {
-  const tileMap = new Map(tiles.map(t => [t.id, t]));
-  const depthMap = new Map<number, number>();
-  function walk(id: number): number {
-    const c = depthMap.get(id); if (c !== undefined) return c;
-    const t = tileMap.get(id);
-    if (!t || t.dependencies.length === 0) { depthMap.set(id, 1); return 1; }
-    let maxD = 0;
-    for (const depId of t.dependencies) { const d = walk(depId); if (d > maxD) maxD = d; }
-    depthMap.set(id, maxD + 1); return maxD + 1;
-  }
-  for (const t of tiles) walk(t.id);
-  return depthMap.size > 0 ? Math.max(...depthMap.values()) : 1;
-}
 
 function buildOfflineTiles(terrain: TerrainData, assignments: Map<number, number>): OfflineTile[] {
   const allTiles = getAllTiles(terrain);
@@ -347,23 +296,11 @@ export function generateAndEvaluateOne(
 }
 
 // ═══════════════════════════════════════════════════════════
-// Phase 1: 探顶
+// 目标档位收样
 // ═══════════════════════════════════════════════════════════
 
-export function determineMaxGrade(
-  terrain: TerrainData, unified: UnifiedParams,
-  terrainIndex: number, terrainPath: string,
-  simRuns: number, seed: number,
-): { maxGrade: number; row: BatchRow } {
-  const allTiles = getAllTiles(terrain);
-  const d = computeDepthCount(allTiles);
-  const params = buildHardestParams(unified, terrain, d);
-  const row = generateAndEvaluateOne(terrain, params, terrainIndex, terrainPath, 0, true, simRuns, seed);
-  return { maxGrade: row.success ? row.grade : 0, row };
-}
-
 // ═══════════════════════════════════════════════════════════
-// Phase 2: 收样
+//
 // ═══════════════════════════════════════════════════════════
 
 const yieldTick = () => new Promise<void>(resolve => setTimeout(resolve, 0));
@@ -493,37 +430,24 @@ export async function runTerrainGeneration(
     return tp;
   }
 
-  // Phase 1
-  tp.phase = 'maxgrade';
-  if (onProgress) onProgress(tp, 0);
+  const maxGrade = 5;
   const seed = (Date.now() + terrainIndex * 10000) & 0x7fffffff;
-  const { maxGrade, row: probe } = determineMaxGrade(terrain, unified, terrainIndex, terrainPath, config.simRuns, seed);
   tp.maxGrade = maxGrade;
-  tp.rows.push(probe);
   for (let g = 0; g <= Math.max(maxGrade, 5); g++) tp.collected[g] = 0;
-  if (probe.success && probe.grade >= 0) tp.collected[probe.grade] = 1;
-  if (onProgress) onProgress(tp, 1);
-  await yieldTick();
 
-  // Phase 2
   tp.phase = 'collecting';
+  if (onProgress) onProgress(tp, 0);
   const { collected, attempts } = await collectGradesForTerrain(
     terrain, unified, terrainIndex, terrainPath, maxGrade,
     config.targetPerTier, config.maxAttempts, config.simRuns, seed,
     (cts, att, latestRow) => {
       tp.collected = { ...cts };
-      if (probe.success && probe.grade >= 0) {
-        tp.collected[probe.grade] = Math.max(tp.collected[probe.grade], 1);
-      }
       tp.attempts = att;
       if (latestRow) tp.rows.push(latestRow);
       if (onProgress) onProgress(tp, latestRow ? 1 : 0);
     },
   );
   tp.attempts = attempts; tp.collected = collected;
-  if (probe.success && probe.grade >= 0) {
-    tp.collected[probe.grade] = Math.max(tp.collected[probe.grade], 1);
-  }
   tp.phase = 'done';
   if (onProgress) onProgress(tp, 0);
   return tp;

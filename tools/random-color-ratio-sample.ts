@@ -277,7 +277,7 @@ function evaluate(
     optimalRuns,
     seed + 4000,
   );
-  const losses = optimal.results.filter(result => !result.win);
+  const losses = (optimal.results ?? []).filter(result => !result.win);
   const remainingTiles = losses.length > 0
     ? losses.reduce((sum, result) => sum + Math.max(0, allTiles.length - result.stepCount), 0) / losses.length
     : 0;

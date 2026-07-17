@@ -42,7 +42,11 @@ export interface PlayerSimBatchResult {
   wins: number;
   losses: number;
   winRate: number;
-  results: PlayerSimResult[];
+  /**
+   * Per-run details are expensive in large strategy searches. They are only
+   * retained when the caller explicitly asks for a trace.
+   */
+  results?: PlayerSimResult[];
   avgStepsOnWin: number;
   avgStepsOnLoss: number;
   elapsedMs: number;
