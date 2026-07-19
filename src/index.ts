@@ -16,8 +16,10 @@ import type { TerrainData, ReverseGenOutput, LayerClosureInput, LayerClosureOutp
 import { getAllTiles, getConstTiles } from './terrain-loader.js';
 import { runReverseGen } from './reverse-gen.js';
 import { runLayerClosureGen } from './layer-closure-gen.js';
+import { runTileExplorerGen } from './tile-explorer/generator.js';
 import { generateReplayCode, getCanonicalTileOrder } from './replay-serializer.js';
 import { logger } from './logger.js';
+import type { TileExplorerBoardOutput, TileExplorerInput } from './tile-explorer/types.js';
 
 // ── 高层 API 类型 ──
 
@@ -83,6 +85,33 @@ export interface GenerateBoardLayerClosureOutput extends LayerClosureOutput {
   levelHash: string;
 }
 
+/** Tile Explorer 第三生成器的高层输入。 */
+export interface GenerateBoardTileExplorerInput extends TileExplorerInput {
+  /** Level hash 覆盖。 */
+  levelHash?: string;
+}
+
+/** Tile Explorer 算法结果 + ReverseGen 通用 ReplayCode。 */
+export type GenerateBoardTileExplorerOutput = TileExplorerBoardOutput;
+
+function buildReplay(
+  terrain: TerrainData,
+  assignments: ReadonlyMap<number, number>,
+  hashOverride?: string,
+): { replayCode: string; levelHash: string } {
+  const allTiles = getAllTiles(terrain);
+  const levelHash = hashOverride ?? terrain.levelHash ?? '';
+  const elementValues = new Map<number, number>();
+  for (const tile of getConstTiles(terrain)) {
+    if (tile.constElementValue > 0) elementValues.set(tile.id, tile.constElementValue);
+  }
+  for (const [tileId, value] of assignments) elementValues.set(tileId, value);
+  return {
+    replayCode: generateReplayCode(getCanonicalTileOrder(allTiles), elementValues, levelHash),
+    levelHash: levelHash || '(none)',
+  };
+}
+
 /**
  * 高层 API: 加载地形 → 运行 ReverseGen → 生成 ReplayCode。
  * 这是大多数场景的推荐入口。
@@ -91,7 +120,6 @@ export function generateBoard(input: GenerateBoardInput): GenerateBoardOutput {
   const { terrain, costArray, colorCount, levelHash: hashOverride } = input;
 
   const allTiles = getAllTiles(terrain);
-  const levelHash = hashOverride ?? terrain.levelHash ?? '';
 
   logger.info('═══════════════════════════════════════');
   logger.info('  ReverseGen 牌局生成');
@@ -104,22 +132,11 @@ export function generateBoard(input: GenerateBoardInput): GenerateBoardOutput {
     logger.warn('算法未成功完成！');
   }
 
-  // 构建所有牌的花色映射（固定牌 + 已分配牌）
-  const elementValues = new Map<number, number>();
-  for (const t of getConstTiles(terrain)) {
-    if (t.constElementValue > 0) elementValues.set(t.id, t.constElementValue);
-  }
-  for (const [tileId, normValue] of algoResult.assignments) {
-    elementValues.set(tileId, normValue);
-  }
-
-  // 规范排序 → 生成 ReplayCode
-  const orderedTiles = getCanonicalTileOrder(allTiles);
-  const replayCode = generateReplayCode(orderedTiles, elementValues, levelHash);
+  const replay = buildReplay(terrain, algoResult.assignments, hashOverride);
 
   logger.info('═══════════════════════════════════════');
 
-  return { ...algoResult, replayCode, levelHash: levelHash || '(none)' };
+  return { ...algoResult, ...replay };
 }
 
 /**
@@ -142,9 +159,6 @@ export function generateBoardLayerClosure(
     colorAllocationRng,
     rng,
   } = input;
-
-  const allTiles = getAllTiles(terrain);
-  const levelHash = hashOverride ?? terrain.levelHash ?? '';
 
   logger.info('═══════════════════════════════════════');
   logger.info('  LayerClosure 牌局生成');
@@ -173,22 +187,29 @@ export function generateBoardLayerClosure(
   logger.info(`  峰值债务:${m.peakDebt} 暴露峰值:${m.peakExpDebt} OI:${m.oi}`);
   logger.info(`  必输: ${m.isDoomed ? '是' : '否'}`);
 
-  // 构建花色映射
-  const elementValues = new Map<number, number>();
-  for (const t of getConstTiles(terrain)) {
-    if (t.constElementValue > 0) elementValues.set(t.id, t.constElementValue);
-  }
-  for (const [tileId, suitValue] of algoResult.assignments) {
-    elementValues.set(tileId, suitValue);
-  }
-
-  // 生成 ReplayCode
-  const orderedTiles = getCanonicalTileOrder(allTiles);
-  const replayCode = generateReplayCode(orderedTiles, elementValues, levelHash);
+  const replay = buildReplay(terrain, algoResult.assignments, hashOverride);
 
   logger.info('═══════════════════════════════════════');
 
-  return { ...algoResult, replayCode, levelHash: levelHash || '(none)' };
+  return { ...algoResult, ...replay };
+}
+
+/**
+ * 高层 API: Tile Explorer 正常牌算法。
+ * view_layers 由 Terrain Dependencies 自动计算。
+ */
+export function generateBoardTileExplorer(
+  input: GenerateBoardTileExplorerInput,
+): GenerateBoardTileExplorerOutput {
+  const { levelHash, ...algorithmInput } = input;
+  logger.info('═══════════════════════════════════════');
+  logger.info(`  TileExplorer 牌局生成 · ${input.strategy ?? 'default'}`);
+  logger.info('═══════════════════════════════════════');
+  const result = runTileExplorerGen(algorithmInput);
+  const replay = buildReplay(input.terrain, result.assignments, levelHash);
+  logger.info(`  逻辑层:${result.viewLayers.length} 分组:${result.generatedGroupCount} 花色循环:${result.typeCycle.length}`);
+  logger.info('═══════════════════════════════════════');
+  return { ...result, ...replay };
 }
 
 // ── 公共 API 重新导出 ──
@@ -212,6 +233,17 @@ export { TileState } from './types.js';
 // 算法
 export { runReverseGen } from './reverse-gen.js';
 export { runLayerClosureGen, computeDependencyDepth, assignColorTotals } from './layer-closure-gen.js';
+export { runTileExplorerGen, colorGradientLayerGroups } from './tile-explorer/generator.js';
+export { buildTileExplorerTerrainView } from './tile-explorer/view-layers.js';
+export { DotNetRandom, seededShuffle } from './tile-explorer/random.js';
+export type {
+  TileExplorerStrategy,
+  TileExplorerInput,
+  TileExplorerOutput,
+  TileExplorerBoardOutput,
+  TileExplorerTile,
+} from './tile-explorer/types.js';
+export type { DotNetRandomState } from './tile-explorer/random.js';
 
 // 序列化
 export {
@@ -302,6 +334,8 @@ export type {
   GeneratorSpec,
   GradeStage,
   LayerClosureGeneratorSpec,
+  TileExplorerGeneratorSpec,
+  TileExplorerGeneratorMetrics,
   PipelineStage,
   SimulateStage,
   SimulationPolicySpec,

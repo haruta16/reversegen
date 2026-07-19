@@ -1,4 +1,5 @@
 import type { DebtMetrics } from '../types.js';
+import type { TileExplorerStrategy } from '../tile-explorer/types.js';
 
 export const STRATEGY_SCHEMA_VERSION = 2 as const;
 
@@ -43,7 +44,38 @@ export interface LayerClosureGeneratorSpec {
   };
 }
 
-export type GeneratorSpec = LayerClosureGeneratorSpec;
+export interface TileExplorerGeneratorSpec {
+  method: 'tile_explorer';
+  version: 1;
+  parameters: {
+    strategy: TileExplorerStrategy;
+    difficulty: { kind: 'fixed'; value: number } | { kind: 'range'; min: number; max: number };
+    color_count: LayerClosureGeneratorSpec['parameters']['color_count'];
+    type_cycle?: number[];
+    tile_type_weights?: number[];
+    easy_layer_count?: number;
+    level_hard_tag?: number;
+    limit_full_first?: boolean;
+    solvability_lower_coefficient?: number;
+    solvability_top_coefficient?: number;
+    fallback_extra_layers?: number;
+    solvability_random_mode?: boolean;
+    color_gradient_type_groups?: number[][];
+  };
+}
+
+export type GeneratorSpec = LayerClosureGeneratorSpec | TileExplorerGeneratorSpec;
+
+export interface TileExplorerGeneratorMetrics {
+  strategy: TileExplorerStrategy;
+  difficulty: number;
+  colorCount: number;
+  depthCount: number;
+  generatedGroupCount: number;
+  typeCycle: number[];
+  sequenceSeed: number;
+  placementSeed: number;
+}
 
 export interface SimulationPolicySpec {
   id: 'mistake_player' | 'shortest_current_state';
@@ -102,7 +134,7 @@ export interface CandidateBoard {
     method: GeneratorSpec['method'];
     version: number;
     parameters: Record<string, unknown>;
-    metrics: DebtMetrics;
+    metrics: DebtMetrics | TileExplorerGeneratorMetrics;
   };
   assignments: Array<[number, number]>;
   replay_code: string;

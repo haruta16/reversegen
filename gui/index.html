@@ -310,6 +310,7 @@ kbd{
       <div class="tabs" id="algoTabs">
         <button class="tab" data-algo="cost-ladder" onclick="switchAlgo('cost-ladder')">CostLadder</button>
         <button class="tab active" data-algo="closure" onclick="switchAlgo('closure')">LayerClosure</button>
+        <button class="tab" data-algo="tile-explorer" onclick="switchAlgo('tile-explorer')">TileExplorer</button>
       </div>
 
       <!-- CostLadder -->
@@ -358,6 +359,55 @@ kbd{
         </div>
       </div>
 
+      <!-- Tile Explorer -->
+      <div id="panelTileExplorer" style="display:none">
+        <label>生成策略</label>
+        <select id="teStrategy" style="width:100%" onchange="updateTeStrategy()">
+          <option value="default">Default</option>
+          <option value="top_two_easy">TopTwoEasy</option>
+          <option value="sliding_window">SlidingWindow</option>
+          <option value="limit_layer_random">LimitLayerRandom</option>
+          <option value="easy_hard_easy">EasyHardEasy</option>
+          <option value="solvability_coefficient">Solvability V1</option>
+          <option value="solvability_coefficient_v2">Solvability V2</option>
+          <option value="solvability_coefficient_v3">Solvability V3</option>
+          <option value="color_gradient">ColorGradient</option>
+        </select>
+        <div class="row" style="margin-top:6px">
+          <div><label>Difficulty</label><input type="number" id="teDifficulty" value="2" min="1" max="99"></div>
+          <div><label>花色数</label><input type="number" id="teColorCount" value="5" min="1" max="99"></div>
+        </div>
+        <div class="row" style="margin-top:4px">
+          <div><label>Sequence Seed</label><input type="number" id="teSequenceSeed" value="0" step="1"></div>
+          <div><label>Placement Seed</label><input type="number" id="tePlacementSeed" value="0" step="1"></div>
+        </div>
+        <label style="margin-top:6px">显式花色循环 <span style="font-weight:400;color:var(--faint)">可空，优先于花色数</span></label>
+        <input type="text" id="teTypeCycle" placeholder="如 1,2,3,1,4">
+        <label style="margin-top:4px">花色权重 <span style="font-weight:400;color:var(--faint)">可空</span></label>
+        <input type="text" id="teTypeWeights" placeholder="如 1,2,1,3,1">
+        <div class="row" style="margin-top:4px">
+          <div><label>Easy Layers</label><input type="number" id="teEasyLayers" value="0" min="0" step="1"></div>
+          <div><label>Hard Tag</label><input type="number" id="teHardTag" value="1" step="1"></div>
+        </div>
+        <div id="teSolvabilityParams" style="display:none">
+          <div class="row" style="margin-top:4px">
+            <div><label>Lower Coefficient</label><input type="number" id="teLowerCoefficient" placeholder="策略默认" min="0" max="1" step="0.01"></div>
+            <div><label>Top Coefficient</label><input type="number" id="teTopCoefficient" placeholder="策略默认" min="0" max="1" step="0.01"></div>
+          </div>
+          <label style="margin-top:4px">Fallback Extra Layers</label>
+          <input type="number" id="teFallbackExtraLayers" placeholder="策略默认" min="0" step="1">
+          <label style="margin-top:4px">V3 随机系数模式</label>
+          <select id="teRandomMode"><option value="">策略默认</option><option value="true">开启</option><option value="false">关闭</option></select>
+        </div>
+        <div id="teGradientParams" style="display:none">
+          <label style="margin-top:6px">ColorGradient 花色分组 JSON</label>
+          <textarea id="teGradientGroups" placeholder="如 [[1,2],[3,4],[5,6]]" style="font-size:10px"></textarea>
+        </div>
+        <label style="margin-top:5px">LimitLayerRandom 首批模式</label>
+        <select id="teLimitFullFirst"><option value="">按 Hard Tag 默认</option><option value="true">完整 Difficulty</option><option value="false">按余数层</option></select>
+        <div style="font-size:9px;color:var(--faint);margin-top:4px">view_layers 由地形 Dependencies 自动计算；显式循环与权重同时填写时使用显式循环。</div>
+      </div>
+
       <div class="param-summary" role="group" aria-label="当前生成参数">
         <input type="text" id="generationParamSummary" aria-label="当前生成参数串" spellcheck="false" onkeydown="if(event.key==='Enter'){event.preventDefault();parseGenerationParamSummary()}">
         <button type="button" class="param-parse" onclick="parseGenerationParamSummary()" aria-label="解析生成参数串" title="解析生成参数串">解析</button>
@@ -403,7 +453,7 @@ kbd{
       </div>
     </div>
 
-    <div class="panel fade-in" style="margin-top:14px">
+    <div class="panel fade-in" id="chartPanel" style="margin-top:14px">
       <div class="panel-hd"><span class="dot gold"></span> <span id="chartTitle">图表</span></div>
       <div class="panel-bd">
         <canvas id="mainChart" height="190"></canvas>
@@ -755,6 +805,13 @@ function updateDebtLabel(){
   document.getElementById('debtLabel').textContent='— '+v.toFixed(2);
 }
 
+function updateTeStrategy(){
+  var strategy=document.getElementById('teStrategy').value;
+  document.getElementById('teSolvabilityParams').style.display=strategy.indexOf('solvability_coefficient')===0?'':'none';
+  document.getElementById('teGradientParams').style.display=strategy==='color_gradient'?'':'none';
+  updateGenerationParamSummary();
+}
+
 // ═══════════════════════════════════
 //  Generation parameter snapshot
 // ═══════════════════════════════════
@@ -762,7 +819,7 @@ function collectGenerationParams(){
   var body={
     levelId:document.getElementById('levelId').value.trim(),
     algorithm:S.algo,
-    colorCount:document.getElementById('colorCount').value,
+    colorCount:(S.algo==='tile-explorer'?document.getElementById('teColorCount'):document.getElementById('colorCount')).value,
   };
   var dir=document.getElementById('levelsDir').value.trim();
   if(dir)body.levelsDir=dir;
@@ -773,6 +830,21 @@ function collectGenerationParams(){
     body.debtPersistenceWeight=(parseInt(document.getElementById('debtPersistence').value)/100).toFixed(2);
     body.colorAllocationMode=document.getElementById('colorAllocation').value;
     body.colorAllocationMaxRatio=parseFloat(document.getElementById('heavyColorMaxRatio').value).toFixed(2);
+  }else if(S.algo==='tile-explorer'){
+    body.teStrategy=document.getElementById('teStrategy').value;
+    body.difficulty=document.getElementById('teDifficulty').value;
+    body.sequenceSeed=document.getElementById('teSequenceSeed').value;
+    body.placementSeed=document.getElementById('tePlacementSeed').value;
+    body.typeCycle=document.getElementById('teTypeCycle').value.trim();
+    body.typeWeights=document.getElementById('teTypeWeights').value.trim();
+    body.easyLayerCount=document.getElementById('teEasyLayers').value;
+    body.hardTag=document.getElementById('teHardTag').value;
+    body.limitFullFirst=document.getElementById('teLimitFullFirst').value;
+    body.lowerCoefficient=document.getElementById('teLowerCoefficient').value;
+    body.topCoefficient=document.getElementById('teTopCoefficient').value;
+    body.fallbackExtraLayers=document.getElementById('teFallbackExtraLayers').value;
+    body.solvabilityRandomMode=document.getElementById('teRandomMode').value;
+    body.colorGradientTypeGroups=document.getElementById('teGradientGroups').value.trim();
   }else{
     body.targetStd=document.getElementById('targetStd').value;
     body.costArray=document.getElementById('costArray').value.trim();
@@ -801,6 +873,11 @@ function encodeGenerationParamString(params){
       String(params.targetStd||''),
       String(params.levelId||''),
     ].join(':');
+  }
+  if(params.algorithm==='tile-explorer'){
+    var bytes=new TextEncoder().encode(JSON.stringify(params)),binary='';
+    for(var i=0;i<bytes.length;i++)binary+=String.fromCharCode(bytes[i]);
+    return'RGP1.'+btoa(binary).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
   }
   var closeRates=readParamCloseRates(params.closeRates).map(pct);
   if(!closeRates.length||Number(closeRates[closeRates.length-1])!==100)closeRates.push('100');
@@ -940,7 +1017,7 @@ function copyGenerationParams(){
   else fallback();
 }
 
-var GENERATION_PARAM_INPUTS='#levelId,#levelsDir,#dock,#colorCount,#colorAllocation,#heavyColorMaxRatio,#spreadParam,#debtPersistence,#targetStd,#costArray,#closeRateSliders .slider';
+var GENERATION_PARAM_INPUTS='#levelId,#levelsDir,#dock,#colorCount,#colorAllocation,#heavyColorMaxRatio,#spreadParam,#debtPersistence,#targetStd,#costArray,#closeRateSliders .slider,#panelTileExplorer input,#panelTileExplorer select,#panelTileExplorer textarea';
 document.addEventListener('input',function(event){
   if(event.target&&event.target.matches&&event.target.matches(GENERATION_PARAM_INPUTS))updateGenerationParamSummary();
 });
@@ -956,6 +1033,7 @@ function switchAlgo(algo){
   document.querySelectorAll('#algoTabs .tab').forEach(function(t){t.classList.toggle('active',t.dataset.algo===algo)});
   document.getElementById('panelCost').style.display=algo==='cost-ladder'?'':'none';
   document.getElementById('panelClosure').style.display=algo==='closure'?'':'none';
+  document.getElementById('panelTileExplorer').style.display=algo==='tile-explorer'?'':'none';
   validateParams();
   updateGenerationParamSummary();
 }
@@ -1014,9 +1092,9 @@ async function generate(){
 function showResult(d){
   document.getElementById('resultCard').style.display='';
   document.getElementById('codeBox').textContent=d.replayCode;
-  document.getElementById('resultAlgo').textContent=d.algorithm==='closure'?'LayerClosure':'CostLadder';
+  document.getElementById('resultAlgo').textContent=d.algorithm==='closure'?'LayerClosure':d.algorithm==='tile-explorer'?'TileExplorer':'CostLadder';
 
-  if(d.algorithm==='closure')showClosure(d);else showCostLadder(d);
+  if(d.algorithm==='closure')showClosure(d);else if(d.algorithm==='tile-explorer')showTileExplorer(d);else showCostLadder(d);
 
   var ed=document.getElementById('elemDist');
   var dist={};
@@ -1028,7 +1106,20 @@ function showResult(d){
   }).join(''):'<span style="color:var(--faint)">—</span>';
 }
 
+function showTileExplorer(d){
+  document.getElementById('stats').innerHTML=
+    '<div class="stat"><div class="n n-ok">'+d.strategy+'</div><div class="lbl">策略</div></div>'+
+    '<div class="stat"><div class="n">'+((d.viewLayers||[]).length)+'</div><div class="lbl">逻辑层</div></div>'+
+    '<div class="stat"><div class="n">'+(d.generatedGroupCount||0)+'</div><div class="lbl">三元组</div></div>'+
+    '<div class="stat"><div class="n">'+((d.typeCycle||[]).length)+'</div><div class="lbl">循环长度</div></div>'+
+    '<div class="stat"><div class="n">'+d.sequenceSeed+'</div><div class="lbl">Sequence Seed</div></div>'+
+    '<div class="stat"><div class="n">'+d.placementSeed+'</div><div class="lbl">Placement Seed</div></div>';
+  document.getElementById('stepSection').style.display='none';
+  document.getElementById('chartPanel').style.display='none';
+}
+
 function showClosure(d){
+  document.getElementById('chartPanel').style.display='';
   var m=d.metrics||{};
   // 判断是否有目标闭合率（生成有、导入没有）
   var hasTargets=d.algorithm==='closure'&&!!document.getElementById('closeRates').value.trim();
@@ -1055,6 +1146,7 @@ function showClosure(d){
 }
 
 function showCostLadder(d){
+  document.getElementById('chartPanel').style.display='';
   var hasTargets=(d.costTargets||[]).length>0;
   var mr=hasTargets&&d.matchRate!=null?d.matchRate.toFixed(0)+'%':'—';
   var mc=hasTargets&&d.matchRate!=null?(d.matchRate>=80?'n-ok':d.matchRate>=50?'n-warn':'n-bad'):'';
@@ -1277,7 +1369,7 @@ async function decodeCode(){
 
 function generationParamShapeError(params){
   if(!params||typeof params!=='object')return'参数串内容无效';
-  if(params.algorithm!=='closure'&&params.algorithm!=='cost-ladder')return'参数串缺少有效算法';
+  if(params.algorithm!=='closure'&&params.algorithm!=='cost-ladder'&&params.algorithm!=='tile-explorer')return'参数串缺少有效算法';
   if(!String(params.levelId||'').trim())return'参数串缺少关卡 ID';
   var colorCount=parseInt(params.colorCount);
   if(!Number.isFinite(colorCount)||colorCount<1||colorCount>99)return'花色数必须在 1–99 之间';
@@ -1287,6 +1379,15 @@ function generationParamShapeError(params){
     if(!Number.isFinite(spread)||spread<0||spread>1)return'同色分布必须在 0–1 之间';
     if(!Number.isFinite(debt)||debt<0||debt>1)return'债务持续权重必须在 0–1 之间';
     if(!Number.isFinite(ratio)||ratio<.01||ratio>1)return'主色最大占比必须在 0.01–1 之间';
+  }
+  if(params.algorithm==='tile-explorer'){
+    var difficulty=parseInt(params.difficulty),sequenceSeed=Number(params.sequenceSeed),placementSeed=Number(params.placementSeed);
+    if(!Number.isInteger(difficulty)||difficulty<1)return'Difficulty 必须是正整数';
+    if(!Number.isInteger(sequenceSeed)||!Number.isInteger(placementSeed))return'两个 Seed 必须是整数';
+    if(params.teStrategy==='color_gradient'){
+      try{var groups=JSON.parse(params.colorGradientTypeGroups);if(!Array.isArray(groups)||!groups.length)return'ColorGradient 花色分组不能为空'}
+      catch(e){return'ColorGradient 花色分组 JSON 无效'}
+    }
   }
   return'';
 }
@@ -1304,6 +1405,11 @@ function inspectTerrainCompatibility(params,level){
     if(costs.some(function(v){return!Number.isFinite(v)||v<1}))return{error:'Cost 数组包含无效数值'};
     if(costs.length!==level.steps)return{error:'地形无法满足参数：需要 '+level.steps+' 步 Cost，参数串为 '+costs.length+' 步'};
     return{error:'',costs:costs};
+  }
+  if(params.algorithm==='tile-explorer'){
+    if(Number(level.freeTiles)%3!==0)return{error:'地形无法满足参数：自由牌数量不是 3 的倍数'};
+    if(!Number(level.depthCount))return{error:'地形无法满足参数：缺少依赖深度信息'};
+    return{error:''};
   }
 
   var rates=readParamCloseRates(params.closeRates);
@@ -1339,7 +1445,8 @@ async function applyGenerationParamString(code,out){
 
   document.getElementById('levelId').value=String(params.levelId).trim();
   document.getElementById('levelsDir').value=params.levelsDir?String(params.levelsDir):'';
-  document.getElementById('colorCount').value=String(parseInt(params.colorCount));
+  if(params.algorithm==='tile-explorer')document.getElementById('teColorCount').value=String(parseInt(params.colorCount));
+  else document.getElementById('colorCount').value=String(parseInt(params.colorCount));
   var loaded=await loadLevel();
   if(!loaded){out.textContent='地形加载失败，无法进入生成参数';out.className='msg msg-err';return false}
 
@@ -1358,6 +1465,22 @@ async function applyGenerationParamString(code,out){
       slider.dataset.prevDc=String(Math.round(compatibility.rates[i]*Number(slider.dataset.total)/3)*3);
     });
     updateSpreadLabel();updateDebtLabel();syncCloseRates();
+  }else if(params.algorithm==='tile-explorer'){
+    document.getElementById('teStrategy').value=params.teStrategy||'default';
+    document.getElementById('teDifficulty').value=String(params.difficulty||1);
+    document.getElementById('teSequenceSeed').value=String(params.sequenceSeed||0);
+    document.getElementById('tePlacementSeed').value=String(params.placementSeed||0);
+    document.getElementById('teTypeCycle').value=String(params.typeCycle||'');
+    document.getElementById('teTypeWeights').value=String(params.typeWeights||'');
+    document.getElementById('teEasyLayers').value=String(params.easyLayerCount||0);
+    document.getElementById('teHardTag').value=String(params.hardTag==null?1:params.hardTag);
+    document.getElementById('teLimitFullFirst').value=params.limitFullFirst==null?'':String(params.limitFullFirst);
+    document.getElementById('teLowerCoefficient').value=String(params.lowerCoefficient||'');
+    document.getElementById('teTopCoefficient').value=String(params.topCoefficient||'');
+    document.getElementById('teFallbackExtraLayers').value=String(params.fallbackExtraLayers||'');
+    document.getElementById('teRandomMode').value=params.solvabilityRandomMode==null?'':String(params.solvabilityRandomMode);
+    document.getElementById('teGradientGroups').value=String(params.colorGradientTypeGroups||'');
+    updateTeStrategy();
   }else{
     document.getElementById('targetStd').value=String(params.targetStd==null?1:params.targetStd);
     document.getElementById('costArray').value=String(params.costArray||'').trim();

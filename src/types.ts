@@ -9,7 +9,7 @@
 export interface TerrainTile {
   /** 唯一标识 */
   id: number;
-  /** 所在层级（0 = 最底层） */
+  /** TileMatch 物理层（0 = 最顶层/初始可见层，数字越大越靠下） */
   layer: number;
   /** 直接依赖的牌的 ID 列表（这张牌压在哪些牌上面） */
   dependencies: number[];

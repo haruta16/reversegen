@@ -24,6 +24,7 @@ import { parseArgs } from 'node:util';
 import {
   generateBoard,
   generateBoardLayerClosure,
+  generateBoardTileExplorer,
   loadTerrainFromFile,
   printTerrainSummary,
   setLogLevel,
@@ -40,13 +41,28 @@ const { values } = parseArgs({
     terrain:       { type: 'string', short: 't' },
     algorithm:     { type: 'string', short: 'a', default: 'cost-ladder' },
     cost:          { type: 'string', short: 'c' },
-    colors:        { type: 'string', short: 'k', default: '99' },
+    colors:        { type: 'string', short: 'k' },
     hash:          { type: 'string' },
     // LayerClosure 算法专用参数
     'close-rates':  { type: 'string' },
         'dock':         { type: 'string', default: '7' },
     'spread':       { type: 'string', default: '0.5' },
     'debt-persistence': { type: 'string', default: '0' },
+    // Tile Explorer 算法专用参数
+    'te-strategy': { type: 'string', default: 'default' },
+    difficulty: { type: 'string', default: '1' },
+    'sequence-seed': { type: 'string', default: '0' },
+    'placement-seed': { type: 'string', default: '0' },
+    'type-cycle': { type: 'string' },
+    'type-weights': { type: 'string' },
+    'easy-layers': { type: 'string', default: '0' },
+    'hard-tag': { type: 'string', default: '1' },
+    'lower-coefficient': { type: 'string' },
+    'top-coefficient': { type: 'string' },
+    'fallback-extra-layers': { type: 'string' },
+    'limit-full-first': { type: 'boolean' },
+    'solvability-random-mode': { type: 'boolean' },
+    'gradient-groups': { type: 'string' },
     json:          { type: 'boolean', short: 'j', default: false },
     quiet:         { type: 'boolean', short: 'q', default: false },
     verbose:       { type: 'boolean', short: 'v', default: false },
@@ -68,8 +84,8 @@ USAGE:
 
 OPTIONS:
   -t, --terrain <path>     Path to terrain JSON file (Unity level format) (required)
-  -a, --algorithm <name>   算法选择: cost-ladder (默认) | closure
-  -k, --colors <n>         花色数量 (默认: 99)
+  -a, --algorithm <name>   算法选择: cost-ladder (默认) | closure | tile-explorer
+  -k, --colors <n>         花色数量
   --hash <hex>             Level hash override (16-char hex)
   -j, --json               Output results as JSON
   -q, --quiet              Output only the ReplayCode
@@ -85,6 +101,18 @@ OPTIONS:
     --dock <n>            Dock容量 (默认: 7)
     --spread <n>          同色分布 [0-1] 0=紧密 0.5=随机 1=分散 (默认: 0.5)
     --debt-persistence <n> 债务持续权重 [0-1] 0=清旧债 1=延旧债 (默认: 0)
+
+  Tile Explorer 算法参数 (-a tile-explorer):
+    --te-strategy <name>   default / top_two_easy / sliding_window / limit_layer_random /
+                           easy_hard_easy / solvability_coefficient[_v2|_v3] / color_gradient
+    --difficulty <n>       物理层或回退层批量参数 (默认: 1)
+    --sequence-seed <n>    花色循环 .NET Random 种子
+    --placement-seed <n>   落位 .NET Random 种子
+    --type-cycle <csv>     显式花色循环，优先于 --colors
+    --type-weights <csv>   各花色权重
+    --easy-layers <n>      Default 前置简单批次数
+    --hard-tag <n>         难关标签，影响部分策略默认值
+    --gradient-groups <j>  ColorGradient 花色分组 JSON，如 [[1,2],[3,4]]
 
 EXAMPLES:
   # CostLadder (默认)
@@ -187,9 +215,73 @@ try {
     printTerrainSummary(terrain);
   }
 
-  if (algorithm === 'closure') {
+  if (algorithm === 'tile-explorer') {
+    const colorCount = parseInt(values.colors ?? '5', 10);
+    const difficulty = parseInt(values.difficulty ?? '1', 10);
+    const sequenceSeed = parseInt(values['sequence-seed'] ?? '0', 10);
+    const placementSeed = parseInt(values['placement-seed'] ?? '0', 10);
+    const parseIntegerList = (raw: string | undefined, name: string): number[] | undefined => {
+      if (!raw?.trim()) return undefined;
+      const parsed = raw.split(',').map(value => Number(value.trim()));
+      if (parsed.some(value => !Number.isInteger(value))) throw new Error(`${name} 必须是整数 CSV`);
+      return parsed;
+    };
+    const gradientGroups = values['gradient-groups']
+      ? JSON.parse(values['gradient-groups']) as number[][]
+      : undefined;
+    const numberOrUndefined = (raw: string | undefined): number | undefined => {
+      if (raw == null || raw.trim() === '') return undefined;
+      const value = Number(raw);
+      if (!Number.isFinite(value)) throw new Error(`无效数字: ${raw}`);
+      return value;
+    };
+    const result = generateBoardTileExplorer({
+      terrain,
+      strategy: values['te-strategy'] as import('../src/index.js').TileExplorerStrategy,
+      difficulty,
+      colorCount,
+      sequenceSeed,
+      placementSeed,
+      typeCycle: parseIntegerList(values['type-cycle'], '--type-cycle'),
+      tileTypeWeights: parseIntegerList(values['type-weights'], '--type-weights'),
+      easyLayerCount: parseInt(values['easy-layers'] ?? '0', 10),
+      levelHardTag: parseInt(values['hard-tag'] ?? '1', 10),
+      limitFullFirst: values['limit-full-first'],
+      solvabilityLowerCoefficient: numberOrUndefined(values['lower-coefficient']),
+      solvabilityTopCoefficient: numberOrUndefined(values['top-coefficient']),
+      fallbackExtraLayers: numberOrUndefined(values['fallback-extra-layers']),
+      solvabilityRandomMode: values['solvability-random-mode'],
+      colorGradientTypeGroups: gradientGroups,
+      levelHash: values.hash,
+    });
+    if (values.quiet) console.log(result.replayCode);
+    else if (values.json) {
+      console.log(JSON.stringify({
+        algorithm: 'tile-explorer',
+        replayCode: result.replayCode,
+        levelHash: result.levelHash,
+        strategy: result.strategy,
+        assignments: Object.fromEntries(result.assignments),
+        groups: Object.fromEntries(result.groups),
+        viewLayers: result.viewLayers,
+        typeCycle: result.typeCycle,
+        generatedGroupCount: result.generatedGroupCount,
+        sequenceSeed: result.sequenceSeed,
+        placementSeed: result.placementSeed,
+      }, null, 2));
+    } else {
+      console.log('\n── Tile Explorer Results ──');
+      console.log(`  策略: ${result.strategy}`);
+      console.log(`  逻辑层: ${result.viewLayers.length}`);
+      console.log(`  三元组: ${result.generatedGroupCount}`);
+      console.log(`  花色循环: [${result.typeCycle.join(',')}]`);
+      console.log(`  Sequence/Placement seed: ${result.sequenceSeed} / ${result.placementSeed}`);
+      console.log(`  Level hash: ${result.levelHash}`);
+      console.log(`\n── ReplayCode ──\n  ${result.replayCode}`);
+    }
+  } else if (algorithm === 'closure') {
     // ═══ LayerClosure 算法 ═══
-    const colorCount = parseInt(values.colors!, 10);
+    const colorCount = parseInt(values.colors ?? '8', 10);
     if (isNaN(colorCount) || colorCount < 1 || colorCount > 99) {
       console.error('Error: --colors must be between 1 and 99');
       process.exit(1);
@@ -300,7 +392,7 @@ try {
     }
   } else {
     // ═══ CostLadder 算法 (默认) ═══
-    const colorCount = parseInt(values.colors!, 10);
+    const colorCount = parseInt(values.colors ?? '99', 10);
     if (isNaN(colorCount) || colorCount < 1 || colorCount > 99) {
       console.error('Error: --colors must be between 1 and 99');
       process.exit(1);

@@ -20,6 +20,7 @@ import {
 import {
   generateBoard,
   generateBoardLayerClosure,
+  generateBoardTileExplorer,
   loadTerrainFromFile,
   getAllTiles,
   getCanonicalTileOrder,
@@ -847,6 +848,9 @@ const server = createServer(async (req, res) => {
         costArray, colorCount, // CostLadder params
         closeRates, dock, spreadParam, debtPersistenceWeight, // LayerClosure params
         colorAllocationMode, colorAllocationMaxRatio,        // LayerClosure
+        teStrategy, difficulty, sequenceSeed, placementSeed, typeCycle, typeWeights,
+        easyLayerCount, hardTag, limitFullFirst, lowerCoefficient, topCoefficient,
+        fallbackExtraLayers, solvabilityRandomMode, colorGradientTypeGroups,
         levelId, levelsDir, terrainPath, levelHash,
       } = body as {
         algorithm?: string;
@@ -855,6 +859,10 @@ const server = createServer(async (req, res) => {
         debtPersistenceWeight?: string;                    // LayerClosure
         colorAllocationMode?: string;                      // LayerClosure
         colorAllocationMaxRatio?: string;                  // LayerClosure
+        teStrategy?: string; difficulty?: string; sequenceSeed?: string; placementSeed?: string;
+        typeCycle?: string; typeWeights?: string; easyLayerCount?: string; hardTag?: string;
+        limitFullFirst?: string | boolean; lowerCoefficient?: string; topCoefficient?: string;
+        fallbackExtraLayers?: string; solvabilityRandomMode?: string | boolean; colorGradientTypeGroups?: string;
         levelId?: string; levelsDir?: string; terrainPath?: string; levelHash?: string;
       };
 
@@ -866,7 +874,84 @@ const server = createServer(async (req, res) => {
       const terrain = loadTerrainFromFile(path);
       const allTiles = getAllTiles(terrain);
 
-      if (algorithm === 'closure') {
+      if (algorithm === 'tile-explorer') {
+        const k = parseInt(colorCount || '5', 10);
+        const parseIntegerList = (raw: string | undefined, name: string): number[] | undefined => {
+          if (!raw?.trim()) return undefined;
+          const values = raw.split(',').map(value => Number(value.trim()));
+          if (values.some(value => !Number.isInteger(value))) throw new Error(`${name} 必须是整数 CSV`);
+          return values;
+        };
+        const numeric = (raw: string | undefined): number | undefined => {
+          if (raw == null || raw.trim() === '') return undefined;
+          const value = Number(raw);
+          if (!Number.isFinite(value)) throw new Error(`无效数字: ${raw}`);
+          return value;
+        };
+        const optionalBoolean = (raw: string | boolean | undefined): boolean | undefined => {
+          if (raw === '' || raw == null) return undefined;
+          if (raw === true || raw === 'true') return true;
+          if (raw === false || raw === 'false') return false;
+          throw new Error(`无效布尔值: ${String(raw)}`);
+        };
+        const gradientGroups = colorGradientTypeGroups?.trim()
+          ? JSON.parse(colorGradientTypeGroups) as number[][]
+          : undefined;
+        const result = generateBoardTileExplorer({
+          terrain,
+          strategy: (teStrategy || 'default') as import('../src/index.js').TileExplorerStrategy,
+          difficulty: parseInt(difficulty || '1', 10),
+          colorCount: k,
+          sequenceSeed: parseInt(sequenceSeed || '0', 10),
+          placementSeed: parseInt(placementSeed || '0', 10),
+          typeCycle: parseIntegerList(typeCycle, 'typeCycle'),
+          tileTypeWeights: parseIntegerList(typeWeights, 'typeWeights'),
+          easyLayerCount: parseInt(easyLayerCount || '0', 10),
+          levelHardTag: parseInt(hardTag || '1', 10),
+          limitFullFirst: optionalBoolean(limitFullFirst),
+          solvabilityLowerCoefficient: numeric(lowerCoefficient),
+          solvabilityTopCoefficient: numeric(topCoefficient),
+          fallbackExtraLayers: numeric(fallbackExtraLayers),
+          solvabilityRandomMode: optionalBoolean(solvabilityRandomMode),
+          colorGradientTypeGroups: gradientGroups,
+          levelHash,
+        });
+        const ordered = getCanonicalTileOrder(allTiles);
+        const tileSummary = ordered.map((tile, index) => ({
+          index, id: tile.id, layer: tile.layer, isConst: tile.isConst,
+          element: result.assignments.get(tile.id) ?? tile.constElementValue ?? 0,
+        }));
+        json(res, {
+          ok: true,
+          algorithm: 'tile-explorer',
+          levelResId: terrain.levelResId,
+          replayCode: result.replayCode,
+          elementCount: decodeFromString(result.replayCode)?.elementCount ?? k,
+          levelHash: result.levelHash,
+          assignments: Object.fromEntries(result.assignments),
+          groups: Object.fromEntries(result.groups),
+          strategy: result.strategy,
+          viewLayers: result.viewLayers,
+          typeCycle: result.typeCycle,
+          generatedGroupCount: result.generatedGroupCount,
+          sequenceSeed: result.sequenceSeed,
+          placementSeed: result.placementSeed,
+          metrics: {
+            depthCount: result.viewLayers.length,
+            colorCount: new Set(result.assignments.values()).size,
+            generatedGroupCount: result.generatedGroupCount,
+          },
+          colorCount: k,
+          terrainSummary: {
+            layers: terrain.layers.length,
+            totalTiles: allTiles.length,
+            freeTiles: allTiles.filter(tile => !tile.isConst).length,
+            constTiles: allTiles.filter(tile => tile.isConst).length,
+            source: basename(path),
+          },
+          tiles: tileSummary,
+        });
+      } else if (algorithm === 'closure') {
         // ═══ LayerClosure 算法 ═══
         const k = parseInt(colorCount || '8', 10);
 

@@ -1,6 +1,6 @@
 # ReverseGen · 牌局生成器
 
-从 Unity TileMatch 项目中剥离的**独立牌局生成工具**。输入「地形 + Cost 数组 + 花色数」，输出「牌局花色分配 + ReplayCode 序列化种子」。
+从 Unity TileMatch 项目中剥离的**独立牌局生成工具**。提供 CostLadder、LayerClosure、TileExplorer 三个平级生成器，统一输出「牌局花色分配 + ReplayCode 序列化种子」。
 
 与 Unity 零依赖。CLI / Web GUI / TypeScript API 三种使用方式。
 
@@ -29,6 +29,12 @@ npx tsx cli/generate.ts --test-terrain --layers 2 --tiles 12
 npx tsx cli/generate.ts \
   --terrain /path/to/100075.json \
   --cost 4,4,4,3,3,2 --colors 30
+
+# Tile Explorer 策略（view_layers 自动从 Dependencies 计算）
+npx tsx cli/generate.ts \
+  --terrain /path/to/100075.json --algorithm tile-explorer \
+  --te-strategy solvability_coefficient_v2 --difficulty 2 --colors 5 \
+  --sequence-seed 123 --placement-seed 456
 
 # 仅输出 ReplayCode（可管道）
 npx tsx cli/generate.ts -t level.json -c 3,3,2 -k 6 -q | pbcopy
@@ -66,6 +72,25 @@ result.costLog;      // [4,4,4,3,1,2,...] 实际 cost 链
 result.stepLog;      // StepRecord[] 每步详情(含选中 triple、封杀数、抢救来源)
 result.matchRate;    // 67.85  匹配率
 result.assignments;  // Map<tileId, elementValue>
+```
+
+Tile Explorer 生成器使用独立移植的旧版 `.NET System.Random`，不会调用外部 Python：
+
+```typescript
+import { generateBoardTileExplorer } from 'reversegen';
+
+const result = generateBoardTileExplorer({
+  terrain,
+  strategy: 'solvability_coefficient_v2',
+  difficulty: 2,
+  colorCount: 5,
+  sequenceSeed: 123,
+  placementSeed: 456,
+});
+
+result.assignments;  // 与其他生成器相同的 tileId → 花色
+result.replayCode;   // 可直接进入模拟、打关和分档流程
+result.viewLayers;   // 从地形 Dependencies 自动计算
 ```
 
 ### 难度分档策略1
@@ -148,6 +173,8 @@ v4 格式二进制 → Raw Deflate(RFC 1951) → Base64。可直接用于 Unity 
 reversegen/
 ├── src/                      # 核心库
 │   ├── reverse-gen.ts        # ★ CostLadder 生成算法
+│   ├── layer-closure-gen.ts  # ★ LayerClosure 生成算法
+│   ├── tile-explorer/        # ★ Tile Explorer 策略、.NET RNG、view_layers
 │   ├── replay-serializer.ts  # ReplayCode 编解码
 │   ├── cost-generator.ts     # Cost 数组随机生成器
 │   ├── dependency-graph.ts   # BFS 传递依赖闭包
@@ -173,7 +200,7 @@ reversegen/
 ## 测试
 
 ```bash
-npm test                 # 全部 29 个测试
+npm test                 # 全部测试
 npm run test:algo        # 算法测试（10 个）
 npm run test:serializer  # 序列化测试（19 个）
 ```

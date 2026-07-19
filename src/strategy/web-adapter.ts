@@ -1,5 +1,6 @@
 import { basename, dirname, extname } from 'node:path';
 import type { BatchRow } from '../batch-generator.js';
+import type { DebtMetrics } from '../types.js';
 import type {
   FilterStage,
   LayerClosureGeneratorSpec,
@@ -221,12 +222,16 @@ function editorPolicy(value: LayerClosureGeneratorSpec['parameters']['spread']):
 }
 
 export function strategyV2ToEditor(strategy: StrategyDefinition, meta: StrategyEditorMeta = {}): EditorStrategy {
+  if (strategy.generator.method !== 'layer_closure') {
+    throw new Error('当前可视化产出策略编辑器仅支持 layer_closure；tile_explorer 可直接使用 strategy v2 JSON');
+  }
+  const generator = strategy.generator;
   const player = strategy.pipeline.find(stage => stage.type === 'simulate' && stage.policy.id === 'mistake_player') as SimulateStage | undefined;
   const optimal = strategy.pipeline.find(stage => stage.type === 'simulate' && stage.policy.id === 'shortest_current_state') as SimulateStage | undefined;
   const filter = strategy.pipeline.find(stage => stage.type === 'filter') as FilterStage | undefined;
-  const close = strategy.generator.parameters.close_rates;
-  const colors = strategy.generator.parameters.color_count;
-  const allocation = strategy.generator.parameters.color_allocation;
+  const close = generator.parameters.close_rates;
+  const colors = generator.parameters.color_count;
+  const allocation = generator.parameters.color_allocation;
   const gradeConstraints = filter ? Object.fromEntries(Object.entries(filter.constraints).map(([grade, metrics]) => {
     const win = metrics.win_rate ?? {};
     const starvation = metrics.starvation_on_win_per_tile ?? {};
@@ -278,8 +283,8 @@ export function strategyV2ToEditor(strategy: StrategyDefinition, meta: StrategyE
       color_allocation: allocation.mode === 'single_heavy'
         ? { mode: 'single_heavy', ratio: allocation.max_ratio ?? 1 }
         : { mode: 'balanced' },
-      spread: editorPolicy(strategy.generator.parameters.spread),
-      debt: editorPolicy(strategy.generator.parameters.debt),
+      spread: editorPolicy(generator.parameters.spread),
+      debt: editorPolicy(generator.parameters.debt),
     },
     evaluation: {
       grade_strategy: 'strategy2',
@@ -358,7 +363,8 @@ function summary(record: StrategyRunRecord, stageId: string, variantId: string) 
 
 export function strategyRecordToBatchRow(record: StrategyRunRecord, terrainIndex = 0): BatchRow {
   const parameters = record.candidate.generator.parameters;
-  const metrics = record.candidate.generator.metrics;
+  const metrics = record.candidate.generator.metrics as Partial<DebtMetrics>;
+  const isTileExplorer = record.candidate.generator.method === 'tile_explorer';
   const sim1 = summary(record, 'player_metrics', 'mistake_01');
   const sim5 = summary(record, 'player_metrics', 'mistake_05');
   const sim15 = summary(record, 'player_metrics', 'mistake_15');
@@ -373,24 +379,24 @@ export function strategyRecordToBatchRow(record: StrategyRunRecord, terrainIndex
     attemptIndex: record.candidate.attempt,
     isMaxGradeProbe: false,
     colorCount: Number(parameters.color_count),
-    closeRates: parameters.close_rates as number[],
-    spreadParam: Number(parameters.spread),
-    debtPersistenceWeight: Number(parameters.debt),
-    colorAllocationMode: parameters.color_allocation === 'single-heavy' ? 'single-heavy' : 'balanced',
-    colorAllocationMaxRatio: parameters.color_allocation_max_ratio == null ? undefined : Number(parameters.color_allocation_max_ratio),
-    heavyColor: metrics.heavyColor,
-    colorTripletCounts: metrics.colorTripletCounts,
-    freeTiles: metrics.totalTiles,
+    closeRates: isTileExplorer ? [] : parameters.close_rates as number[],
+    spreadParam: isTileExplorer ? 0.5 : Number(parameters.spread),
+    debtPersistenceWeight: isTileExplorer ? 0 : Number(parameters.debt),
+    colorAllocationMode: !isTileExplorer && parameters.color_allocation === 'single-heavy' ? 'single-heavy' : 'balanced',
+    colorAllocationMaxRatio: isTileExplorer || parameters.color_allocation_max_ratio == null ? undefined : Number(parameters.color_allocation_max_ratio),
+    heavyColor: metrics.heavyColor ?? 0,
+    colorTripletCounts: metrics.colorTripletCounts ?? [],
+    freeTiles: metrics.totalTiles ?? record.candidate.assignments.length,
     totalTiles: record.candidate.tile_count,
-    depthCount: metrics.depthCount,
-    peakDebt: metrics.peakDebt,
-    peakExpDebt: metrics.peakExpDebt,
-    oi: metrics.oi,
-    consecutiveOI: metrics.consecutiveOI,
-    suitSpreadNorm: metrics.suitSpreadNorm,
-    isDoomed: metrics.isDoomed,
-    actualCloseRates: metrics.actualCloseRates,
-    weightedDebtRetentionRate: metrics.weightedDebtRetentionRate,
+    depthCount: metrics.depthCount ?? 0,
+    peakDebt: metrics.peakDebt ?? 0,
+    peakExpDebt: metrics.peakExpDebt ?? 0,
+    oi: metrics.oi ?? 0,
+    consecutiveOI: metrics.consecutiveOI ?? 0,
+    suitSpreadNorm: metrics.suitSpreadNorm ?? 0,
+    isDoomed: metrics.isDoomed ?? false,
+    actualCloseRates: metrics.actualCloseRates ?? [],
+    weightedDebtRetentionRate: metrics.weightedDebtRetentionRate ?? 0,
     replayCode: record.candidate.replay_code,
     grade: record.decision.grade,
     passrate: record.decision.passrate,
