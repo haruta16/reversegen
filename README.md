@@ -47,13 +47,16 @@ npx tsx cli/generate.ts --help
 
 ```bash
 npm run gui
-# → http://localhost:3000  自动打开浏览器
+# 本机访问 → http://localhost:3000
+# 启动日志会按物理网卡和虚拟网卡分组列出地址
 
-# 自定义关卡目录
-npx tsx gui/server.ts --levels-dir /custom/levels --open
+# 仅允许本机访问
+npx tsx gui/server.ts --host 127.0.0.1 --open
 ```
 
-界面操作流程：选择关卡 ID → 加载信息 → 设置 Cost（或点 🎲 随机生成）→ 点「生成牌局」→ 右侧查看结果。
+界面操作流程：点击“选择地形文件”并选取 JSON → 设置 Cost（或点 🎲 随机生成）→ 点“生成牌局”→ 右侧查看结果。批量产关支持一次选择多个 JSON 文件。
+
+服务默认监听 `0.0.0.0`。同一局域网内的设备应选择与自身网络对应的物理网卡地址（例如 `[WLAN]` 或 `[以太网]`）；WSL、VMware、VPN 等地址会单独标为虚拟网卡，通常无需使用。地形由访问页面的设备在浏览器中选择并上传，因此远程设备不需要知道服务端的关卡目录；首次运行时若 Windows 防火墙询问，请允许专用网络访问。
 
 ### TypeScript API
 

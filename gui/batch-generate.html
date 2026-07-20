@@ -179,12 +179,12 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
 <!-- ═══════════ COL 1: CONFIGURE ═══════════ -->
 <div>
 
-  <!-- Terrain IDs -->
+  <!-- Terrain files -->
   <div class="panel">
     <div class="panel-hd"><span class="dot gold"></span> 地形列表</div>
     <div class="panel-bd">
-      <textarea id="terrainIds" placeholder="输入地形ID，逗号或换行分隔&#10;如: 100001, 100002, 100003" style="min-height:48px;font-size:11px;font-family:var(--mono)"></textarea>
-      <button class="btn btn-outline" onclick="loadTerrains()" style="width:100%;margin-top:5px">加载地形信息</button>
+      <input type="file" id="terrainFiles" accept=".json,application/json" multiple>
+      <button class="btn btn-outline" onclick="loadTerrains()" style="width:100%;margin-top:5px">加载所选地形</button>
       <div class="terrain-list" id="terrainTags"></div>
       <div class="msg" id="terrainMsg"></div>
     </div>
@@ -388,10 +388,8 @@ function updateDebtLabel(){
 
 // ═══════ Load terrains ═══════
 async function loadTerrains(){
-  var raw=document.getElementById('terrainIds').value;
-  if(!raw.trim()){toast('请输入地形ID','err');return}
-  var ids=raw.split(/[,\s\n]+/).filter(Boolean);
-  var unique=[...new Set(ids)];
+  var files=Array.from(document.getElementById('terrainFiles').files||[]);
+  if(!files.length){toast('请选择地形 JSON 文件','err');return}
 
   var tags=document.getElementById('terrainTags');
   var msg=document.getElementById('terrainMsg');
@@ -399,24 +397,28 @@ async function loadTerrains(){
   S.terrains=[];
 
   var loaded=[], failed=[];
-  for(var id of unique){
+  for(var file of files){
     try{
-      var r=await fetch('/api/terrain-info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({levelId:id})});
+      var up=await fetch('/api/terrain-upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileName:file.name,terrainJson:await file.text()})});
+      var uploaded=await up.json();
+      if(!uploaded.ok)throw new Error(uploaded.error);
+      var r=await fetch('/api/terrain-info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({terrainPath:uploaded.resolvedPath})});
       var d=await r.json();
-      if(!d.ok){failed.push(id);continue}
-      S.terrains.push({id:id, path:d.resolvedPath, info:d});
-      loaded.push(id);
-    }catch(e){failed.push(id)}
+      if(!d.ok)throw new Error(d.error);
+      var id=d.levelResId||file.name.replace(/\.json$/i,'');
+      S.terrains.push({id:id, path:d.resolvedPath, info:d, fileName:file.name});
+      loaded.push(file.name);
+    }catch(e){failed.push(file.name)}
   }
 
   // Render tags
   var html='';
   S.terrains.forEach(function(t){
-    html+='<span class="terrain-tag"><b>#'+t.id+'</b> '+t.info.freeTiles+'牌·'+t.info.steps+'步·'+t.info.depthCount+'层</span>';
+    html+='<span class="terrain-tag"><b>#'+esc(t.id)+'</b> '+t.info.freeTiles+'牌·'+t.info.steps+'步·'+t.info.depthCount+'层</span>';
   });
   tags.innerHTML=html||'<span style="color:var(--faint);font-size:10px">—</span>';
 
-  msg.textContent='加载 '+loaded.length+'/'+unique.length+' 个地形'+(failed.length?'，失败: '+failed.join(', '):'');
+  msg.textContent='加载 '+loaded.length+'/'+files.length+' 个地形'+(failed.length?'，失败: '+failed.join(', '):'');
   msg.className=loaded.length>0?'msg msg-ok':'msg msg-err';
   if(loaded.length>0){toast('已加载 '+loaded.length+' 个地形','ok');updateColorCountPreview();}
   else toast('全部加载失败','err');

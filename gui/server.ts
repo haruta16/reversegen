@@ -2,15 +2,16 @@
  * HTTP server for ReverseGen web GUI.
  *
  * Usage:
- *   npx tsx gui/server.ts [--port 3000] [--open] [--levels-dir /path/to/levels]
+ *   npx tsx gui/server.ts [--host 0.0.0.0] [--port 3000] [--open]
  */
 
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import { readFileSync, existsSync, readdirSync, writeFileSync, appendFileSync, unlinkSync, mkdirSync, renameSync, statSync } from 'node:fs';
-import { join, dirname, basename, resolve } from 'node:path';
+import { join, dirname, basename, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exec, execFile, fork, type ChildProcess } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { networkInterfaces } from 'node:os';
 import {
   appendReplaySelection,
   buildReplaySelections,
@@ -176,6 +177,7 @@ const GENERATION_STRATEGIES_DIR = join(PROJECT_ROOT, 'strategies');
 const GENERATION_RUNS_DIR = join(PROJECT_ROOT, 'output', 'runs');
 const GENERATION_SCHEMA_PATH = join(PROJECT_ROOT, 'config', 'strategy-v2.schema.json');
 const GENERATION_CATALOG_PATH = join(PROJECT_ROOT, 'config', 'generation-feature-catalog.json');
+const UPLOADED_TERRAINS_DIR = join(PROJECT_ROOT, '.reversegen-cache', 'uploaded-terrains');
 const GENERATION_STRATEGY_ID = /^[a-z0-9][a-z0-9_-]{2,79}$/;
 
 type GenerationStrategy = Record<string, any>;
@@ -183,6 +185,7 @@ type GenerationStrategy = Record<string, any>;
 // ── CLI Args ──
 const args = process.argv.slice(2);
 let port = 3000;
+let host = '0.0.0.0';
 let autoOpen = false;
 let openPath = '/';
 // Default: look for levels in the original TileMatchShell project
@@ -191,6 +194,8 @@ let defaultLevelsDir = join(__dirname, '..', '..', 'TileMatchShell', 'Tools', 'C
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--port' && args[i + 1]) {
     port = parseInt(args[i + 1], 10); i++;
+  } else if (args[i] === '--host' && args[i + 1]) {
+    host = args[i + 1]; i++;
   } else if (args[i] === '--open') {
     autoOpen = true;
   } else if (args[i] === '--open-challenge') {
@@ -213,9 +218,13 @@ const MIME: Record<string, string> = {
 
 function serveStatic(res: ServerResponse, path: string): void {
   try {
-    if (!existsSync(path) || path.includes('..')) { res.writeHead(404); res.end('Not found'); return; }
-    const content = readFileSync(path);
-    res.writeHead(200, { 'Content-Type': MIME[path.substring(path.lastIndexOf('.'))] || 'application/octet-stream' });
+    const resolvedPath = resolve(path);
+    const relativePath = relative(resolve(GUI_DIR), resolvedPath);
+    if (!existsSync(resolvedPath) || relativePath.startsWith('..') || isAbsolute(relativePath)) {
+      res.writeHead(404); res.end('Not found'); return;
+    }
+    const content = readFileSync(resolvedPath);
+    res.writeHead(200, { 'Content-Type': MIME[resolvedPath.substring(resolvedPath.lastIndexOf('.'))] || 'application/octet-stream' });
     res.end(content);
   } catch { res.writeHead(500); res.end('Internal error'); }
 }
@@ -228,8 +237,22 @@ function json(res: ServerResponse, data: unknown, status = 200): void {
 function parseBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve) => {
     let body = '';
-    req.on('data', (chunk) => (body += chunk));
-    req.on('end', () => { try { resolve(JSON.parse(body)); } catch { resolve({}); } });
+    let size = 0;
+    let tooLarge = false;
+    req.on('data', (chunk: Buffer) => {
+      if (tooLarge) return;
+      size += chunk.length;
+      if (size > 25 * 1024 * 1024) {
+        tooLarge = true;
+        body = '';
+        return;
+      }
+      body += chunk;
+    });
+    req.on('end', () => {
+      if (tooLarge) { resolve({ bodyError: '请求内容不能超过 25 MB' }); return; }
+      try { resolve(JSON.parse(body)); } catch { resolve({}); }
+    });
   });
 }
 
@@ -477,19 +500,48 @@ function listGenerationRuns() {
     .sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt)));
 }
 
-/** Resolve terrain: levelId takes priority; falls back to terrainPath. */
+/** Resolve terrain: an explicitly selected file takes priority; levelId is the legacy fallback. */
 function resolveTerrainPath(levelId: string | undefined, levelsDir: string | undefined, terrainPath: string | undefined): string | null {
+  if (terrainPath) {
+    if (existsSync(terrainPath)) return terrainPath;
+    throw new Error(`文件不存在: ${terrainPath}`);
+  }
   if (levelId) {
     const dir = levelsDir || defaultLevelsDir;
     const p = join(dir, `${levelId}.json`);
     if (existsSync(p)) return p;
     throw new Error(`关卡 ${levelId} 不存在: ${p}`);
   }
-  if (terrainPath) {
-    if (existsSync(terrainPath)) return terrainPath;
-    throw new Error(`文件不存在: ${terrainPath}`);
-  }
   return null;
+}
+
+/** Persist a browser-selected terrain so all existing generation/analysis APIs can reuse it by path. */
+function storeUploadedTerrain(fileName: string, terrainJson: string): string {
+  if (!fileName.toLowerCase().endsWith('.json')) throw new Error('请选择 JSON 地形文件');
+  const byteLength = Buffer.byteLength(terrainJson, 'utf-8');
+  if (byteLength === 0) throw new Error('地形文件为空');
+  if (byteLength > 20 * 1024 * 1024) throw new Error('地形文件不能超过 20 MB');
+
+  mkdirSync(UPLOADED_TERRAINS_DIR, { recursive: true });
+  const safeStem = basename(fileName).replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 80) || 'terrain';
+  const contentHash = createHash('sha256').update(terrainJson).digest('hex').slice(0, 16);
+  const finalPath = join(UPLOADED_TERRAINS_DIR, `${safeStem}-${contentHash}.json`);
+  if (existsSync(finalPath)) return finalPath;
+
+  const tempPath = join(UPLOADED_TERRAINS_DIR, `.${safeStem}-${contentHash}-${randomUUID()}.tmp`);
+  writeFileSync(tempPath, terrainJson, 'utf-8');
+  try {
+    const terrain = loadTerrainFromFile(tempPath);
+    const tileCount = getAllTiles(terrain).length;
+    if (!terrain.layers.length || !tileCount) throw new Error('文件中没有有效的地形层或牌数据');
+    if (existsSync(finalPath)) unlinkSync(tempPath);
+    else renameSync(tempPath, finalPath);
+    if (terrain.levelHash) hashToPath.set(terrain.levelHash, finalPath);
+    return finalPath;
+  } catch (error) {
+    try { unlinkSync(tempPath); } catch {}
+    throw error;
+  }
 }
 
 /** levelHash → 文件路径 的内存缓存（避免重复扫描） */
@@ -503,24 +555,25 @@ function findTerrainByLevelHash(levelHash: string, levelsDir?: string): string |
   const cached = hashToPath.get(levelHash);
   if (cached && existsSync(cached)) return cached;
 
-  const dir = levelsDir || defaultLevelsDir;
-  if (!existsSync(dir)) return null;
-
-  try {
-    for (const f of readdirSync(dir)) {
-      if (!f.endsWith('.json')) continue;
-      const p = join(dir, f);
-      try {
-        const terrain = loadTerrainFromFile(p);
-        const h = terrain.levelHash;
-        if (h) hashToPath.set(h, p);
-        if (h === levelHash) {
-          console.log(`[auto-resolve] ReplayCode levelHash=${levelHash} → ${basename(p)}`);
-          return p;
-        }
-      } catch { /* 跳过损坏的 JSON */ }
-    }
-  } catch { return null; }
+  const directories = [...new Set([UPLOADED_TERRAINS_DIR, levelsDir || defaultLevelsDir])];
+  for (const dir of directories) {
+    if (!existsSync(dir)) continue;
+    try {
+      for (const f of readdirSync(dir)) {
+        if (!f.endsWith('.json')) continue;
+        const p = join(dir, f);
+        try {
+          const terrain = loadTerrainFromFile(p);
+          const h = terrain.levelHash;
+          if (h) hashToPath.set(h, p);
+          if (h === levelHash) {
+            console.log(`[auto-resolve] ReplayCode levelHash=${levelHash} → ${basename(p)}`);
+            return p;
+          }
+        } catch { /* 跳过损坏的 JSON */ }
+      }
+    } catch { /* 跳过不可读目录 */ }
+  }
   return null;
 }
 
@@ -550,6 +603,7 @@ function buildGameFromReplay(
   replayCode: string,
   levelId?: string,
   levelsDir?: string,
+  terrainPath?: string,
 ): { game: OfflineGame; totalTiles: number } {
   const replayData = decodeFromString(replayCode);
   if (!replayData) throw new Error('ReplayCode 解码失败');
@@ -560,8 +614,8 @@ function buildGameFromReplay(
     const hashStr = replayData.levelHash.toString(16).padStart(16, '0');
     path = findTerrainByLevelHash(hashStr, levelsDir || defaultLevelsDir);
   }
-  if (!path && levelId) {
-    path = resolveTerrainPath(levelId, levelsDir, undefined);
+  if (!path && (terrainPath || levelId)) {
+    path = resolveTerrainPath(levelId, levelsDir, terrainPath);
   }
   if (!path) throw new Error('无法解析地形（需要 levelId 或有效的 ReplayCode）');
 
@@ -763,6 +817,19 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // ── API: browser-selected terrain upload ──
+  if (url.pathname === '/api/terrain-upload' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const { fileName, terrainJson, bodyError } = body as { fileName?: string; terrainJson?: string; bodyError?: string };
+      if (bodyError) throw new Error(bodyError);
+      if (!fileName || typeof terrainJson !== 'string') throw new Error('缺少地形文件名或内容');
+      const resolvedPath = storeUploadedTerrain(fileName, terrainJson);
+      json(res, { ok: true, fileName: basename(fileName), resolvedPath });
+    } catch (err) { json(res, { ok: false, error: err instanceof Error ? err.message : String(err) }, 400); }
+    return;
+  }
+
   // ── API: terrain info (by levelId or terrainPath) ──
   if (url.pathname === '/api/terrain-info' && req.method === 'POST') {
     const body = await parseBody(req);
@@ -848,7 +915,7 @@ const server = createServer(async (req, res) => {
         costArray, colorCount, // CostLadder params
         closeRates, dock, spreadParam, debtPersistenceWeight, // LayerClosure params
         colorAllocationMode, colorAllocationMaxRatio,        // LayerClosure
-        teStrategy, difficulty, sequenceSeed, placementSeed, typeCycle, typeWeights,
+        teStrategy, difficulty, sequenceSeed, placementSeed, placementRandomState, typeCycle, typeWeights,
         easyLayerCount, hardTag, limitFullFirst, lowerCoefficient, topCoefficient,
         fallbackExtraLayers, solvabilityRandomMode, colorGradientTypeGroups,
         levelId, levelsDir, terrainPath, levelHash,
@@ -860,6 +927,7 @@ const server = createServer(async (req, res) => {
         colorAllocationMode?: string;                      // LayerClosure
         colorAllocationMaxRatio?: string;                  // LayerClosure
         teStrategy?: string; difficulty?: string; sequenceSeed?: string; placementSeed?: string;
+        placementRandomState?: string | import('../src/index.js').DotNetRandomState;
         typeCycle?: string; typeWeights?: string; easyLayerCount?: string; hardTag?: string;
         limitFullFirst?: string | boolean; lowerCoefficient?: string; topCoefficient?: string;
         fallbackExtraLayers?: string; solvabilityRandomMode?: string | boolean; colorGradientTypeGroups?: string;
@@ -897,23 +965,34 @@ const server = createServer(async (req, res) => {
         const gradientGroups = colorGradientTypeGroups?.trim()
           ? JSON.parse(colorGradientTypeGroups) as number[][]
           : undefined;
+        const strategy = (teStrategy || 'default') as import('../src/index.js').TileExplorerStrategy;
+        const isSolvability = strategy.startsWith('solvability_coefficient');
+        const isLimit = strategy === 'limit_layer_random';
+        const isGradient = strategy === 'color_gradient';
+        const randomState = typeof placementRandomState === 'string'
+          ? (placementRandomState.trim()
+              ? JSON.parse(placementRandomState) as import('../src/index.js').DotNetRandomState
+              : undefined)
+          : placementRandomState;
         const result = generateBoardTileExplorer({
           terrain,
-          strategy: (teStrategy || 'default') as import('../src/index.js').TileExplorerStrategy,
+          strategy,
           difficulty: parseInt(difficulty || '1', 10),
           colorCount: k,
+          tileTypesCanUse: k,
           sequenceSeed: parseInt(sequenceSeed || '0', 10),
           placementSeed: parseInt(placementSeed || '0', 10),
-          typeCycle: parseIntegerList(typeCycle, 'typeCycle'),
-          tileTypeWeights: parseIntegerList(typeWeights, 'typeWeights'),
-          easyLayerCount: parseInt(easyLayerCount || '0', 10),
-          levelHardTag: parseInt(hardTag || '1', 10),
-          limitFullFirst: optionalBoolean(limitFullFirst),
-          solvabilityLowerCoefficient: numeric(lowerCoefficient),
-          solvabilityTopCoefficient: numeric(topCoefficient),
-          fallbackExtraLayers: numeric(fallbackExtraLayers),
-          solvabilityRandomMode: optionalBoolean(solvabilityRandomMode),
-          colorGradientTypeGroups: gradientGroups,
+          placementRandomState: randomState,
+          typeCycle: isGradient ? undefined : parseIntegerList(typeCycle, 'typeCycle'),
+          tileTypeWeights: isGradient || typeCycle?.trim() ? undefined : parseIntegerList(typeWeights, 'typeWeights'),
+          easyLayerCount: strategy === 'default' ? parseInt(easyLayerCount || '0', 10) : undefined,
+          levelHardTag: isLimit || isSolvability ? parseInt(hardTag || '1', 10) : undefined,
+          limitFullFirst: isLimit ? optionalBoolean(limitFullFirst) : undefined,
+          solvabilityLowerCoefficient: isSolvability ? numeric(lowerCoefficient) : undefined,
+          solvabilityTopCoefficient: isSolvability ? numeric(topCoefficient) : undefined,
+          fallbackExtraLayers: isSolvability ? numeric(fallbackExtraLayers) : undefined,
+          solvabilityRandomMode: isSolvability ? optionalBoolean(solvabilityRandomMode) : undefined,
+          colorGradientTypeGroups: isGradient ? gradientGroups : undefined,
           levelHash,
         });
         const ordered = getCanonicalTileOrder(allTiles);
@@ -936,6 +1015,7 @@ const server = createServer(async (req, res) => {
           generatedGroupCount: result.generatedGroupCount,
           sequenceSeed: result.sequenceSeed,
           placementSeed: result.placementSeed,
+          placementRandomStateAfter: result.placementRandomStateAfter,
           metrics: {
             depthCount: result.viewLayers.length,
             colorCount: new Set(result.assignments.values()).size,
@@ -1097,8 +1177,8 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/replay-closure' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { replayCode, levelsDir } = body as {
-        replayCode?: string; levelsDir?: string;
+      const { replayCode, levelsDir, terrainPath } = body as {
+        replayCode?: string; levelsDir?: string; terrainPath?: string;
       };
       if (!replayCode) throw new Error('Missing replayCode');
 
@@ -1112,6 +1192,7 @@ const server = createServer(async (req, res) => {
         const hashStr = replayData.levelHash.toString(16).padStart(16, '0');
         path = findTerrainByLevelHash(hashStr, levelsDir || defaultLevelsDir);
       }
+      if (!path && terrainPath) path = resolveTerrainPath(undefined, undefined, terrainPath);
       if (!path) throw new Error('无法解析地形（ReplayCode 中无 levelHash 或无匹配关卡文件）');
 
       const terrain = loadTerrainFromFile(path);
@@ -1180,8 +1261,8 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/replay-params' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { replayCode, levelsDir } = body as {
-        replayCode?: string; levelsDir?: string;
+      const { replayCode, levelsDir, terrainPath } = body as {
+        replayCode?: string; levelsDir?: string; terrainPath?: string;
       };
       if (!replayCode) throw new Error('Missing replayCode');
 
@@ -1195,6 +1276,7 @@ const server = createServer(async (req, res) => {
         const hashStr = replayData.levelHash.toString(16).padStart(16, '0');
         path = findTerrainByLevelHash(hashStr, levelsDir || defaultLevelsDir);
       }
+      if (!path && terrainPath) path = resolveTerrainPath(undefined, undefined, terrainPath);
       if (path) {
         // 从文件路径提取 levelId（文件名不含扩展名）
         levelId = basename(path, '.json');
@@ -1259,8 +1341,8 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/replay-costlog' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir } = body as {
-        replayCode?: string; levelId?: string; levelsDir?: string;
+      const { replayCode, levelId, levelsDir, terrainPath } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
 
@@ -1273,8 +1355,8 @@ const server = createServer(async (req, res) => {
         const hashStr = replayData.levelHash.toString(16).padStart(16, '0');
         path = findTerrainByLevelHash(hashStr, levelsDir || defaultLevelsDir);
       }
-      if (!path && levelId) {
-        path = resolveTerrainPath(levelId, levelsDir, undefined);
+      if (!path && (terrainPath || levelId)) {
+        path = resolveTerrainPath(levelId, levelsDir, terrainPath);
       }
       if (!path) throw new Error('无法解析地形');
 
@@ -1603,8 +1685,8 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/dfs-verify' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, timeout, mode, maxReviveSearch: _maxReviveSearch } = body as {
-        replayCode?: string; levelId?: string; levelsDir?: string;
+      const { replayCode, levelId, levelsDir, terrainPath, timeout, mode, maxReviveSearch: _maxReviveSearch } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string;
         timeout?: number; mode?: string; maxReviveSearch?: number;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
@@ -1619,8 +1701,8 @@ const server = createServer(async (req, res) => {
         const hashStr = replayData.levelHash.toString(16).padStart(16, '0');
         path = findTerrainByLevelHash(hashStr, levelsDir || defaultLevelsDir);
       }
-      if (!path && levelId) {
-        path = resolveTerrainPath(levelId, levelsDir, undefined);
+      if (!path && (terrainPath || levelId)) {
+        path = resolveTerrainPath(levelId, levelsDir, terrainPath);
       }
       if (!path) throw new Error('无法解析地形（需要 levelId 或有效的 ReplayCode）');
 
@@ -1690,13 +1772,13 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/player-sim' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, runs } = body as {
-        replayCode?: string; levelId?: string; levelsDir?: string;
+      const { replayCode, levelId, levelsDir, terrainPath, runs } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string;
         runs?: number;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
 
-      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir);
+      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath);
       const simRuns = runs ?? 100;
       const baseSeed = Date.now() & 0x7fffffff;
 
@@ -1727,13 +1809,13 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/player-sim-shortest' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, runs } = body as {
-        replayCode?: string; levelId?: string; levelsDir?: string;
+      const { replayCode, levelId, levelsDir, terrainPath, runs } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string;
         runs?: number;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
 
-      const { game, totalTiles } = buildGameFromReplay(replayCode, levelId, levelsDir);
+      const { game, totalTiles } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath);
       const simRuns = runs ?? 100;
       const baseSeed = Date.now() & 0x7fffffff;
       const result = solvePlayerShortestBatch(game, simRuns, baseSeed);
@@ -1794,13 +1876,13 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/player-sim-risky' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, runs, riskThreshold } = body as {
-        replayCode?: string; levelId?: string; levelsDir?: string;
+      const { replayCode, levelId, levelsDir, terrainPath, runs, riskThreshold } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string;
         runs?: number; riskThreshold?: number;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
 
-      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir);
+      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath);
       const simRuns = runs ?? 100;
       const baseSeed = Date.now() & 0x7fffffff;
 
@@ -1832,14 +1914,14 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/player-sim-costcap' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, runs, maxCost } = body as {
-        replayCode?: string; levelId?: string; levelsDir?: string;
+      const { replayCode, levelId, levelsDir, terrainPath, runs, maxCost } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string;
         runs?: number; maxCost?: number;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
       if (maxCost == null || maxCost < 1) throw new Error('请提供有效的成本上限 (maxCost ≥ 1)');
 
-      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir);
+      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath);
       const simRuns = runs ?? 100;
       const baseSeed = Date.now() & 0x7fffffff;
 
@@ -1871,8 +1953,8 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/player-sim-mistake' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, runs, mistakeRate } = body as {
-        replayCode?: string; levelId?: string; levelsDir?: string;
+      const { replayCode, levelId, levelsDir, terrainPath, runs, mistakeRate } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string;
         runs?: number; mistakeRate?: number;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
@@ -1880,7 +1962,7 @@ const server = createServer(async (req, res) => {
         throw new Error('失误率需在 0.0 ~ 1.0 之间');
       }
 
-      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir);
+      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath);
       const simRuns = runs ?? 100;
       const baseSeed = Date.now() & 0x7fffffff;
 
@@ -1934,12 +2016,12 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/grade/calculate' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, runs, strategy } = body as {
-        replayCode?: string; levelId?: string; levelsDir?: string; runs?: number; strategy?: string;
+      const { replayCode, levelId, levelsDir, terrainPath, runs, strategy } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string; runs?: number; strategy?: string;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
 
-      const { game: gam } = buildGameFromReplay(replayCode, levelId, levelsDir);
+      const { game: gam } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath);
       const useStrategy1 = strategy === 'strategy1';
       const useStrategy2 = strategy === 'strategy2';
       const cfg = (useStrategy1 || useStrategy2) ? getGradeStrategy1Config() : getGradeConfig();
@@ -2007,8 +2089,8 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/api/grade/validate' && req.method === 'POST') {
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, runs, targetGrade, strategy } = body as {
-        replayCode?: string; levelId?: string; levelsDir?: string; runs?: number; targetGrade?: number; strategy?: string;
+      const { replayCode, levelId, levelsDir, terrainPath, runs, targetGrade, strategy } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string; runs?: number; targetGrade?: number; strategy?: string;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
       const useStrategy1 = strategy === 'strategy1';
@@ -2018,7 +2100,7 @@ const server = createServer(async (req, res) => {
         throw new Error(`targetGrade 需为 0-${maxGrade} 的整数`);
       }
 
-      const { game: gam } = buildGameFromReplay(replayCode, levelId, levelsDir);
+      const { game: gam } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath);
       const cfg = (useStrategy1 || useStrategy2) ? getGradeStrategy1Config() : getGradeConfig();
       const simRuns = runs ?? cfg.defaultRuns;
 
@@ -2290,18 +2372,46 @@ const server = createServer(async (req, res) => {
   serveStatic(res, join(GUI_DIR, url.pathname));
 });
 
-server.listen(port, () => {
+server.listen(port, host, () => {
   // 启动时加载分档配置
   try { loadGradeConfig(); } catch (e) { console.warn(`⚠️  分档配置加载失败: ${e}`); }
   try { loadGradeStrategy1Config(); } catch (e) { console.warn(`⚠️  分档策略1配置加载失败: ${e}`); }
 
   console.log(`\n🔧 ReverseGen GUI → http://localhost:${port}`);
+  if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') {
+    const virtualInterfacePattern = /(?:vEthernet|WSL|Hyper-V|VMware|VirtualBox|VMnet|Docker|TAP|VPN|Loopback|Bluetooth|蓝牙)/i;
+    const addresses = Object.entries(networkInterfaces())
+      .flatMap(([interfaceName, entries]) => (entries ?? [])
+        .filter(entry => entry.family === 'IPv4' && !entry.internal && !entry.address.startsWith('169.254.'))
+        .map(entry => ({
+          interfaceName,
+          address: entry.address,
+          virtual: virtualInterfacePattern.test(interfaceName),
+        })))
+      .filter((item, index, all) => all.findIndex(other => other.address === item.address) === index);
+    const physicalAddresses = addresses.filter(item => !item.virtual);
+    const virtualAddresses = addresses.filter(item => item.virtual);
+
+    if (physicalAddresses.length) {
+      console.log('🌐 局域网访问（请选择与访问设备处于同一网络的地址）:');
+      for (const item of physicalAddresses) {
+        console.log(`   http://${item.address}:${port}  [${item.interfaceName}]`);
+      }
+    } else {
+      console.log('⚠️  未检测到可用的物理局域网地址');
+    }
+    if (virtualAddresses.length) {
+      console.log('🧩 虚拟网卡地址（通常仅供 WSL、虚拟机或 VPN 内部访问）:');
+      for (const item of virtualAddresses) {
+        console.log(`   http://${item.address}:${port}  [${item.interfaceName}]`);
+      }
+    }
+  }
   if (existsSync(defaultLevelsDir)) {
     const n = listLevels(defaultLevelsDir).length;
-    console.log(`📁 关卡目录: ${defaultLevelsDir} (${n} 个关卡)`);
+    console.log(`📁 ReplayCode 自动匹配目录（兼容功能）: ${defaultLevelsDir} (${n} 个关卡)`);
   } else {
-    console.log(`⚠️  关卡目录不存在: ${defaultLevelsDir}`);
-    console.log(`   用 --levels-dir 指定路径`);
+    console.log('ℹ️  未配置 ReplayCode 自动匹配目录；手动选择地形文件不受影响');
   }
   console.log('');
   if (autoOpen) {

@@ -170,15 +170,10 @@
     <div class="module">
       <div class="m-title"><span class="dot-in"></span> 数据输入</div>
       <div class="input-row">
-        <label>关卡目录</label>
-        <input type="text" id="levelsDir" placeholder="关卡 JSON 所在目录（留空=默认）" style="font-size:10px">
-      </div>
-      <div class="input-row">
-        <label>地形 ID</label>
-        <input type="number" id="levelId" placeholder="如 100075" style="width:100px;flex:none">
-        <span style="font-size:10px;color:var(--dim)">或路径</span>
-        <input type="text" id="terrainPath" placeholder="test/fixtures/100075.json" class="mono" style="flex:1">
-        <button class="btn-terrain" onclick="App.loadTerrain()" id="btnLoadTerrain">🏔 加载地形</button>
+        <label>地形文件</label>
+        <input type="hidden" id="levelsDir"><input type="hidden" id="levelId"><input type="hidden" id="terrainPath">
+        <input type="file" id="analysisTerrainFile" accept=".json,application/json" style="flex:1" onchange="App.loadTerrainFile(this.files&&this.files[0])">
+        <button class="btn-terrain" onclick="document.getElementById('analysisTerrainFile').click()" id="btnLoadTerrain">🏔 选择地形</button>
       </div>
       <div class="input-row">
         <label>ReplayCode</label>
@@ -340,11 +335,6 @@ const App = {
 
   async init() {
     DagGraph.init(); ForceGraph.init(); TileGraph.init();
-    await this.scanLevels();
-    // 默认关卡目录
-    if (!document.getElementById('levelsDir').value && App.state.levelsDir) {
-      document.getElementById('levelsDir').value = App.state.levelsDir;
-    }
   },
 
   /** 更新 Module 2 的状态显示 */
@@ -371,12 +361,31 @@ const App = {
   },
 
   // ══ 模式 1: 加载地形（空地形全范围） ══
+  async loadTerrainFile(file) {
+    if (!file) return;
+    App.setStatus('loading', '正在读取地形文件...');
+    try {
+      const resp = await fetch('/api/terrain-upload', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: file.name, terrainJson: await file.text() }) });
+      const data = await resp.json();
+      if (!data.ok) throw new Error(data.error);
+      document.getElementById('terrainPath').value = data.resolvedPath;
+      await App.loadTerrain();
+    } catch(err) {
+      App.setStatus('error', err.message);
+    } finally {
+      document.getElementById('analysisTerrainFile').value = '';
+    }
+  },
+
   async loadTerrain() {
     const levelId = document.getElementById('levelId').value.trim();
     const terrainPath = document.getElementById('terrainPath').value.trim();
     const levelsDir = document.getElementById('levelsDir').value.trim();
-    if (!levelId && !terrainPath) return alert('请输入地形 ID 或文件路径');
-    App.state.replayCode = null; // 清掉 replay 模式 App.state.tileDagTerrain = null; App.state.tileDagReplay = null;
+    if (!levelId && !terrainPath) return alert('请选择地形 JSON 文件');
+    App.state.replayCode = null;
+    App.state.tileDagTerrain = null;
+    App.state.tileDagReplay = null;
     App.setModeButton('terrain');
     App.setEdgeMode('full');     // 空地形模式不支持 partial
     App.setStatus('loading', '正在加载地形...');
@@ -407,7 +416,7 @@ const App = {
     document.getElementById('btnAnalyze').disabled = true;
     try {
       const resp = await fetch('/api/terrain-info', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ replayCode: rc, levelsDir: App.state.levelsDir || document.getElementById('levelsDir').value.trim() || undefined }) });
+        body: JSON.stringify({ replayCode: rc, terrainPath: App.state.terrainPath || undefined, levelsDir: App.state.levelsDir || document.getElementById('levelsDir').value.trim() || undefined }) });
       const data = await resp.json();
       if (!data.ok) throw new Error(data.error);
       App.state.terrainPath = data.resolvedPath; App.state.terrainInfo = data; App.state.analysisResult = null;

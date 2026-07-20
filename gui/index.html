@@ -273,9 +273,11 @@ kbd{
 <nav class="topbar">
   <div class="brand"><span>◈</span>ReverseGen</div>
   <div class="sep"></div>
-  <input type="number" id="levelId" placeholder="关卡 ID" list="levelList" onkeydown="if(event.key==='Enter')loadLevel()">
-  <datalist id="levelList"></datalist>
-  <button class="btn btn-ghost" onclick="loadLevel()">加载</button>
+  <input type="file" id="terrainFile" accept=".json,application/json" style="display:none" onchange="loadTerrainFile(this.files&&this.files[0])">
+  <input type="hidden" id="levelId">
+  <input type="hidden" id="levelsDir">
+  <button class="btn btn-ghost" onclick="document.getElementById('terrainFile').click()">选择地形文件</button>
+  <span id="terrainFileName" style="font-size:10px;color:var(--dim)">未选择文件</span>
   <span class="level-quick" id="levelBadge"></span>
   <div class="spacer"></div>
   <a href="/challenge-expectation">挑战期望</a>
@@ -297,9 +299,6 @@ kbd{
     <div class="panel-hd"><span class="dot gold"></span> 已加载关卡</div>
     <div class="panel-bd">
       <div class="info-block" id="levelInfo"></div>
-      <div style="margin-top:6px">
-        <input type="text" id="levelsDir" placeholder="关卡目录路径（自动检测）" style="font-size:9px" onchange="scanLevels()">
-      </div>
     </div>
   </div>
 
@@ -374,20 +373,28 @@ kbd{
           <option value="color_gradient">ColorGradient</option>
         </select>
         <div class="row" style="margin-top:6px">
-          <div><label>Difficulty</label><input type="number" id="teDifficulty" value="2" min="1" max="99"></div>
-          <div><label>花色数</label><input type="number" id="teColorCount" value="5" min="1" max="99"></div>
+          <div id="teDifficultyParam"><label>Difficulty</label><input type="number" id="teDifficulty" value="2" min="1" max="99"></div>
+          <div id="teColorCountParam"><label>花色数</label><input type="number" id="teColorCount" value="5" min="1" max="99"></div>
         </div>
         <div class="row" style="margin-top:4px">
-          <div><label>Sequence Seed</label><input type="number" id="teSequenceSeed" value="0" step="1"></div>
-          <div><label>Placement Seed</label><input type="number" id="tePlacementSeed" value="0" step="1"></div>
+          <div id="teSequenceSeedParam"><label>Sequence Seed</label><input type="number" id="teSequenceSeed" value="0" step="1"></div>
+          <div id="tePlacementSeedParam"><label>Placement Seed</label><input type="number" id="tePlacementSeed" value="0" step="1"></div>
         </div>
-        <label style="margin-top:6px">显式花色循环 <span style="font-weight:400;color:var(--faint)">可空，优先于花色数</span></label>
-        <input type="text" id="teTypeCycle" placeholder="如 1,2,3,1,4">
-        <label style="margin-top:4px">花色权重 <span style="font-weight:400;color:var(--faint)">可空</span></label>
-        <input type="text" id="teTypeWeights" placeholder="如 1,2,1,3,1">
+        <div id="tePlacementStateParam">
+          <label style="margin-top:4px">Placement RNG 完整状态 <span style="font-weight:400;color:var(--faint)">可空，优先于 Placement Seed</span></label>
+          <textarea id="tePlacementState" placeholder='{"seed_array":[56 个整数],"inext":0,"inextp":21}' style="font-size:10px;min-height:34px" oninput="updateTeParameterRelevance()"></textarea>
+        </div>
+        <div id="teTypeCycleParam">
+          <label style="margin-top:6px">显式花色循环 <span style="font-weight:400;color:var(--faint)">可空，最高优先级</span></label>
+          <input type="text" id="teTypeCycle" placeholder="如 1,2,3,1,4" oninput="updateTeParameterRelevance()">
+        </div>
+        <div id="teTypeWeightsParam">
+          <label style="margin-top:4px">花色权重 <span style="font-weight:400;color:var(--faint)">可空；花色数限制参与权重的前 N 种</span></label>
+          <input type="text" id="teTypeWeights" placeholder="如 1,2,1,3,1">
+        </div>
         <div class="row" style="margin-top:4px">
-          <div><label>Easy Layers</label><input type="number" id="teEasyLayers" value="0" min="0" step="1"></div>
-          <div><label>Hard Tag</label><input type="number" id="teHardTag" value="1" step="1"></div>
+          <div id="teEasyLayersParam"><label>Easy Layers</label><input type="number" id="teEasyLayers" value="0" min="0" step="1"></div>
+          <div id="teHardTagParam"><label>Hard Tag</label><input type="number" id="teHardTag" value="1" step="1"></div>
         </div>
         <div id="teSolvabilityParams" style="display:none">
           <div class="row" style="margin-top:4px">
@@ -403,9 +410,11 @@ kbd{
           <label style="margin-top:6px">ColorGradient 花色分组 JSON</label>
           <textarea id="teGradientGroups" placeholder="如 [[1,2],[3,4],[5,6]]" style="font-size:10px"></textarea>
         </div>
-        <label style="margin-top:5px">LimitLayerRandom 首批模式</label>
-        <select id="teLimitFullFirst"><option value="">按 Hard Tag 默认</option><option value="true">完整 Difficulty</option><option value="false">按余数层</option></select>
-        <div style="font-size:9px;color:var(--faint);margin-top:4px">view_layers 由地形 Dependencies 自动计算；显式循环与权重同时填写时使用显式循环。</div>
+        <div id="teLimitParams" style="display:none">
+          <label style="margin-top:5px">LimitLayerRandom 首批模式</label>
+          <select id="teLimitFullFirst" onchange="updateTeParameterRelevance()"><option value="">按 Hard Tag 默认（Hard Tag=1 时完整）</option><option value="true">完整 Difficulty</option><option value="false">按余数层</option></select>
+        </div>
+        <div id="teStrategyHelp" style="font-size:9px;color:var(--faint);margin-top:4px">view_layers 由地形 Dependencies 自动计算。</div>
       </div>
 
       <div class="param-summary" role="group" aria-label="当前生成参数">
@@ -611,6 +620,7 @@ kbd{
 // ═══════════════════════════════════
 var S={
   level:null,
+  terrainPath:null,
   result:null,
   sims:[],
   algo:'closure',
@@ -637,36 +647,44 @@ function toast(m,t){
 }
 
 // ═══════════════════════════════════
-//  Scan levels
+//  Select terrain file
 // ═══════════════════════════════════
-async function scanLevels(){
-  var dir=document.getElementById('levelsDir').value.trim();
-  var list=document.getElementById('levelList');list.innerHTML='';
+async function loadTerrainFile(file){
+  if(!file)return false;
+  if(!/\.json$/i.test(file.name)){toast('请选择 JSON 地形文件','err');return false}
+  document.getElementById('terrainFileName').textContent='正在读取 '+file.name+'...';
   try{
-    var url=dir?'/api/levels?dir='+encodeURIComponent(dir):'/api/levels';
-    var r=await fetch(url);var d=await r.json();
-    if(!d.ok)return;
-    d.levels.forEach(function(lv){
-      var o=document.createElement('option');o.value=lv.id;o.label=lv.id+' ('+lv.tiles+'张)';list.appendChild(o);
-    });
-    document.getElementById('levelsDir').placeholder=d.dir||'';
-  }catch(e){}
+    var terrainJson=await file.text();
+    var upload=await fetch('/api/terrain-upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileName:file.name,terrainJson:terrainJson})});
+    var uploaded=await upload.json();
+    if(!uploaded.ok)throw new Error(uploaded.error);
+    var loaded=await loadLevel({terrainPath:uploaded.resolvedPath});
+    if(loaded)document.getElementById('terrainFileName').textContent=file.name;
+    return loaded;
+  }catch(e){
+    document.getElementById('terrainFileName').textContent='未选择文件';
+    toast(e.message,'err');return false;
+  }finally{
+    document.getElementById('terrainFile').value='';
+  }
 }
 
 // ═══════════════════════════════════
 //  Load level
 // ═══════════════════════════════════
-async function loadLevel(){
+async function loadLevel(source){
   var id=document.getElementById('levelId').value.trim();
-  if(!id){toast('请输入关卡ID','err');return false}
+  if(!source&&!id){toast('请先选择地形文件','err');return false}
   try{
-    var body={levelId:id};
+    var body=source||{levelId:id};
     var dir=document.getElementById('levelsDir').value.trim();
     if(dir)body.levelsDir=dir;
     var r=await fetch('/api/terrain-info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var d=await r.json();
     if(!d.ok){toast(d.error,'err');return false}
     S.level=d;
+    S.terrainPath=d.resolvedPath;
+    document.getElementById('levelId').value=String(d.levelResId||id||'');
 
     var info=document.getElementById('levelInfo');
     var html='<span style="font-size:13px;font-weight:700;color:var(--gold)">#'+(d.levelResId||id)+'</span>';
@@ -685,7 +703,7 @@ async function loadLevel(){
     if(d.depthCount)updateCloseRateSliders(d);
     updateClosurePresets(d);
     validateParams();
-    toast('关卡加载完成 · '+d.freeTiles+'自由牌 · '+d.steps+'步');
+    toast('地形加载完成 · '+d.freeTiles+'自由牌 · '+d.steps+'步');
     return true;
   }catch(e){toast(e.message,'err');return false}
 }
@@ -805,11 +823,61 @@ function updateDebtLabel(){
   document.getElementById('debtLabel').textContent='— '+v.toFixed(2);
 }
 
-function updateTeStrategy(){
+function isTeSolvabilityStrategy(strategy){
+  return strategy.indexOf('solvability_coefficient')===0;
+}
+
+function setTeParamVisible(id,visible){
+  var el=document.getElementById(id);
+  if(el)el.style.display=visible?'':'none';
+}
+
+function setTeControlEnabled(id,enabled,reason){
+  var input=document.getElementById(id);
+  if(!input)return;
+  input.disabled=!enabled;
+  var host=input.parentElement;
+  if(host)host.style.opacity=enabled?'':'0.45';
+  input.title=enabled?'':reason;
+}
+
+function updateTeParameterRelevance(){
   var strategy=document.getElementById('teStrategy').value;
-  document.getElementById('teSolvabilityParams').style.display=strategy.indexOf('solvability_coefficient')===0?'':'none';
-  document.getElementById('teGradientParams').style.display=strategy==='color_gradient'?'':'none';
+  var gradient=strategy==='color_gradient';
+  var solvability=isTeSolvabilityStrategy(strategy);
+  var limit=strategy==='limit_layer_random';
+  var explicitCycle=document.getElementById('teTypeCycle').value.trim()!=='';
+  var fullState=document.getElementById('tePlacementState').value.trim()!=='';
+  var explicitLimit=document.getElementById('teLimitFullFirst').value!=='';
+
+  setTeParamVisible('teDifficultyParam',!gradient);
+  setTeParamVisible('teColorCountParam',!gradient);
+  setTeParamVisible('teSequenceSeedParam',!gradient);
+  setTeParamVisible('teTypeCycleParam',!gradient);
+  setTeParamVisible('teTypeWeightsParam',!gradient);
+  setTeParamVisible('teEasyLayersParam',strategy==='default');
+  setTeParamVisible('teHardTagParam',limit||solvability);
+  setTeParamVisible('teLimitParams',limit);
+  setTeParamVisible('teSolvabilityParams',solvability);
+  setTeParamVisible('teGradientParams',gradient);
+
+  setTeControlEnabled('teColorCount',!explicitCycle,'显式花色循环已提供，花色数不参与计算');
+  setTeControlEnabled('teSequenceSeed',!explicitCycle,'显式花色循环已提供，Sequence Seed 不参与计算');
+  setTeControlEnabled('teTypeWeights',!explicitCycle,'显式花色循环优先于花色权重');
+  setTeControlEnabled('tePlacementSeed',!fullState,'已提供 Placement RNG 完整状态，Placement Seed 不参与计算');
+  setTeControlEnabled('teHardTag',!(limit&&explicitLimit),'首批模式已显式指定，Hard Tag 不参与 LimitLayerRandom 计算');
+
+  var help=gradient
+    ?'ColorGradient 直接使用花色分组；Difficulty、花色数、Sequence Seed、显式循环和权重均不参与计算。'
+    :explicitCycle
+      ?'显式花色循环已生效；花色数、花色权重和 Sequence Seed 被忽略。'
+      :'花色权重会先按 Sequence Seed 构造循环；花色数限制参与权重的前 N 种。';
+  document.getElementById('teStrategyHelp').textContent=help+' view_layers 由地形 Dependencies 自动计算。';
   updateGenerationParamSummary();
+}
+
+function updateTeStrategy(){
+  updateTeParameterRelevance();
 }
 
 // ═══════════════════════════════════
@@ -817,10 +885,11 @@ function updateTeStrategy(){
 // ═══════════════════════════════════
 function collectGenerationParams(){
   var body={
-    levelId:document.getElementById('levelId').value.trim(),
+    levelId:S.level&&S.level.levelResId!=null?String(S.level.levelResId):document.getElementById('levelId').value.trim(),
     algorithm:S.algo,
     colorCount:(S.algo==='tile-explorer'?document.getElementById('teColorCount'):document.getElementById('colorCount')).value,
   };
+  if(S.terrainPath)body.terrainPath=S.terrainPath;
   var dir=document.getElementById('levelsDir').value.trim();
   if(dir)body.levelsDir=dir;
   if(S.algo==='closure'){
@@ -831,20 +900,32 @@ function collectGenerationParams(){
     body.colorAllocationMode=document.getElementById('colorAllocation').value;
     body.colorAllocationMaxRatio=parseFloat(document.getElementById('heavyColorMaxRatio').value).toFixed(2);
   }else if(S.algo==='tile-explorer'){
-    body.teStrategy=document.getElementById('teStrategy').value;
+    var strategy=document.getElementById('teStrategy').value;
+    var solvability=isTeSolvabilityStrategy(strategy);
+    var limit=strategy==='limit_layer_random';
+    var gradient=strategy==='color_gradient';
+    var explicitCycle=document.getElementById('teTypeCycle').value.trim();
+    body.teStrategy=strategy;
     body.difficulty=document.getElementById('teDifficulty').value;
     body.sequenceSeed=document.getElementById('teSequenceSeed').value;
     body.placementSeed=document.getElementById('tePlacementSeed').value;
-    body.typeCycle=document.getElementById('teTypeCycle').value.trim();
-    body.typeWeights=document.getElementById('teTypeWeights').value.trim();
-    body.easyLayerCount=document.getElementById('teEasyLayers').value;
-    body.hardTag=document.getElementById('teHardTag').value;
-    body.limitFullFirst=document.getElementById('teLimitFullFirst').value;
-    body.lowerCoefficient=document.getElementById('teLowerCoefficient').value;
-    body.topCoefficient=document.getElementById('teTopCoefficient').value;
-    body.fallbackExtraLayers=document.getElementById('teFallbackExtraLayers').value;
-    body.solvabilityRandomMode=document.getElementById('teRandomMode').value;
-    body.colorGradientTypeGroups=document.getElementById('teGradientGroups').value.trim();
+    var placementState=document.getElementById('tePlacementState').value.trim();
+    if(placementState)body.placementRandomState=placementState;
+    if(!gradient&&explicitCycle)body.typeCycle=explicitCycle;
+    else if(!gradient){
+      var weights=document.getElementById('teTypeWeights').value.trim();
+      if(weights)body.typeWeights=weights;
+    }
+    if(strategy==='default')body.easyLayerCount=document.getElementById('teEasyLayers').value;
+    if(limit||solvability)body.hardTag=document.getElementById('teHardTag').value;
+    if(limit)body.limitFullFirst=document.getElementById('teLimitFullFirst').value;
+    if(solvability){
+      body.lowerCoefficient=document.getElementById('teLowerCoefficient').value;
+      body.topCoefficient=document.getElementById('teTopCoefficient').value;
+      body.fallbackExtraLayers=document.getElementById('teFallbackExtraLayers').value;
+      body.solvabilityRandomMode=document.getElementById('teRandomMode').value;
+    }
+    if(gradient)body.colorGradientTypeGroups=document.getElementById('teGradientGroups').value.trim();
   }else{
     body.targetStd=document.getElementById('targetStd').value;
     body.costArray=document.getElementById('costArray').value.trim();
@@ -1334,7 +1415,7 @@ async function decodeCode(){
     // 2. 拉取闭合率指标（完整 DebtMetrics，与生成时 showClosure 所需字段一致）
     var m=null;
     try{
-      var mr=await fetch('/api/replay-closure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code})});
+      var mr=await fetch('/api/replay-closure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code,terrainPath:S.terrainPath})});
       m=await mr.json();
     }catch(e){}
 
@@ -1370,7 +1451,7 @@ async function decodeCode(){
 function generationParamShapeError(params){
   if(!params||typeof params!=='object')return'参数串内容无效';
   if(params.algorithm!=='closure'&&params.algorithm!=='cost-ladder'&&params.algorithm!=='tile-explorer')return'参数串缺少有效算法';
-  if(!String(params.levelId||'').trim())return'参数串缺少关卡 ID';
+  if(!String(params.levelId||'').trim()&&!String(params.terrainPath||'').trim())return'参数串缺少地形信息';
   var colorCount=parseInt(params.colorCount);
   if(!Number.isFinite(colorCount)||colorCount<1||colorCount>99)return'花色数必须在 1–99 之间';
   if(params.algorithm==='closure'){
@@ -1384,6 +1465,13 @@ function generationParamShapeError(params){
     var difficulty=parseInt(params.difficulty),sequenceSeed=Number(params.sequenceSeed),placementSeed=Number(params.placementSeed);
     if(!Number.isInteger(difficulty)||difficulty<1)return'Difficulty 必须是正整数';
     if(!Number.isInteger(sequenceSeed)||!Number.isInteger(placementSeed))return'两个 Seed 必须是整数';
+    if(params.placementRandomState){
+      try{
+        var state=typeof params.placementRandomState==='string'?JSON.parse(params.placementRandomState):params.placementRandomState;
+        if(!state||!Array.isArray(state.seed_array)||state.seed_array.length!==56||state.seed_array.some(function(v){return!Number.isInteger(v)}))return'Placement RNG seed_array 必须包含 56 个整数';
+        if(!Number.isInteger(state.inext)||!Number.isInteger(state.inextp))return'Placement RNG inext/inextp 必须是整数';
+      }catch(e){return'Placement RNG 完整状态 JSON 无效'}
+    }
     if(params.teStrategy==='color_gradient'){
       try{var groups=JSON.parse(params.colorGradientTypeGroups);if(!Array.isArray(groups)||!groups.length)return'ColorGradient 花色分组不能为空'}
       catch(e){return'ColorGradient 花色分组 JSON 无效'}
@@ -1447,7 +1535,7 @@ async function applyGenerationParamString(code,out){
   document.getElementById('levelsDir').value=params.levelsDir?String(params.levelsDir):'';
   if(params.algorithm==='tile-explorer')document.getElementById('teColorCount').value=String(parseInt(params.colorCount));
   else document.getElementById('colorCount').value=String(parseInt(params.colorCount));
-  var loaded=await loadLevel();
+  var loaded=await loadLevel(params.terrainPath?{terrainPath:String(params.terrainPath)}:undefined);
   if(!loaded){out.textContent='地形加载失败，无法进入生成参数';out.className='msg msg-err';return false}
 
   var compatibility=inspectTerrainCompatibility(params,S.level);
@@ -1470,6 +1558,9 @@ async function applyGenerationParamString(code,out){
     document.getElementById('teDifficulty').value=String(params.difficulty||1);
     document.getElementById('teSequenceSeed').value=String(params.sequenceSeed||0);
     document.getElementById('tePlacementSeed').value=String(params.placementSeed||0);
+    document.getElementById('tePlacementState').value=params.placementRandomState
+      ?(typeof params.placementRandomState==='string'?params.placementRandomState:JSON.stringify(params.placementRandomState))
+      :'';
     document.getElementById('teTypeCycle').value=String(params.typeCycle||'');
     document.getElementById('teTypeWeights').value=String(params.typeWeights||'');
     document.getElementById('teEasyLayers').value=String(params.easyLayerCount||0);
@@ -1503,7 +1594,7 @@ async function importParams(){
       return;
     }
     // 调用新 API：提取所有可导入参数
-    var r=await fetch('/api/replay-params',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code})});
+    var r=await fetch('/api/replay-params',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code,terrainPath:S.terrainPath})});
     var d=await r.json();
     if(!d.ok){out.textContent=d.error;out.className='msg msg-err';return}
 
@@ -1559,7 +1650,7 @@ async function importParams(){
 
 async function fetchClosureRates(code){
   try{
-    var r=await fetch('/api/replay-closure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code})});
+    var r=await fetch('/api/replay-closure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code,terrainPath:S.terrainPath})});
     var m=await r.json();
     if(!m.ok)return;
     document.getElementById('chartLegend').innerHTML='花色 <b>'+m.colorCount+'</b> · 深度 <b>'+m.depthCount+'</b>层 · 自由牌 <b>'+m.totalFreeTiles+'</b>';
@@ -1610,7 +1701,7 @@ async function verifyDFS(){
   try{
     var timeout=parseInt(document.getElementById('dfsTimeout').value)||90;
     var r=await fetch('/api/dfs-verify',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({replayCode:d.replayCode,levelId:document.getElementById('levelId').value,timeout:timeout})});
+      body:JSON.stringify({replayCode:d.replayCode,levelId:document.getElementById('levelId').value,terrainPath:S.terrainPath,timeout:timeout})});
     var v=await r.json();
     if(!v.ok){out.textContent=v.error;out.className='msg msg-err';return}
     var cls=v.solvable?'msg-ok':'msg-err',txt=v.solvable?'✓ 有解':'✗ 无解';
@@ -1629,7 +1720,7 @@ async function verifyRevive(){
   try{
     var timeout=parseInt(document.getElementById('dfsTimeout2').value)||90;
     var r=await fetch('/api/dfs-verify',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({replayCode:d.replayCode,levelId:document.getElementById('levelId').value,timeout:timeout,mode:'revive',maxReviveSearch:20})});
+      body:JSON.stringify({replayCode:d.replayCode,levelId:document.getElementById('levelId').value,terrainPath:S.terrainPath,timeout:timeout,mode:'revive',maxReviveSearch:20})});
     var v=await r.json();
     if(!v.ok){out.textContent=v.error;out.className='msg msg-err';return}
     if(v.solvable){
@@ -1663,7 +1754,7 @@ async function runSim(){
   var strategy=document.getElementById('simStrategy').value;
   var runs=parseInt(document.getElementById('simRuns').value)||100;
   var btn=document.getElementById('btnSim'),out=document.getElementById('simResult');
-  var endpoint,body={replayCode:d.replayCode,levelId:document.getElementById('levelId').value,runs:runs};
+  var endpoint,body={replayCode:d.replayCode,levelId:document.getElementById('levelId').value,terrainPath:S.terrainPath,runs:runs};
   var params={strategy:strategy,runs:runs};
 
   if(strategy==='shortest'){endpoint='/api/player-sim-shortest'}
@@ -1739,7 +1830,7 @@ async function runGrade(){
   var strategy=document.getElementById('gradeStrategy').value;
   var runs=parseInt(document.getElementById('gradeRuns').value)||100;
   var endpoint=target>=0?'/api/grade/validate':'/api/grade/calculate';
-  var body={replayCode:d.replayCode,levelId:document.getElementById('levelId').value,runs:runs,strategy:strategy};
+  var body={replayCode:d.replayCode,levelId:document.getElementById('levelId').value,terrainPath:S.terrainPath,runs:runs,strategy:strategy};
   if(target>=0)body.targetGrade=target;
 
   btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;out.textContent='';out.className='msg';
@@ -2008,8 +2099,8 @@ document.addEventListener('keydown',function(e){
 // ═══════════════════════════════════
 //  Init
 // ═══════════════════════════════════
-scanLevels();
 switchSimStrategy();
+updateTeStrategy();
 updateGenerationParamSummary();
 </script>
 </body>
