@@ -16,7 +16,7 @@ export function loadTerrainFromFile(filePath: string): TerrainData {
 }
 
 /** 从 JSON 字符串解析地形。 */
-function loadTerrainFromJson(json: string): TerrainData {
+export function loadTerrainFromJson(json: string): TerrainData {
   const data = JSON.parse(json.replace(/^\uFEFF/, ''));
   return normalizeTerrain(data);
 }

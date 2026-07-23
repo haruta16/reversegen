@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ReverseGen · 牌局生成器</title>
-<script src="/reversegen-theme.js"></script>
-<link rel="stylesheet" href="/reversegen-theme.css">
+<script src="reversegen-theme.js"></script>
+<link rel="stylesheet" href="reversegen-theme.css">
 <style>
 /* ═══════════════════════════════════════════════
    PRECISION CONSOLE — warm, refined, deliberate
@@ -303,6 +303,7 @@ kbd{
   display:inline-block;padding:1px 5px;font-size:9px;font-family:var(--mono);
   background:var(--ink);border:1px solid var(--line);border-radius:3px;color:var(--dim);
 }
+.generator-surface .topbar>a{display:none}
 </style>
 </head>
 <body>
@@ -323,10 +324,10 @@ kbd{
   </div>
   <span class="level-quick" id="levelBadge"></span>
   <div class="spacer"></div>
-  <a href="/challenge-expectation">挑战期望</a>
-  <a href="/analysis.html">Triple 分析</a>
-  <a href="/batch-generate.html">批量产关</a>
-  <a href="/generation-strategies.html">产出策略</a>
+  <a href="challenge-expectation">挑战期望</a>
+  <a href="analysis.html">Triple 分析</a>
+  <a href="batch-generate.html">批量产关</a>
+  <a href="generation-strategies.html">产出策略</a>
 </nav>
 
 <div id="toast"></div>
@@ -661,6 +662,18 @@ kbd{
 <div class="param-help-popover" id="paramHelpPopover" role="tooltip" hidden></div>
 
 <script>
+var APP_ROOT_URL=new URL('.',window.location.href);
+function appFetch(input,init){
+  if(typeof input==='string'&&input.charAt(0)==='/')input=new URL(input.replace(/^\/+/,''),APP_ROOT_URL).toString();
+  return window.fetch(input,init);
+}
+appFetch('/api/runtime-config')
+  .then(function(response){return response.json()})
+  .then(function(config){
+    if(config&&config.surface==='generator')document.body.classList.add('generator-surface');
+  })
+  .catch(function(){});
+
 // ═══════════════════════════════════
 //  State
 // ═══════════════════════════════════
@@ -835,7 +848,7 @@ function selectLevelsDirectory(files){
 async function initDefaultLevelsDir(){
   var input=document.getElementById('levelsDir');
   try{
-    var r=await fetch('/api/levels');
+    var r=await appFetch('/api/levels');
     var data=await r.json();
     if(data.ok&&!input.value)input.value=String(data.dir||'');
   }catch(e){}
@@ -847,7 +860,7 @@ async function loadTerrainFile(file){
   document.getElementById('terrainFileName').textContent='正在读取 '+file.name+'...';
   try{
     var terrainJson=await file.text();
-    var upload=await fetch('/api/terrain-upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileName:file.name,terrainJson:terrainJson})});
+    var upload=await appFetch('/api/terrain-upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileName:file.name,terrainJson:terrainJson})});
     var uploaded=await upload.json();
     if(!uploaded.ok)throw new Error(uploaded.error);
     var loaded=await loadLevel({terrainPath:uploaded.resolvedPath});
@@ -876,7 +889,7 @@ async function loadLevel(source){
     var body=source||{levelId:id};
     var dir=selectedLevelsDir();
     if(dir)body.levelsDir=dir;
-    var r=await fetch('/api/terrain-info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var r=await appFetch('/api/terrain-info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var d=await r.json();
     if(!d.ok){toast(d.error,'err');return false}
     S.level=d;
@@ -1398,7 +1411,7 @@ async function generate(){
 
   btn.innerHTML='<span class="spinner"></span> 生成中...';btn.disabled=true;
   try{
-    var r=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var r=await appFetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var d=await r.json();
     if(!d.ok){document.getElementById('genErr').textContent=d.error;return}
     S.result=d;S.sims=[];
@@ -1661,7 +1674,7 @@ async function decodeCode(){
   out.textContent='解码中...';out.className='msg';
   try{
     // 1. 解码 replay code
-    var r=await fetch('/api/decode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code})});
+    var r=await appFetch('/api/decode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code})});
     var d=await r.json();
     if(!d.ok){out.textContent=d.error;out.className='msg msg-err';return}
 
@@ -1670,7 +1683,7 @@ async function decodeCode(){
     // 2. 拉取闭合率指标（完整 DebtMetrics，与生成时 showClosure 所需字段一致）
     var m=null;
     try{
-      var mr=await fetch('/api/replay-closure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code,terrainPath:S.terrainPath})});
+      var mr=await appFetch('/api/replay-closure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code,terrainPath:S.terrainPath})});
       m=await mr.json();
     }catch(e){}
 
@@ -1863,7 +1876,7 @@ async function importParams(){
       return;
     }
     // 调用新 API：提取所有可导入参数
-    var r=await fetch('/api/replay-params',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code,terrainPath:S.terrainPath})});
+    var r=await appFetch('/api/replay-params',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code,terrainPath:S.terrainPath})});
     var d=await r.json();
     if(!d.ok){out.textContent=d.error;out.className='msg msg-err';return}
 
@@ -1919,7 +1932,7 @@ async function importParams(){
 
 async function fetchClosureRates(code){
   try{
-    var r=await fetch('/api/replay-closure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code,terrainPath:S.terrainPath})});
+    var r=await appFetch('/api/replay-closure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code,terrainPath:S.terrainPath})});
     var m=await r.json();
     if(!m.ok)return;
     document.getElementById('chartLegend').innerHTML='花色 <b>'+m.colorCount+'</b> · 深度 <b>'+m.depthCount+'</b>层 · 自由牌 <b>'+m.totalFreeTiles+'</b>';
@@ -1969,7 +1982,7 @@ async function verifyDFS(){
   btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;out.textContent='';out.className='msg';
   try{
     var timeout=parseInt(document.getElementById('dfsTimeout').value)||90;
-    var r=await fetch('/api/dfs-verify',{method:'POST',headers:{'Content-Type':'application/json'},
+    var r=await appFetch('/api/dfs-verify',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({replayCode:d.replayCode,levelId:document.getElementById('levelId').value,terrainPath:S.terrainPath,timeout:timeout})});
     var v=await r.json();
     if(!v.ok){out.textContent=v.error;out.className='msg msg-err';return}
@@ -1988,7 +2001,7 @@ async function verifyRevive(){
   btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;out.textContent='';out.className='msg';
   try{
     var timeout=parseInt(document.getElementById('dfsTimeout2').value)||90;
-    var r=await fetch('/api/dfs-verify',{method:'POST',headers:{'Content-Type':'application/json'},
+    var r=await appFetch('/api/dfs-verify',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({replayCode:d.replayCode,levelId:document.getElementById('levelId').value,terrainPath:S.terrainPath,timeout:timeout,mode:'revive',maxReviveSearch:20})});
     var v=await r.json();
     if(!v.ok){out.textContent=v.error;out.className='msg msg-err';return}
@@ -2034,7 +2047,7 @@ async function runSim(){
 
   btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;out.textContent='';out.className='msg';
   try{
-    var r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var r=await appFetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var v=await r.json();
     if(!v.ok){out.textContent=v.error;out.className='msg msg-err';return}
     var pct=(v.winRate*100).toFixed(1);
@@ -2104,7 +2117,7 @@ async function runGrade(){
 
   btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;out.textContent='';out.className='msg';
   try{
-    var r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var r=await appFetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var v=await r.json();
     if(!v.ok){out.textContent=v.error;out.className='msg msg-err';return}
     renderGradeResult(v,out);
@@ -2263,7 +2276,7 @@ async function saveReplaySelection(){
   var btn=document.getElementById('btnSaveSelection'),out=document.getElementById('selectionResult');
   btn.disabled=true;btn.innerHTML='<span class="spinner"></span>';out.textContent='';out.className='msg';
   try{
-    var r=await fetch('/api/replay-selection/append',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    var r=await appFetch('/api/replay-selection/append',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
       levelResId:levelId,replayCode:d.replayCode,grade:gradeText,elementCount:elementCount,passrate:S.selectionPassrate||0
     })});
     var v=await r.json();
@@ -2279,7 +2292,7 @@ async function buildReplaySelections(){
   var btn=document.getElementById('btnBuildSelections'),out=document.getElementById('selectionResult');
   btn.disabled=true;btn.innerHTML='<span class="spinner"></span>';out.textContent='校验并构建中...';out.className='msg';
   try{
-    var r=await fetch('/api/replay-selection/build',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    var r=await appFetch('/api/replay-selection/build',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
     var v=await r.json();
     if(!v.ok){out.textContent=v.error;out.className='msg msg-err';toast('构建失败','err');return}
     out.textContent='已生成 '+v.fileCount+' 个文件 / '+v.validRows+' 条牌局'+(v.skippedBlankGrade?' · 跳过空 grade '+v.skippedBlankGrade+' 条':'');

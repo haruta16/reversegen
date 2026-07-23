@@ -77,6 +77,7 @@ import {
   type StrategyEditorMeta,
   type WebBatchConfig,
 } from '../src/strategy/web-adapter.js';
+import { generateReplayFromExternalInput } from '../src/external-generation.js';
 
 /** 内存中的分析结果缓存 (keyed by terrainHash)，最多保留 50 条，LRU 淘汰 */
 const ANALYSIS_CACHE_MAX = 50;
@@ -179,17 +180,33 @@ const GENERATION_SCHEMA_PATH = join(PROJECT_ROOT, 'config', 'strategy-v2.schema.
 const GENERATION_CATALOG_PATH = join(PROJECT_ROOT, 'config', 'generation-feature-catalog.json');
 const UPLOADED_TERRAINS_DIR = join(PROJECT_ROOT, '.reversegen-cache', 'uploaded-terrains');
 const GENERATION_STRATEGY_ID = /^[a-z0-9][a-z0-9_-]{2,79}$/;
+const APP_NAME = 'reversegen';
+const APP_VERSION = (() => {
+  try { return String(JSON.parse(readFileSync(join(PROJECT_ROOT, 'package.json'), 'utf-8')).version || '0.0.0'); }
+  catch { return '0.0.0'; }
+})();
+
+function normalizeBasePath(value: string | undefined): string {
+  const trimmed = String(value || '').trim();
+  if (!trimmed || trimmed === '/') return '/';
+  return `/${trimmed.replace(/^\/+|\/+$/g, '')}/`;
+}
+
+const appBasePath = normalizeBasePath(process.env.APP_BASE_PATH);
+const frameAncestors = String(process.env.FRAME_ANCESTORS || '').trim();
+const appSurface = String(process.env.APP_SURFACE || 'full').trim().toLowerCase() || 'full';
 
 type GenerationStrategy = Record<string, any>;
 
 // ── CLI Args ──
 const args = process.argv.slice(2);
-let port = 3000;
-let host = '0.0.0.0';
+let port = Number.parseInt(process.env.PORT || '', 10) || 3000;
+let host = String(process.env.HOST || '0.0.0.0').trim() || '0.0.0.0';
 let autoOpen = false;
 let openPath = '/';
 // Default: look for levels in the original TileMatchShell project
-let defaultLevelsDir = join(__dirname, '..', '..', 'TileMatchShell', 'Tools', 'Config', 'Json', 'Levels');
+let defaultLevelsDir = String(process.env.LEVELS_DIR || '').trim()
+  || join(__dirname, '..', '..', 'TileMatchShell', 'Tools', 'Config', 'Json', 'Levels');
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--port' && args[i + 1]) {
@@ -695,6 +712,81 @@ function getGradeStrategy1Config(): GradeStrategy1Config {
 // ── Server ──
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://localhost:${port}`);
+  const originalPath = url.pathname;
+  const baseWithoutTrailingSlash = appBasePath === '/' ? '/' : appBasePath.slice(0, -1);
+
+  if (frameAncestors) res.setHeader('Content-Security-Policy', `frame-ancestors ${frameAncestors}`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  if (appBasePath !== '/' && originalPath === baseWithoutTrailingSlash) {
+    res.writeHead(302, { Location: appBasePath });
+    res.end();
+    return;
+  }
+
+  if (originalPath === '/health') {
+    url.pathname = '/health';
+  } else if (appBasePath !== '/') {
+    if (!originalPath.startsWith(appBasePath)) {
+      json(res, { ok: false, error: 'Not found' }, 404);
+      return;
+    }
+    url.pathname = `/${originalPath.slice(appBasePath.length)}`;
+  }
+
+  if (url.pathname === '/health' && req.method === 'GET') {
+    json(res, {
+      status: 'ok',
+      app: APP_NAME,
+      version: APP_VERSION,
+      surface: appSurface,
+      basePath: appBasePath,
+      platformApiConfigured: Boolean(process.env.PLATFORM_API_URL),
+    });
+    return;
+  }
+
+  if (url.pathname === '/api/runtime-config' && req.method === 'GET') {
+    json(res, {
+      ok: true,
+      surface: appSurface,
+      basePath: appBasePath,
+    });
+    return;
+  }
+
+  // ── Stable external API: copied parameter string + level JSON → ReplayCode ──
+  if (url.pathname === '/api/v1/generate-replay' && req.method === 'POST') {
+    const body = await parseBody(req);
+    try {
+      const {
+        parameterString,
+        terrain,
+        terrainJson,
+        bodyError,
+      } = body as {
+        parameterString?: string;
+        terrain?: unknown;
+        terrainJson?: string;
+        bodyError?: string;
+      };
+      if (bodyError) throw new Error(bodyError);
+      if (typeof parameterString !== 'string' || !parameterString.trim()) {
+        throw new Error('parameterString 不能为空');
+      }
+      const result = generateReplayFromExternalInput({
+        parameterString,
+        terrain: terrain ?? terrainJson,
+      });
+      json(res, { ok: true, ...result });
+    } catch (error) {
+      json(res, {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      }, 400);
+    }
+    return;
+  }
 
   // ── API: generation strategy metadata ──
   if (url.pathname === '/api/generation-strategies/meta' && req.method === 'GET') {
@@ -2357,6 +2449,14 @@ const server = createServer(async (req, res) => {
     serveStatic(res, join(GUI_DIR, 'index.html'));
     return;
   }
+  if (appSurface === 'generator') {
+    if (url.pathname === '/reversegen-theme.js' || url.pathname === '/reversegen-theme.css') {
+      serveStatic(res, join(GUI_DIR, url.pathname));
+      return;
+    }
+    json(res, { ok: false, error: 'Not found' }, 404);
+    return;
+  }
   if (url.pathname === '/challenge-expectation' || url.pathname === '/challenge-expectation/') {
     serveStatic(res, join(GUI_DIR, 'challenge-expectation', 'index.html'));
     return;
@@ -2377,7 +2477,7 @@ server.listen(port, host, () => {
   try { loadGradeConfig(); } catch (e) { console.warn(`⚠️  分档配置加载失败: ${e}`); }
   try { loadGradeStrategy1Config(); } catch (e) { console.warn(`⚠️  分档策略1配置加载失败: ${e}`); }
 
-  console.log(`\n🔧 ReverseGen GUI → http://localhost:${port}`);
+  console.log(`\n🔧 ReverseGen GUI → http://localhost:${port}${appBasePath}`);
   if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1') {
     const virtualInterfacePattern = /(?:vEthernet|WSL|Hyper-V|VMware|VirtualBox|VMnet|Docker|TAP|VPN|Loopback|Bluetooth|蓝牙)/i;
     const addresses = Object.entries(networkInterfaces())
@@ -2417,6 +2517,8 @@ server.listen(port, host, () => {
   if (autoOpen) {
     const platform = process.platform;
     const cmd = platform === 'darwin' ? 'open' : platform === 'win32' ? 'start' : 'xdg-open';
-    exec(`${cmd} http://localhost:${port}${openPath}`);
+    const baseUrl = `http://localhost:${port}${appBasePath}`;
+    const target = openPath === '/' ? baseUrl : `${baseUrl}${openPath.replace(/^\//, '')}`;
+    exec(`${cmd} ${target}`);
   }
 });

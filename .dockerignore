@@ -1,0 +1,17 @@
+.git
+.github
+.agents
+.codex
+node_modules
+dist
+coverage
+output
+outputs
+.reversegen-cache
+rust
+test
+docs
+*.log
+.DS_Store
+replays/generated
+replays/selection.csv
