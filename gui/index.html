@@ -43,6 +43,18 @@ body{
 }
 .topbar input:focus{border-color:var(--gold);box-shadow:0 0 0 3px var(--accent-focus)}
 .topbar input[type="number"]{width:160px;font-weight:600}
+.topbar .terrain-loader{
+  position:relative;z-index:1;display:flex;align-items:center;gap:6px;min-width:0;
+  pointer-events:auto;-webkit-app-region:no-drag;
+}
+.topbar .terrain-loader input{width:104px;padding:8px 10px;font-size:12px;pointer-events:auto;-webkit-app-region:no-drag}
+.topbar .terrain-loader .levels-dir{width:260px}
+.topbar .terrain-loader .btn{
+  position:relative;min-height:34px;padding:8px 12px;font-size:11px;
+  pointer-events:auto;-webkit-app-region:no-drag;user-select:none;touch-action:manipulation;
+}
+.topbar .terrain-loader .btn::after{content:'';position:absolute;inset:0;border-radius:inherit}
+.topbar .terrain-loader .file-name{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .topbar .level-quick{font-size:12px;color:var(--dim);white-space:nowrap}
 .topbar .spacer{flex:1}
 .topbar a{color:var(--dim);text-decoration:none;font-size:12px;transition:color .2s}
@@ -51,7 +63,8 @@ body{
 .topbar .btn-gold{background:var(--gold);color:var(--accent-contrast)}
 .topbar .btn-gold:hover{background:var(--accent-hover)}
 .topbar .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--dim)}
-.topbar .btn-ghost:hover{border-color:var(--gold);color:var(--gold)}
+.topbar .btn-ghost:hover{border-color:var(--gold);color:var(--gold);background:var(--accent-soft)}
+.topbar .btn-ghost:active{background:var(--accent-focus)}
 
 /* ── Main layout ── */
 .main{padding:20px;max-width:1480px;margin:0 auto}
@@ -134,6 +147,31 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
 .msg{font-size:10px;min-height:16px;margin-top:4px;transition:all .3s}
 .msg-ok{color:var(--ok)}.msg-warn{color:var(--warn)}.msg-err{color:var(--bad)}
 
+/* ── Contextual parameter help ── */
+.param-help{
+  display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;margin-left:4px;
+  padding:0;border:1px solid var(--line);border-radius:50%;background:transparent;color:var(--faint);
+  font:700 9px/1 var(--sans);vertical-align:1px;cursor:pointer;transition:all .15s;
+}
+.param-help:hover,.param-help:focus-visible,.param-help[aria-expanded="true"]{
+  border-color:var(--gold);background:var(--accent-soft);color:var(--gold);outline:none;
+}
+.param-help-popover{
+  position:fixed;z-index:500;width:min(270px,calc(100vw - 24px));padding:10px 11px;
+  border:1px solid var(--gold);border-radius:8px;background:var(--paper);box-shadow:0 10px 28px rgba(0,0,0,.28);
+  color:var(--dim);font-size:10px;line-height:1.65;opacity:0;transform:translateY(-3px);
+  pointer-events:none;transition:opacity .12s,transform .12s;
+}
+.param-help-popover.show{opacity:1;transform:translateY(0);pointer-events:auto}
+.param-help-popover strong{display:block;margin-bottom:3px;color:var(--text);font-size:11px}
+.param-help-popover .effect{display:block;margin-top:5px;color:var(--ok)}
+.param-help-popover .caution{display:block;margin-top:5px;color:var(--warn)}
+.technical-name{font-weight:400;text-transform:none;letter-spacing:0;color:var(--faint)}
+.strategy-explainer{
+  margin-top:5px;padding:6px 8px;border-radius:5px;background:var(--accent-soft);color:var(--dim);
+  font-size:9px;line-height:1.55;
+}
+
 /* ── Stats grid ── */
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px}
 .stat{
@@ -167,7 +205,7 @@ canvas{width:100%;border-radius:6px;margin-top:4px;display:block}
 .code-block{
   background:var(--ink);border:1px solid var(--line);border-radius:6px;
   padding:10px 12px;font-family:var(--mono);font-size:10px;color:var(--ok);
-  word-break:break-all;max-height:56px;overflow-y:auto;position:relative;
+  word-break:break-all;max-height:56px;overflow-y:auto;position:relative;user-select:text;
 }
 .code-actions{display:flex;gap:6px;margin-top:6px}
 
@@ -274,10 +312,15 @@ kbd{
   <div class="brand"><span>◈</span>ReverseGen</div>
   <div class="sep"></div>
   <input type="file" id="terrainFile" accept=".json,application/json" style="display:none" onchange="loadTerrainFile(this.files&&this.files[0])">
-  <input type="hidden" id="levelId">
-  <input type="hidden" id="levelsDir">
-  <button class="btn btn-ghost" onclick="document.getElementById('terrainFile').click()">选择地形文件</button>
-  <span id="terrainFileName" style="font-size:10px;color:var(--dim)">未选择文件</span>
+  <input type="file" id="levelsFolderPicker" accept=".json,application/json" webkitdirectory directory multiple style="display:none" onchange="selectLevelsDirectory(this.files)">
+  <div class="terrain-loader">
+    <input type="text" id="levelsDir" class="levels-dir" placeholder="默认关卡目录" aria-label="默认关卡目录" title="可输入运行 GUI 的电脑上的 Levels 目录；也可选择当前电脑上的目录" oninput="clearSelectedLevelsDirectory()">
+    <button type="button" class="btn btn-ghost" onclick="document.getElementById('levelsFolderPicker').click()">选择目录</button>
+    <input type="text" id="levelId" inputmode="numeric" placeholder="关卡 ID" aria-label="默认路径关卡 ID" onkeydown="if(event.key==='Enter'){event.preventDefault();loadLevel()}">
+    <button type="button" class="btn btn-ghost" onclick="loadLevel()" title="按关卡 ID 从当前默认目录加载">加载</button>
+    <button type="button" class="btn btn-ghost" onclick="document.getElementById('terrainFile').click()">单独选文件</button>
+    <span id="terrainFileName" class="file-name" style="font-size:10px;color:var(--dim)">未加载</span>
+  </div>
   <span class="level-quick" id="levelBadge"></span>
   <div class="spacer"></div>
   <a href="/challenge-expectation">挑战期望</a>
@@ -314,10 +357,10 @@ kbd{
 
       <!-- CostLadder -->
       <div id="panelCost" style="display:none">
-        <label>Cost 目标数组</label>
+        <label>Cost 目标数组 <button type="button" class="param-help" data-param-help="costArray" aria-label="解释 Cost 目标数组">?</button></label>
         <div class="chips" id="costPresets"></div>
         <div class="row" style="margin-top:4px">
-          <input type="number" id="targetStd" value="1.0" min="0" max="3" step="0.1" style="width:56px" placeholder="σ">
+          <div style="display:flex;align-items:center;gap:4px"><input type="number" id="targetStd" value="1.0" min="0" max="3" step="0.1" placeholder="σ" aria-label="Cost 起伏强度"><button type="button" class="param-help" data-param-help="targetStd" aria-label="解释 Cost 起伏强度">?</button></div>
           <button class="btn btn-outline btn-icon" onclick="generateCost()" data-tip="随机生成Cost数组">🎲</button>
         </div>
         <textarea id="costArray" placeholder="如 3,3,2,2,2,1" style="margin-top:4px;font-size:11px" oninput="validateParams()"></textarea>
@@ -326,31 +369,31 @@ kbd{
 
       <!-- LayerClosure -->
       <div id="panelClosure">
-        <label>层闭合率</label>
+        <label>层闭合率 <button type="button" class="param-help" data-param-help="closeRates" aria-label="解释层闭合率">?</button></label>
         <div class="chips" id="closurePresets"></div>
         <div id="closeRateSliders" style="margin-top:4px"><span style="font-size:10px;color:var(--dim)">请先加载地形...</span></div>
         <input type="hidden" id="closeRates" value="">
         <div class="row" style="margin-top:8px">
-          <div><label>Dock容量</label><input type="number" id="dock" value="7" min="1" max="20"></div>
-          <div><label>花色数</label><input type="number" id="colorCount" value="8" min="1" max="99" oninput="syncCloseRates()"></div>
+          <div><label>Dock容量 <button type="button" class="param-help" data-param-help="dock" aria-label="解释 Dock 容量">?</button></label><input type="number" id="dock" value="7" min="1" max="20"></div>
+          <div><label>花色数 <button type="button" class="param-help" data-param-help="colorCount" aria-label="解释花色数">?</button></label><input type="number" id="colorCount" value="8" min="1" max="99" oninput="syncCloseRates()"></div>
         </div>
         <div style="margin-top:4px">
-          <label>花色配额</label>
+          <label>花色配额 <button type="button" class="param-help" data-param-help="colorAllocation" aria-label="解释花色配额">?</button></label>
           <select id="colorAllocation" style="width:100%">
             <option value="balanced">均匀分配</option>
             <option value="single-heavy">单色极重</option>
           </select>
-          <label style="margin-top:4px">主色最大占比</label>
+          <label style="margin-top:4px">主色最大占比 <button type="button" class="param-help" data-param-help="heavyColorRatio" aria-label="解释主色最大占比">?</button></label>
           <input type="number" id="heavyColorMaxRatio" value="0.50" min="0.01" max="1" step="0.01">
           <div id="colorAllocNote" style="font-size:9px;color:var(--dim);margin-top:2px;display:none"></div>
         </div>
-        <label style="margin-top:6px">同色分布 <span style="font-weight:400;font-size:9px" id="spreadLabel">— 0.50</span></label>
+        <label style="margin-top:6px">同色分布 <span style="font-weight:400;font-size:9px" id="spreadLabel">— 0.50</span> <button type="button" class="param-help" data-param-help="spread" aria-label="解释同色分布">?</button></label>
         <div class="slider-row">
           <span class="sl-l">紧密</span>
           <input class="slider" type="range" id="spreadParam" min="0" max="100" value="50" step="1" oninput="updateSpreadLabel()">
           <span class="sl-l" style="text-align:left">分散</span>
         </div>
-        <label style="margin-top:6px">债务持续权重 <span style="font-weight:400;font-size:9px" id="debtLabel">— 0.00</span></label>
+        <label style="margin-top:6px">债务持续权重 <span style="font-weight:400;font-size:9px" id="debtLabel">— 0.00</span> <button type="button" class="param-help" data-param-help="debt" aria-label="解释债务持续权重">?</button></label>
         <div class="slider-row">
           <span class="sl-l">清旧债</span>
           <input class="slider" type="range" id="debtPersistence" min="0" max="100" value="0" step="1" oninput="updateDebtLabel()">
@@ -360,65 +403,66 @@ kbd{
 
       <!-- Tile Explorer -->
       <div id="panelTileExplorer" style="display:none">
-        <label>生成策略</label>
+        <label>生成策略 <button type="button" class="param-help" data-param-help="teStrategy" aria-label="解释 TileExplorer 生成策略">?</button></label>
         <select id="teStrategy" style="width:100%" onchange="updateTeStrategy()">
-          <option value="default">Default</option>
-          <option value="top_two_easy">TopTwoEasy</option>
-          <option value="sliding_window">SlidingWindow</option>
-          <option value="limit_layer_random">LimitLayerRandom</option>
-          <option value="easy_hard_easy">EasyHardEasy</option>
-          <option value="solvability_coefficient">Solvability V1</option>
-          <option value="solvability_coefficient_v2">Solvability V2</option>
-          <option value="solvability_coefficient_v3">Solvability V3</option>
-          <option value="color_gradient">ColorGradient</option>
+          <option value="default">基础分层（Default）</option>
+          <option value="top_two_easy">顶部两层简化（TopTwoEasy）</option>
+          <option value="sliding_window">滑动混层（SlidingWindow）</option>
+          <option value="limit_layer_random">限制分层随机（LimitLayerRandom）</option>
+          <option value="easy_hard_easy">易—难—易（EasyHardEasy）</option>
+          <option value="solvability_coefficient">可解性保底 V1</option>
+          <option value="solvability_coefficient_v2">可解性保底 V2</option>
+          <option value="solvability_coefficient_v3">可解性保底 V3</option>
+          <option value="color_gradient">花色梯度（ColorGradient）</option>
         </select>
+        <div class="strategy-explainer" id="teStrategyExplainer"></div>
         <div class="row" style="margin-top:6px">
-          <div id="teDifficultyParam"><label>Difficulty</label><input type="number" id="teDifficulty" value="2" min="1" max="99"></div>
-          <div id="teColorCountParam"><label>花色数</label><input type="number" id="teColorCount" value="5" min="1" max="99"></div>
+          <div id="teDifficultyParam"><label>混层范围 <span class="technical-name">Difficulty</span> <button type="button" class="param-help" data-param-help="teDifficulty" aria-label="解释混层范围">?</button></label><input type="number" id="teDifficulty" value="2" min="1" max="99"></div>
+          <div id="teColorCountParam"><label>花色数 <button type="button" class="param-help" data-param-help="teColorCount" aria-label="解释 TileExplorer 花色数">?</button></label><input type="number" id="teColorCount" value="5" min="1" max="99"></div>
         </div>
         <div class="row" style="margin-top:4px">
-          <div id="teSequenceSeedParam"><label>Sequence Seed</label><input type="number" id="teSequenceSeed" value="0" step="1"></div>
-          <div id="tePlacementSeedParam"><label>Placement Seed</label><input type="number" id="tePlacementSeed" value="0" step="1"></div>
+          <div id="teSequenceSeedParam"><label>花色顺序种子 <span class="technical-name">Sequence</span> <button type="button" class="param-help" data-param-help="teSequenceSeed" aria-label="解释花色顺序种子">?</button></label><input type="number" id="teSequenceSeed" value="0" step="1"></div>
+          <div id="tePlacementSeedParam"><label>摆放种子 <span class="technical-name">Placement</span> <button type="button" class="param-help" data-param-help="tePlacementSeed" aria-label="解释摆放种子">?</button></label><input type="number" id="tePlacementSeed" value="0" step="1"></div>
         </div>
         <div id="tePlacementStateParam">
-          <label style="margin-top:4px">Placement RNG 完整状态 <span style="font-weight:400;color:var(--faint)">可空，优先于 Placement Seed</span></label>
+          <label style="margin-top:4px">摆放随机状态 <span class="technical-name">可空，优先于摆放种子</span> <button type="button" class="param-help" data-param-help="tePlacementState" aria-label="解释摆放随机状态">?</button></label>
           <textarea id="tePlacementState" placeholder='{"seed_array":[56 个整数],"inext":0,"inextp":21}' style="font-size:10px;min-height:34px" oninput="updateTeParameterRelevance()"></textarea>
         </div>
         <div id="teTypeCycleParam">
-          <label style="margin-top:6px">显式花色循环 <span style="font-weight:400;color:var(--faint)">可空，最高优先级</span></label>
+          <label style="margin-top:6px">指定花色循环 <span class="technical-name">可空，最高优先级</span> <button type="button" class="param-help" data-param-help="teTypeCycle" aria-label="解释指定花色循环">?</button></label>
           <input type="text" id="teTypeCycle" placeholder="如 1,2,3,1,4" oninput="updateTeParameterRelevance()">
         </div>
         <div id="teTypeWeightsParam">
-          <label style="margin-top:4px">花色权重 <span style="font-weight:400;color:var(--faint)">可空；花色数限制参与权重的前 N 种</span></label>
+          <label style="margin-top:4px">花色权重 <span style="font-weight:400;color:var(--faint)">可空；花色数限制参与权重的前 N 种</span> <button type="button" class="param-help" data-param-help="teTypeWeights" aria-label="解释花色权重">?</button></label>
           <input type="text" id="teTypeWeights" placeholder="如 1,2,1,3,1">
         </div>
         <div class="row" style="margin-top:4px">
-          <div id="teEasyLayersParam"><label>Easy Layers</label><input type="number" id="teEasyLayers" value="0" min="0" step="1"></div>
-          <div id="teHardTagParam"><label>Hard Tag</label><input type="number" id="teHardTag" value="1" step="1"></div>
+          <div id="teEasyLayersParam"><label>前段简单批次 <span class="technical-name">Easy Layers</span> <button type="button" class="param-help" data-param-help="teEasyLayers" aria-label="解释前段简单批次">?</button></label><input type="number" id="teEasyLayers" value="0" min="0" step="1"></div>
+          <div id="teHardTagParam"><label>难关标记 <span class="technical-name">Hard Tag</span> <button type="button" class="param-help" data-param-help="teHardTag" aria-label="解释难关标记">?</button></label><input type="number" id="teHardTag" value="1" step="1"></div>
         </div>
         <div id="teSolvabilityParams" style="display:none">
           <div class="row" style="margin-top:4px">
-            <div><label>Lower Coefficient</label><input type="number" id="teLowerCoefficient" placeholder="策略默认" min="0" max="1" step="0.01"></div>
-            <div><label>Top Coefficient</label><input type="number" id="teTopCoefficient" placeholder="策略默认" min="0" max="1" step="0.01"></div>
+            <div><label>普通层保底比例 <span class="technical-name">Lower</span> <button type="button" class="param-help" data-param-help="teLowerCoefficient" aria-label="解释普通层保底比例">?</button></label><input type="number" id="teLowerCoefficient" placeholder="策略默认" min="0" max="1" step="0.01"></div>
+            <div><label>顶部层保底比例 <span class="technical-name">Top</span> <button type="button" class="param-help" data-param-help="teTopCoefficient" aria-label="解释顶部层保底比例">?</button></label><input type="number" id="teTopCoefficient" placeholder="策略默认" min="0" max="1" step="0.01"></div>
           </div>
-          <label style="margin-top:4px">Fallback Extra Layers</label>
+          <label style="margin-top:4px">兜底额外混层数 <span class="technical-name">Fallback Extra Layers</span> <button type="button" class="param-help" data-param-help="teFallbackLayers" aria-label="解释兜底额外混层数">?</button></label>
           <input type="number" id="teFallbackExtraLayers" placeholder="策略默认" min="0" step="1">
-          <label style="margin-top:4px">V3 随机系数模式</label>
+          <label style="margin-top:4px">V3 普通层比例随机方式 <button type="button" class="param-help" data-param-help="teRandomMode" aria-label="解释 V3 随机方式">?</button></label>
           <select id="teRandomMode"><option value="">策略默认</option><option value="true">开启</option><option value="false">关闭</option></select>
         </div>
         <div id="teGradientParams" style="display:none">
-          <label style="margin-top:6px">ColorGradient 花色分组 JSON</label>
+          <label style="margin-top:6px">各阶段花色分组 <span class="technical-name">JSON</span> <button type="button" class="param-help" data-param-help="teGradientGroups" aria-label="解释各阶段花色分组">?</button></label>
           <textarea id="teGradientGroups" placeholder="如 [[1,2],[3,4],[5,6]]" style="font-size:10px"></textarea>
         </div>
         <div id="teLimitParams" style="display:none">
-          <label style="margin-top:5px">LimitLayerRandom 首批模式</label>
-          <select id="teLimitFullFirst" onchange="updateTeParameterRelevance()"><option value="">按 Hard Tag 默认（Hard Tag=1 时完整）</option><option value="true">完整 Difficulty</option><option value="false">按余数层</option></select>
+          <label style="margin-top:5px">首批混层方式 <button type="button" class="param-help" data-param-help="teFirstBatch" aria-label="解释首批混层方式">?</button></label>
+          <select id="teLimitFullFirst" onchange="updateTeParameterRelevance()"><option value="">按难关标记默认（标记=1 时完整）</option><option value="true">使用完整混层范围</option><option value="false">只使用余数层</option></select>
         </div>
         <div id="teStrategyHelp" style="font-size:9px;color:var(--faint);margin-top:4px">view_layers 由地形 Dependencies 自动计算。</div>
       </div>
 
       <div class="param-summary" role="group" aria-label="当前生成参数">
-        <input type="text" id="generationParamSummary" aria-label="当前生成参数串" spellcheck="false" onkeydown="if(event.key==='Enter'){event.preventDefault();parseGenerationParamSummary()}">
+        <input type="text" id="generationParamSummary" aria-label="当前生成参数串" title="整套生成参数的可复制文本；粘贴后点解析可恢复设置" spellcheck="false" onkeydown="if(event.key==='Enter'){event.preventDefault();parseGenerationParamSummary()}">
         <button type="button" class="param-parse" onclick="parseGenerationParamSummary()" aria-label="解析生成参数串" title="解析生成参数串">解析</button>
         <button type="button" class="param-copy" id="btnCopyParams" onclick="copyGenerationParams()" aria-label="复制生成参数" title="复制生成参数">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M15 9V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"></path></svg>
@@ -492,7 +536,7 @@ kbd{
       <div class="panel-bd">
         <div class="code-block" id="codeBox"></div>
         <div class="code-actions">
-          <button class="btn btn-secondary btn-xs" onclick="copyCode()">复制</button>
+          <button type="button" class="btn btn-secondary btn-xs" onclick="copyCode()">复制</button>
           <button class="btn btn-outline btn-xs" onclick="downloadCode()">下载 .txt</button>
           <span style="font-size:9px;color:var(--faint);margin-left:auto">Unity LoadLevel_V2() 兼容</span>
         </div>
@@ -516,13 +560,13 @@ kbd{
       <div class="panel-bd">
         <div class="row" style="margin-bottom:6px">
           <button class="btn btn-outline" onclick="verifyDFS()" id="btnDFS" style="flex:1">DFS 精确求解</button>
-          <input type="number" id="dfsTimeout" value="90" min="1" max="300" style="width:44px;font-size:10px;text-align:center" title="超时秒数">
+          <input type="number" id="dfsTimeout" value="90" min="1" max="300" style="width:44px;font-size:10px;text-align:center" title="求解超时秒数" aria-label="DFS 求解超时秒数">
         </div>
         <div class="msg" id="dfsResult"></div>
 
         <div class="row" style="margin-top:8px;margin-bottom:6px">
           <button class="btn btn-outline" onclick="verifyRevive()" id="btnRevive" style="flex:1">死亡卡点分析</button>
-          <input type="number" id="dfsTimeout2" value="90" min="1" max="300" style="width:44px;font-size:10px;text-align:center" title="超时秒数">
+          <input type="number" id="dfsTimeout2" value="90" min="1" max="300" style="width:44px;font-size:10px;text-align:center" title="分析超时秒数" aria-label="死亡卡点分析超时秒数">
         </div>
         <div class="msg" id="reviveResult"></div>
       </div>
@@ -531,7 +575,7 @@ kbd{
     <div class="panel fade-in" style="margin-top:14px">
       <div class="panel-hd"><span class="dot gold"></span> 玩家模拟测试</div>
       <div class="panel-bd">
-        <label>模拟策略</label>
+        <label>模拟策略 <button type="button" class="param-help" data-param-help="simStrategy" aria-label="解释模拟策略">?</button></label>
         <select id="simStrategy" onchange="switchSimStrategy()">
           <option value="normal">普通 — 安全三连组随机选择</option>
           <option value="shortest">短视最优 — 当前安全组最短路径</option>
@@ -541,17 +585,17 @@ kbd{
         </select>
 
         <div class="sim-params" id="simParamRisky" style="display:none">
-          <label>水位线阈值</label><input type="number" id="simRiskThreshold" value="3" min="0" max="7">
+          <label>水位线阈值 <button type="button" class="param-help" data-param-help="riskThreshold" aria-label="解释水位线阈值">?</button></label><input type="number" id="simRiskThreshold" value="3" min="0" max="7">
         </div>
         <div class="sim-params" id="simParamCostCap" style="display:none">
-          <label>最大允许 Cost</label><input type="number" id="simMaxCost" value="5" min="1" max="20">
+          <label>最大允许 Cost <button type="button" class="param-help" data-param-help="simMaxCost" aria-label="解释最大允许 Cost">?</button></label><input type="number" id="simMaxCost" value="5" min="1" max="20">
         </div>
         <div class="sim-params" id="simParamMistake" style="display:none">
-          <label>失误概率</label><input type="number" id="simMistakeRate" value="0.1" min="0" max="1" step="0.05">
+          <label>失误概率 <button type="button" class="param-help" data-param-help="mistakeRate" aria-label="解释失误概率">?</button></label><input type="number" id="simMistakeRate" value="0.1" min="0" max="1" step="0.05">
         </div>
 
         <div class="row" style="margin-top:6px">
-          <label style="margin:0">模拟次数</label>
+          <label style="margin:0">模拟次数 <button type="button" class="param-help" data-param-help="simRuns" aria-label="解释模拟次数">?</button></label>
           <input type="number" id="simRuns" value="100" min="10" max="5000" step="10" style="width:66px;text-align:center;font-family:var(--mono)">
           <button class="btn btn-primary" onclick="runSim()" id="btnSim" style="flex:0;padding:8px 14px">▶ 运行</button>
         </div>
@@ -564,7 +608,7 @@ kbd{
       <div class="panel-hd"><span class="dot" style="background:var(--info)"></span> 难度分档</div>
       <div class="panel-bd">
         <div class="row" style="margin-bottom:6px;align-items:center">
-          <label style="margin:0">分档策略</label>
+          <label style="margin:0">分档策略 <button type="button" class="param-help" data-param-help="gradeStrategy" aria-label="解释分档策略">?</button></label>
           <select id="gradeStrategy" style="font-size:11px" onchange="updateGradeTargets()">
             <option value="strategy1" selected>分档策略1 · 六档认证</option>
             <option value="strategy2">评估策略2 · 三率 passrate</option>
@@ -572,7 +616,7 @@ kbd{
           </select>
         </div>
         <div class="row" style="margin-bottom:6px;align-items:center">
-          <label style="margin:0">目标档位</label>
+          <label style="margin:0">目标档位 <button type="button" class="param-help" data-param-help="gradeTarget" aria-label="解释目标档位">?</button></label>
           <select id="gradeTarget" style="font-size:11px">
             <option value="-1">仅分档（不校验）</option>
             <option value="0">档0 · 极易候选 (90-100%)</option>
@@ -584,7 +628,7 @@ kbd{
           </select>
         </div>
         <div class="row" style="margin-top:6px">
-          <label style="margin:0">模拟次数</label>
+          <label style="margin:0">模拟次数 <button type="button" class="param-help" data-param-help="gradeRuns" aria-label="解释分档模拟次数">?</button></label>
           <input type="number" id="gradeRuns" value="100" min="10" max="2000" step="10" style="width:66px;text-align:center;font-family:var(--mono)">
           <button class="btn btn-primary" onclick="runGrade()" id="btnGrade" style="flex:0;padding:8px 14px">▶ 一键分档</button>
         </div>
@@ -597,7 +641,7 @@ kbd{
     <div class="panel-hd"><span class="dot sage"></span> 候选牌局</div>
     <div class="panel-bd">
       <div class="row" style="margin-bottom:6px;align-items:center">
-        <label style="margin:0">Grade</label>
+        <label style="margin:0">Grade <button type="button" class="param-help" data-param-help="selectionGrade" aria-label="解释候选 Grade">?</button></label>
         <input type="number" id="selectionGrade" min="0" max="5" step="1" placeholder="未分档时留空" style="width:92px;flex:0;text-align:center;font-family:var(--mono)">
       </div>
       <div id="selectionHint" style="font-size:9px;color:var(--faint);margin-bottom:7px">分档后会自动填入，也可以手动修改</div>
@@ -614,6 +658,8 @@ kbd{
 </div><!-- /cols -->
 </div><!-- /main -->
 
+<div class="param-help-popover" id="paramHelpPopover" role="tooltip" hidden></div>
+
 <script>
 // ═══════════════════════════════════
 //  State
@@ -621,6 +667,7 @@ kbd{
 var S={
   level:null,
   terrainPath:null,
+  localLevelFiles:null,
   result:null,
   sims:[],
   algo:'closure',
@@ -633,6 +680,112 @@ var S={
 var PAL=['#d4a853','#7ec99c','#c2784b','#d9706a','#9b8ec4','#6ba4d1','#e8a87c','#7a9aae','#d4a853','#e0886a','#7ec99c','#c98db9','#c9b872','#82b896','#d4a853','#e09070','#c080a0','#8aacb8','#90b890','#c89840'];
 var SUIT=['#e6b450','#5eada8','#d97850','#c06070','#8a80b8','#5898c8','#d89060','#6a9098','#c89838','#c87058','#60a878','#b878a0','#b8a060','#70a080','#c09040','#d08058','#b07090','#7898a0','#78a878','#b88840'];
 function cx(e){return SUIT[((e-1)%SUIT.length+SUIT.length)%SUIT.length]}
+
+// ═══════════════════════════════════
+//  Contextual parameter help
+// ═══════════════════════════════════
+var PARAM_HELP={
+  costArray:{title:'Cost 目标数组',copy:'每个数字对应一次三消，表示凑齐这一组牌前还要释放多少张压住它的牌。数组长度要等于本关可消除的总组数。',effect:'数字越大，这一步通常越绕、卡槽压力越高。',caution:'它控制的是算法路线，不直接等于玩家难度。'},
+  targetStd:{title:'Cost 起伏强度（σ）',copy:'只在点击骰子自动生成 Cost 数组时使用，不直接参与最终牌局计算。',effect:'数值小，步骤较平；数值大，高低起伏更明显。'},
+  closeRates:{title:'层闭合率',copy:'到达某个依赖深度时，累计已有多少比例的牌能组成完整三张；最后一层自动补到 100%。',effect:'同一层数下，闭合率高通常更容易及时消除，低则更容易留下散牌。'},
+  dock:{title:'Dock 容量',copy:'卡槽能暂存的牌数，只参与暴露债务、OI 等分析指标，不改变花色如何摆放。',caution:'应与实际游戏规则保持一致。'},
+  colorCount:{title:'花色数',copy:'本局使用多少种图案。',effect:'花色多时通常更容易同时积攒多种散牌，但最终难度还受地形和其他参数影响。'},
+  colorAllocation:{title:'花色配额',copy:'“均匀分配”让各花色牌量接近；“单色极重”让一个主色占较多牌，其他颜色较少。'},
+  heavyColorRatio:{title:'主色最大占比',copy:'仅在“单色极重”时生效，限制主色最多占全部三连组的比例。',effect:'0.50 表示主色最多约占一半。'},
+  spread:{title:'同色分布',copy:'控制同花色的三张牌彼此靠近还是分散。',effect:'靠左更容易连续拿到；靠右更容易跨层等待。'},
+  debt:{title:'债务持续权重',copy:'“债务”是当前还凑不齐三张的散牌。',effect:'靠左优先清旧散牌；靠右让同一批散牌跨更多层延续，持续占用卡槽。'},
+  teStrategy:{title:'TileExplorer 生成策略',copy:'决定按物理层、玩家可见层或花色阶段组织牌面。切换策略后，页面只保留实际生效的参数。',effect:'当前策略的具体效果会显示在选择框下方。'},
+  teDifficulty:{title:'混层范围（Difficulty）',copy:'每次把多少个相邻层放进同一个花色分配池。',effect:'数值越大，跨层混合通常越强；它不是最终 Grade。'},
+  teColorCount:{title:'花色数',copy:'没有指定花色循环时，本局使用的图案种类数。',effect:'更多花色通常更容易产生同时等待的散牌。'},
+  teSequenceSeed:{title:'花色顺序种子',copy:'决定接下来轮到哪个花色，用于复现花色轮换顺序。',caution:'它不决定具体落在哪张牌上，也不代表难易。'},
+  tePlacementSeed:{title:'摆放种子',copy:'决定同一批候选牌里具体选哪张。相同地形和参数下，保持种子即可复现摆放。'},
+  tePlacementState:{title:'摆放随机状态',copy:'用于精确还原外部工具的完整随机状态，填写后优先于摆放种子。',caution:'日常调参通常留空。'},
+  teTypeCycle:{title:'指定花色循环',copy:'直接写出花色轮换顺序，例如 1,2,3,1,4。',caution:'填写后会覆盖花色数、花色权重和花色顺序种子。'},
+  teTypeWeights:{title:'花色权重',copy:'控制各花色在循环中出现多少次。',effect:'例如 1,2,1 表示第 2 色出现频率约为其他颜色的两倍。'},
+  teEasyLayers:{title:'前段简单批次',copy:'仅基础分层策略使用；指定开局前多少批只按一层分配。',effect:'批次数越多，开局跨层混合越少。'},
+  teHardTag:{title:'难关标记（Hard Tag）',copy:'兼容原生产规则的标签，会影响限制分层随机和可解性策略的默认值。',caution:'它本身不是难度分数。'},
+  teLowerCoefficient:{title:'普通层保底比例',copy:'可解性策略中，普通可见层预先组成完整三张的候选占比。',effect:'比例高通常会提供更多直接可消组。'},
+  teTopCoefficient:{title:'顶部层保底比例',copy:'可解性策略中，最先可见的两层预先组成完整三张的候选占比。',effect:'比例高通常会提供更多开局可消组。'},
+  teFallbackLayers:{title:'兜底额外混层数',copy:'完成保底三连组后，给剩余牌额外加入多少个相邻可见层。',effect:'数值越大，剩余牌跨层混合越多。'},
+  teRandomMode:{title:'V3 普通层比例随机方式',copy:'仅 V3 使用。开启时普通层保底比例从 0.2～0.5 随机，关闭时从 0～0.2 随机。'},
+  teGradientGroups:{title:'各阶段花色分组',copy:'仅花色梯度策略使用。外层数组代表开局、中段、后段，内层数字是该阶段允许使用的花色。',effect:'例如 [[1,2],[3,4],[5,6]]。'},
+  teFirstBatch:{title:'首批混层方式',copy:'仅限制分层随机使用。可让第一批采用完整混层范围，或只采用“总层数除以混层范围”的余数层。'},
+  simStrategy:{title:'模拟策略',copy:'代表不同玩家行为：普通随机选择安全组；短视最优只看当前最省；激进承受更多卡槽压力；成本上限避开高 Cost；失误率加入误操作。'},
+  riskThreshold:{title:'水位线阈值',copy:'仅激进策略使用，表示机器人愿意承受多少额外卡槽压力。',effect:'数值越高，选择越冒险。'},
+  simMaxCost:{title:'最大允许 Cost',copy:'仅成本上限策略使用；机器人不会选择超过该释放成本的三连组。',caution:'设得太低可能因为过度保守而无路可走。'},
+  mistakeRate:{title:'失误概率',copy:'仅失误率策略使用。0.10 表示每次决策约有 10% 概率不按安全选择。'},
+  simRuns:{title:'模拟次数',copy:'同一牌局重复挑战多少次。',effect:'次数越多，胜率越稳定，但计算时间越长。'},
+  gradeStrategy:{title:'分档策略',copy:'规定使用哪些机器人胜率和阈值，把牌局换算成 G0～G5。',caution:'不同策略算出的 Grade 不宜直接混用。'},
+  gradeTarget:{title:'目标档位',copy:'“仅分档”只报告结果；选择档位后还会检查是否命中目标。',effect:'G0 最易，G5 最难。'},
+  gradeRuns:{title:'分档模拟次数',copy:'每类分档机器人重复挑战的次数。',effect:'次数越多，档位受随机波动的影响越小，但计算更久。'},
+  resultDebtPeak:{title:'债务峰 / 暴露峰',copy:'左边是逐层累计时，未凑满三张的花色数峰值；右边进一步考虑遮挡解锁和自动消除。',caution:'这是结构统计，不是实际卡槽占用，也不用于判断胜负。'},
+  resultDebtRetention:{title:'债务保留率',copy:'相邻层推进时，上一层未凑齐的旧散牌仍未闭合的加权比例。',effect:'越高表示同一批散牌持续得越久。'},
+  resultOi:{title:'OI 指数',copy:'各层“暴露债务数超过 Dock 容量”的超出量之和。0 表示按这套统计口径没有超量。',caution:'只作为持续压力的比较指标，不作胜负判断。'},
+  resultColorCount:{title:'实际花色数',copy:'生成结果中真正使用的花色种类数。'},
+  resultDepth:{title:'依赖深度层',copy:'根据牌与牌之间的遮挡依赖计算出的结构深度，不一定等于美术地形的物理层数。'},
+  resultSpread:{title:'离散率',copy:'同花色牌的遮挡依赖范围彼此有多分散。',effect:'数值低更集中，数值高更分散；适合同一地形内比较。'},
+  resultSpreadNorm:{title:'归一离散率',copy:'把离散程度换算到 0～100%，尽量减少不同地形规模带来的影响。',effect:'0% 最集中，100% 最分散，更适合跨地形比较。'},
+  resultTripletIntegrity:{title:'花色 ×3 检查',copy:'检查每种花色的牌数是否都是 3 的倍数。',effect:'打勾表示牌量满足三消的基本完整性约束。'},
+  resultTeStrategy:{title:'实际生成策略',copy:'本次 TileExplorer 牌局实际采用的生成策略。'},
+  resultViewLayers:{title:'逻辑层',copy:'根据遮挡依赖计算出的玩家可见层数量，不等于物理层数。'},
+  resultTriplets:{title:'三元组数',copy:'本次生成完成的三张同色组数量。'},
+  resultCycleLength:{title:'花色循环长度',copy:'花色轮换序列中包含的项目数；有权重或重复花色时，可能大于实际花色种类数。'},
+  resultSequenceSeed:{title:'花色顺序种子',copy:'本次用于复现花色轮换顺序的种子，不代表难易。'},
+  resultPlacementSeed:{title:'摆放种子',copy:'本次用于复现具体牌位选择的种子，不代表难易。'},
+  resultMatchRate:{title:'Cost 匹配率',copy:'实际 Cost 序列与目标数组逐步相等的比例。',caution:'只表示算法目标匹配程度，不等于玩家胜率。'},
+  resultSteps:{title:'总步数',copy:'自由牌可以组成的三消组总数，也就是 Cost 序列应有的长度。'},
+  resultCostRange:{title:'Cost 范围',copy:'实际 Cost 序列中的最小值到最大值。'},
+  resultCostAverage:{title:'Cost 均值',copy:'实际 Cost 序列的平均值，用于概括整条算法路线的释放成本。'},
+  resultBanSet:{title:'黑名单数量',copy:'CostLadder 生成过程中被排除、不再作为候选的三元组数量。',caution:'这是算法内部过程量，不是玩家侧指标。'},
+  resultTotalTiles:{title:'总牌数',copy:'地形中自由牌与固定牌的总数量。'},
+  resultFreeConst:{title:'自由牌 / 固定牌',copy:'自由牌可以重新分配花色；固定牌保留地形预设花色。'},
+  selectionGrade:{title:'候选 Grade',copy:'保存这条候选牌局时使用的难度标签。分档后会自动填写。',caution:'手动修改只改变保存标签，不会改变牌局本身。'}
+};
+
+var activeParamHelp=null,paramHelpPinned=false,paramHelpHideTimer=null;
+function closeParamHelp(){
+  clearTimeout(paramHelpHideTimer);
+  document.querySelectorAll('.param-help[aria-expanded="true"]').forEach(function(btn){btn.setAttribute('aria-expanded','false')});
+  var pop=document.getElementById('paramHelpPopover');
+  pop.classList.remove('show');
+  paramHelpHideTimer=setTimeout(function(){if(!pop.classList.contains('show'))pop.hidden=true},130);
+  activeParamHelp=null;paramHelpPinned=false;
+}
+function openParamHelp(btn,pinned){
+  var data=PARAM_HELP[btn.dataset.paramHelp];if(!data)return;
+  clearTimeout(paramHelpHideTimer);
+  document.querySelectorAll('.param-help[aria-expanded="true"]').forEach(function(other){if(other!==btn)other.setAttribute('aria-expanded','false')});
+  var pop=document.getElementById('paramHelpPopover');pop.textContent='';
+  var title=document.createElement('strong');title.textContent=data.title;pop.appendChild(title);
+  pop.appendChild(document.createTextNode(data.copy));
+  if(data.effect){var effect=document.createElement('span');effect.className='effect';effect.textContent=data.effect;pop.appendChild(effect)}
+  if(data.caution){var caution=document.createElement('span');caution.className='caution';caution.textContent=data.caution;pop.appendChild(caution)}
+  pop.hidden=false;pop.style.left='12px';pop.style.top='12px';
+  var anchor=btn.getBoundingClientRect(),box=pop.getBoundingClientRect();
+  var left=Math.max(12,Math.min(window.innerWidth-box.width-12,anchor.left-8));
+  var top=anchor.bottom+8;if(top+box.height>window.innerHeight-12)top=Math.max(12,anchor.top-box.height-8);
+  pop.style.left=Math.round(left)+'px';pop.style.top=Math.round(top)+'px';
+  requestAnimationFrame(function(){pop.classList.add('show')});
+  btn.setAttribute('aria-expanded','true');activeParamHelp=btn;paramHelpPinned=!!pinned;
+}
+function bindParamHelpButtons(root){
+  (root||document).querySelectorAll('.param-help:not([data-help-bound])').forEach(function(btn){
+    btn.dataset.helpBound='1';btn.setAttribute('aria-expanded','false');
+    btn.addEventListener('mouseenter',function(){if(!paramHelpPinned)openParamHelp(btn,false)});
+    btn.addEventListener('mouseleave',function(){if(!paramHelpPinned)closeParamHelp()});
+    btn.addEventListener('focus',function(){if(!paramHelpPinned)openParamHelp(btn,false)});
+    btn.addEventListener('blur',function(){if(!paramHelpPinned)closeParamHelp()});
+    btn.addEventListener('click',function(event){
+      event.preventDefault();event.stopPropagation();
+      if(activeParamHelp===btn&&paramHelpPinned)closeParamHelp();else openParamHelp(btn,true);
+    });
+  });
+}
+bindParamHelpButtons(document);
+document.addEventListener('click',function(event){if(paramHelpPinned&&!event.target.closest('.param-help'))closeParamHelp()});
+document.addEventListener('keydown',function(event){if(event.key==='Escape')closeParamHelp()});
+window.addEventListener('resize',closeParamHelp);
+window.addEventListener('scroll',closeParamHelp,true);
 
 // ═══════════════════════════════════
 //  Toast
@@ -649,6 +802,45 @@ function toast(m,t){
 // ═══════════════════════════════════
 //  Select terrain file
 // ═══════════════════════════════════
+function clearSelectedLevelsDirectory(){
+  var input=document.getElementById('levelsDir');
+  if(input.dataset.localFolder==='1'){
+    delete input.dataset.localFolder;
+    S.localLevelFiles=null;
+  }
+}
+
+function selectedLevelsDir(){
+  var input=document.getElementById('levelsDir');
+  return input.dataset.localFolder==='1'?'':input.value.trim();
+}
+
+function selectLevelsDirectory(files){
+  var picker=document.getElementById('levelsFolderPicker');
+  var jsonFiles=Array.prototype.filter.call(files||[],function(file){return /\.json$/i.test(file.name)});
+  picker.value='';
+  if(!jsonFiles.length){toast('所选目录里没有 JSON 关卡文件','err');return false}
+  var firstPath=String(jsonFiles[0].webkitRelativePath||jsonFiles[0].name);
+  var folderName=firstPath.indexOf('/')>=0?firstPath.split('/')[0]:'所选目录';
+  var input=document.getElementById('levelsDir');
+  input.value='本地目录：'+folderName;
+  input.dataset.localFolder='1';
+  S.localLevelFiles=jsonFiles;
+  document.getElementById('terrainFileName').textContent=jsonFiles.length+' 个关卡';
+  updateGenerationParamSummary();
+  toast('已选择默认目录：'+folderName,'ok');
+  return true;
+}
+
+async function initDefaultLevelsDir(){
+  var input=document.getElementById('levelsDir');
+  try{
+    var r=await fetch('/api/levels');
+    var data=await r.json();
+    if(data.ok&&!input.value)input.value=String(data.dir||'');
+  }catch(e){}
+}
+
 async function loadTerrainFile(file){
   if(!file)return false;
   if(!/\.json$/i.test(file.name)){toast('请选择 JSON 地形文件','err');return false}
@@ -662,7 +854,7 @@ async function loadTerrainFile(file){
     if(loaded)document.getElementById('terrainFileName').textContent=file.name;
     return loaded;
   }catch(e){
-    document.getElementById('terrainFileName').textContent='未选择文件';
+    document.getElementById('terrainFileName').textContent='未加载';
     toast(e.message,'err');return false;
   }finally{
     document.getElementById('terrainFile').value='';
@@ -674,10 +866,15 @@ async function loadTerrainFile(file){
 // ═══════════════════════════════════
 async function loadLevel(source){
   var id=document.getElementById('levelId').value.trim();
-  if(!source&&!id){toast('请先选择地形文件','err');return false}
+  if(!source&&!id){toast('请输入关卡 ID，或选择关卡文件','err');return false}
+  if(!source&&S.localLevelFiles){
+    var localFile=S.localLevelFiles.find(function(file){return file.name.replace(/\.json$/i,'')===id});
+    if(!localFile){toast('所选目录中没有关卡 '+id+'.json','err');return false}
+    return loadTerrainFile(localFile);
+  }
   try{
     var body=source||{levelId:id};
-    var dir=document.getElementById('levelsDir').value.trim();
+    var dir=selectedLevelsDir();
     if(dir)body.levelsDir=dir;
     var r=await fetch('/api/terrain-info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var d=await r.json();
@@ -697,6 +894,7 @@ async function loadLevel(source){
 
     document.getElementById('levelPanel').style.display='';
     document.getElementById('levelBadge').textContent='#'+(d.levelResId||id)+' · '+d.freeTiles+'牌 · '+d.steps+'步';
+    if(!source)document.getElementById('terrainFileName').textContent='默认路径';
 
     updateCostPresets(d.steps);
     updateCostHint(d.steps);
@@ -827,6 +1025,18 @@ function isTeSolvabilityStrategy(strategy){
   return strategy.indexOf('solvability_coefficient')===0;
 }
 
+var TE_STRATEGY_GUIDE={
+  default:'从最先可见区域向深层推进；可用“前段简单批次”让开局少混层，是最基础、最容易理解的分层方式。',
+  top_two_easy:'顶部两层固定用较小混层范围，其余部分使用设定值，让最先接触的区域相对收敛。',
+  sliding_window:'保持一个会随进度移动的层窗口；旧层用完后再补入新层，形成连续而非整段跳变的混层。',
+  limit_layer_random:'大部分批次使用固定混层范围，第一批可按完整范围或余数层处理，用于对齐既有生产规则。',
+  easy_hard_easy:'开局少混层，中段逐步扩大，尾段再收窄，主动塑造“易—难—易”的结构节奏。',
+  solvability_coefficient:'按玩家可见层预留一定比例的完整三连组；V1 保底比例相对高，偏向提供明确可消机会。',
+  solvability_coefficient_v2:'同样按可见层预留完整三连组，默认保底低于 V1，并在剩余牌阶段多混一层。',
+  solvability_coefficient_v3:'顶部层固定保底，普通层的保底比例按随机模式逐层变化，用来扩大牌面差异。',
+  color_gradient:'把开局、中段、后段分配给不同花色组，制造清晰的花色阶段变化；不使用混层范围和普通花色数。'
+};
+
 function setTeParamVisible(id,visible){
   var el=document.getElementById(id);
   if(el)el.style.display=visible?'':'none';
@@ -872,7 +1082,8 @@ function updateTeParameterRelevance(){
     :explicitCycle
       ?'显式花色循环已生效；花色数、花色权重和 Sequence Seed 被忽略。'
       :'花色权重会先按 Sequence Seed 构造循环；花色数限制参与权重的前 N 种。';
-  document.getElementById('teStrategyHelp').textContent=help+' view_layers 由地形 Dependencies 自动计算。';
+  document.getElementById('teStrategyExplainer').textContent=TE_STRATEGY_GUIDE[strategy]||'';
+  document.getElementById('teStrategyHelp').textContent=help+' 玩家可见层由地形遮挡关系自动计算。';
   updateGenerationParamSummary();
 }
 
@@ -890,7 +1101,7 @@ function collectGenerationParams(){
     colorCount:(S.algo==='tile-explorer'?document.getElementById('teColorCount'):document.getElementById('colorCount')).value,
   };
   if(S.terrainPath)body.terrainPath=S.terrainPath;
-  var dir=document.getElementById('levelsDir').value.trim();
+  var dir=selectedLevelsDir();
   if(dir)body.levelsDir=dir;
   if(S.algo==='closure'){
     body.closeRates=document.getElementById('closeRates').value.trim();
@@ -1070,7 +1281,50 @@ async function parseGenerationParamSummary(){
   if(!ok){el.value=code;el.title=code}
 }
 
-function copyGenerationParams(){
+function legacyCopyText(text){
+  var input=document.createElement('textarea');
+  input.value=text;input.setAttribute('readonly','');input.setAttribute('aria-hidden','true');
+  input.style.position='fixed';input.style.left='-9999px';input.style.top='0';input.style.opacity='0';
+  document.body.appendChild(input);input.focus();input.select();input.setSelectionRange(0,input.value.length);
+  var ok=false;
+  try{ok=document.execCommand('copy')}catch(e){ok=false}
+  document.body.removeChild(input);
+  return ok;
+}
+
+function selectCopySource(source){
+  if(!source)return false;
+  if(typeof source.select==='function'){
+    source.focus();source.select();
+    if(typeof source.setSelectionRange==='function')source.setSelectionRange(0,String(source.value||'').length);
+    return true;
+  }
+  var selection=window.getSelection&&window.getSelection();
+  if(!selection||!document.createRange)return false;
+  var range=document.createRange();range.selectNodeContents(source);
+  selection.removeAllRanges();selection.addRange(range);
+  source.scrollIntoView({block:'nearest'});
+  return true;
+}
+
+async function copyTextWithFallback(text,source){
+  if(!text){toast('没有可复制内容','err');return'empty'}
+  var clipboard=typeof navigator!=='undefined'&&navigator.clipboard;
+  if(clipboard&&typeof clipboard.writeText==='function'){
+    try{await clipboard.writeText(text);return'copied'}catch(e){}
+  }
+  if(legacyCopyText(text))return'copied';
+  if(selectCopySource(source)){
+    var platform=typeof navigator!=='undefined'?(navigator.platform||''):'';
+    var shortcut=/Mac|iPhone|iPad/.test(platform)?'⌘C':'Ctrl+C';
+    toast('自动复制被浏览器拦截，内容已全选，请按 '+shortcut,'warn');
+    return'manual';
+  }
+  toast('复制失败，请使用下载功能','err');
+  return'failed';
+}
+
+async function copyGenerationParams(){
   var field=document.getElementById('generationParamSummary');
   var text=field.value.trim();
   if(!text)text=updateGenerationParamSummary();
@@ -1087,15 +1341,7 @@ function copyGenerationParams(){
     },1600);
     toast('生成参数已复制','ok');
   }
-  function fallback(){
-    var input=document.createElement('textarea');
-    input.value=text;input.setAttribute('readonly','');input.style.position='fixed';input.style.opacity='0';
-    document.body.appendChild(input);input.select();
-    try{document.execCommand('copy')?copied():toast('复制失败','err')}catch(e){toast('复制失败','err')}
-    document.body.removeChild(input);
-  }
-  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(copied).catch(fallback)}
-  else fallback();
+  if(await copyTextWithFallback(text,field)==='copied')copied();
 }
 
 var GENERATION_PARAM_INPUTS='#levelId,#levelsDir,#dock,#colorCount,#colorAllocation,#heavyColorMaxRatio,#spreadParam,#debtPersistence,#targetStd,#costArray,#closeRateSliders .slider,#panelTileExplorer input,#panelTileExplorer select,#panelTileExplorer textarea';
@@ -1187,14 +1433,20 @@ function showResult(d){
   }).join(''):'<span style="color:var(--faint)">—</span>';
 }
 
+function resultHelpLabel(label,key){
+  return '<div class="lbl">'+label+' <button type="button" class="param-help" data-param-help="'+key+'" aria-label="解释'+label+'">?</button></div>';
+}
+
 function showTileExplorer(d){
-  document.getElementById('stats').innerHTML=
-    '<div class="stat"><div class="n n-ok">'+d.strategy+'</div><div class="lbl">策略</div></div>'+
-    '<div class="stat"><div class="n">'+((d.viewLayers||[]).length)+'</div><div class="lbl">逻辑层</div></div>'+
-    '<div class="stat"><div class="n">'+(d.generatedGroupCount||0)+'</div><div class="lbl">三元组</div></div>'+
-    '<div class="stat"><div class="n">'+((d.typeCycle||[]).length)+'</div><div class="lbl">循环长度</div></div>'+
-    '<div class="stat"><div class="n">'+d.sequenceSeed+'</div><div class="lbl">Sequence Seed</div></div>'+
-    '<div class="stat"><div class="n">'+d.placementSeed+'</div><div class="lbl">Placement Seed</div></div>';
+  var stats=document.getElementById('stats');
+  stats.innerHTML=
+    '<div class="stat"><div class="n n-ok">'+d.strategy+'</div>'+resultHelpLabel('策略','resultTeStrategy')+'</div>'+
+    '<div class="stat"><div class="n">'+((d.viewLayers||[]).length)+'</div>'+resultHelpLabel('逻辑层','resultViewLayers')+'</div>'+
+    '<div class="stat"><div class="n">'+(d.generatedGroupCount||0)+'</div>'+resultHelpLabel('三元组','resultTriplets')+'</div>'+
+    '<div class="stat"><div class="n">'+((d.typeCycle||[]).length)+'</div>'+resultHelpLabel('循环长度','resultCycleLength')+'</div>'+
+    '<div class="stat"><div class="n">'+d.sequenceSeed+'</div>'+resultHelpLabel('花色顺序种子','resultSequenceSeed')+'</div>'+
+    '<div class="stat"><div class="n">'+d.placementSeed+'</div>'+resultHelpLabel('摆放种子','resultPlacementSeed')+'</div>';
+  bindParamHelpButtons(stats);
   document.getElementById('stepSection').style.display='none';
   document.getElementById('chartPanel').style.display='none';
 }
@@ -1204,16 +1456,17 @@ function showClosure(d){
   var m=d.metrics||{};
   // 判断是否有目标闭合率（生成有、导入没有）
   var hasTargets=d.algorithm==='closure'&&!!document.getElementById('closeRates').value.trim();
-  document.getElementById('stats').innerHTML=
-    '<div class="stat'+(m.isDoomed?' hi':'')+'"><div class="n '+(m.isDoomed?'n-bad':'n-ok')+'">'+(m.isDoomed?'⚠是':'✓否')+'</div><div class="lbl">必输</div></div>'+
-    '<div class="stat"><div class="n n-warn">'+m.peakDebt+'/'+(m.peakExpDebt||0)+'</div><div class="lbl">债务峰/暴露</div></div>'+
-    '<div class="stat"><div class="n">'+((m.weightedDebtRetentionRate||0)*100).toFixed(0)+'%</div><div class="lbl">债务保留率</div></div>'+
-    '<div class="stat"><div class="n n-warn">'+(m.oi||0)+'</div><div class="lbl">OI指数</div></div>'+
-    '<div class="stat"><div class="n">'+(m.colorCount||0)+'</div><div class="lbl">花色数</div></div>'+
-    '<div class="stat"><div class="n">'+(m.depthCount||0)+'</div><div class="lbl">深度层</div></div>'+
-    '<div class="stat"><div class="n">'+((m.suitSpread||0)*100).toFixed(0)+'%</div><div class="lbl">离散率</div></div>'+
-    '<div class="stat"><div class="n">'+((m.suitSpreadNorm||0)*100).toFixed(0)+'%</div><div class="lbl">归一离散</div></div>'+
-    '<div class="stat"><div class="n '+(m.allSuitsClosed?'n-ok':'n-bad')+'">'+(m.allSuitsClosed?'✓':'✗')+'</div><div class="lbl">花色×3</div></div>';
+  var stats=document.getElementById('stats');
+  stats.innerHTML=
+    '<div class="stat"><div class="n n-warn">'+m.peakDebt+'/'+(m.peakExpDebt||0)+'</div>'+resultHelpLabel('债务峰 / 暴露峰','resultDebtPeak')+'</div>'+
+    '<div class="stat"><div class="n">'+((m.weightedDebtRetentionRate||0)*100).toFixed(0)+'%</div>'+resultHelpLabel('旧债保留','resultDebtRetention')+'</div>'+
+    '<div class="stat"><div class="n n-warn">'+(m.oi||0)+'</div>'+resultHelpLabel('OI 压力','resultOi')+'</div>'+
+    '<div class="stat"><div class="n">'+(m.colorCount||0)+'</div>'+resultHelpLabel('实际花色','resultColorCount')+'</div>'+
+    '<div class="stat"><div class="n">'+(m.depthCount||0)+'</div>'+resultHelpLabel('依赖深度','resultDepth')+'</div>'+
+    '<div class="stat"><div class="n">'+((m.suitSpread||0)*100).toFixed(0)+'%</div>'+resultHelpLabel('离散率','resultSpread')+'</div>'+
+    '<div class="stat"><div class="n">'+((m.suitSpreadNorm||0)*100).toFixed(0)+'%</div>'+resultHelpLabel('归一离散','resultSpreadNorm')+'</div>'+
+    '<div class="stat"><div class="n '+(m.allSuitsClosed?'n-ok':'n-bad')+'">'+(m.allSuitsClosed?'✓':'✗')+'</div>'+resultHelpLabel('三消完整性','resultTripletIntegrity')+'</div>';
+  bindParamHelpButtons(stats);
   document.getElementById('stepSection').style.display='none';
   document.getElementById('chartTitle').textContent=hasTargets?'闭合率 设定 vs 实际':'闭合率';
   var allocLabel=m.colorAllocationMode==='single-heavy'
@@ -1231,15 +1484,17 @@ function showCostLadder(d){
   var hasTargets=(d.costTargets||[]).length>0;
   var mr=hasTargets&&d.matchRate!=null?d.matchRate.toFixed(0)+'%':'—';
   var mc=hasTargets&&d.matchRate!=null?(d.matchRate>=80?'n-ok':d.matchRate>=50?'n-warn':'n-bad'):'';
-  document.getElementById('stats').innerHTML=
-    '<div class="stat hi"><div class="n '+mc+'">'+mr+'</div><div class="lbl">匹配率</div></div>'+
-    '<div class="stat"><div class="n n-gold">'+d.totalSteps+'</div><div class="lbl">总步数</div></div>'+
-    '<div class="stat"><div class="n">'+d.colorCount+'</div><div class="lbl">花色数</div></div>'+
-    '<div class="stat"><div class="n">'+(d.stats?d.stats.min+'-'+d.stats.max:'—')+'</div><div class="lbl">Cost范围</div></div>'+
-    '<div class="stat"><div class="n">'+(d.stats?d.stats.avg.toFixed(1):'—')+'</div><div class="lbl">Cost均值</div></div>'+
-    '<div class="stat"><div class="n n-warn">'+(hasTargets?d.banSetSize||0:'—')+'</div><div class="lbl">黑名单</div></div>'+
-    '<div class="stat"><div class="n">'+(d.terrainSummary?d.terrainSummary.totalTiles:'—')+'</div><div class="lbl">总牌数</div></div>'+
-    '<div class="stat"><div class="n">'+(d.terrainSummary?d.terrainSummary.freeTiles+'/'+d.terrainSummary.constTiles:'—')+'</div><div class="lbl">自由/固定</div></div>';
+  var stats=document.getElementById('stats');
+  stats.innerHTML=
+    '<div class="stat hi"><div class="n '+mc+'">'+mr+'</div>'+resultHelpLabel('匹配率','resultMatchRate')+'</div>'+
+    '<div class="stat"><div class="n n-gold">'+d.totalSteps+'</div>'+resultHelpLabel('总步数','resultSteps')+'</div>'+
+    '<div class="stat"><div class="n">'+d.colorCount+'</div>'+resultHelpLabel('花色数','resultColorCount')+'</div>'+
+    '<div class="stat"><div class="n">'+(d.stats?d.stats.min+'-'+d.stats.max:'—')+'</div>'+resultHelpLabel('Cost 范围','resultCostRange')+'</div>'+
+    '<div class="stat"><div class="n">'+(d.stats?d.stats.avg.toFixed(1):'—')+'</div>'+resultHelpLabel('Cost 均值','resultCostAverage')+'</div>'+
+    '<div class="stat"><div class="n n-warn">'+(hasTargets?d.banSetSize||0:'—')+'</div>'+resultHelpLabel('黑名单','resultBanSet')+'</div>'+
+    '<div class="stat"><div class="n">'+(d.terrainSummary?d.terrainSummary.totalTiles:'—')+'</div>'+resultHelpLabel('总牌数','resultTotalTiles')+'</div>'+
+    '<div class="stat"><div class="n">'+(d.terrainSummary?d.terrainSummary.freeTiles+'/'+d.terrainSummary.constTiles:'—')+'</div>'+resultHelpLabel('自由 / 固定','resultFreeConst')+'</div>';
+  bindParamHelpButtons(stats);
   document.getElementById('stepSection').style.display=hasTargets?'':'none';
   document.getElementById('chartTitle').textContent=hasTargets?'Cost Ladder 对比':'Cost Ladder';
   document.getElementById('chartLegend').innerHTML=hasTargets
@@ -1531,12 +1786,26 @@ async function applyGenerationParamString(code,out){
   var shapeError=generationParamShapeError(params);
   if(shapeError){out.textContent='参数串解析失败：'+shapeError;out.className='msg msg-err';return false}
 
-  document.getElementById('levelId').value=String(params.levelId).trim();
-  document.getElementById('levelsDir').value=params.levelsDir?String(params.levelsDir):'';
+  var requestedLevelId=String(params.levelId||'').trim();
+  var requestedTerrainPath=String(params.terrainPath||'').trim();
+  var currentLevelId=S.level&&S.level.levelResId!=null?String(S.level.levelResId).trim():'';
+  var currentTerrainPath=String(S.terrainPath||'').trim();
+  var useCurrentTerrain=!!S.level&&(
+    (requestedLevelId&&currentLevelId===requestedLevelId)||
+    (!requestedLevelId&&requestedTerrainPath&&currentTerrainPath===requestedTerrainPath)
+  );
+
+  document.getElementById('levelId').value=requestedLevelId;
+  if(Object.prototype.hasOwnProperty.call(params,'levelsDir')){
+    var levelsDirInput=document.getElementById('levelsDir');
+    levelsDirInput.value=String(params.levelsDir||'');
+    delete levelsDirInput.dataset.localFolder;
+    S.localLevelFiles=null;
+  }
   if(params.algorithm==='tile-explorer')document.getElementById('teColorCount').value=String(parseInt(params.colorCount));
   else document.getElementById('colorCount').value=String(parseInt(params.colorCount));
-  var loaded=await loadLevel(params.terrainPath?{terrainPath:String(params.terrainPath)}:undefined);
-  if(!loaded){out.textContent='地形加载失败，无法进入生成参数';out.className='msg msg-err';return false}
+  var loaded=useCurrentTerrain||await loadLevel(requestedTerrainPath?{terrainPath:requestedTerrainPath}:undefined);
+  if(!loaded){out.textContent='未找到对应关卡；请用默认路径加载，或先选择关卡文件';out.className='msg msg-err';return false}
 
   var compatibility=inspectTerrainCompatibility(params,S.level);
   if(compatibility.error){out.textContent=compatibility.error;out.className='msg msg-err';toast('地形无法满足参数','err');return false}
@@ -1578,7 +1847,7 @@ async function applyGenerationParamString(code,out){
   }
   switchAlgo(params.algorithm);
   validateParams();updateGenerationParamSummary();
-  out.textContent='已进入生成参数 · 关卡#'+String(params.levelId).trim();out.className='msg msg-ok';
+  out.textContent='已进入生成参数 · 关卡#'+requestedLevelId+(useCurrentTerrain?' · 使用当前地形':'');out.className='msg msg-ok';
   toast('参数串解析完成','ok');
   return true;
 }
@@ -2038,9 +2307,10 @@ function renderSimHistory(){
 // ═══════════════════════════════════
 //  Copy / Download
 // ═══════════════════════════════════
-function copyCode(){
-  var t=document.getElementById('codeBox').textContent;
-  navigator.clipboard.writeText(t).then(function(){toast('已复制','ok')}).catch(function(){toast('复制失败','err')});
+async function copyCode(){
+  var box=document.getElementById('codeBox');
+  var result=await copyTextWithFallback(box.textContent,box);
+  if(result==='copied')toast('ReplayCode 已复制','ok');
 }
 function downloadCode(){
   var t=document.getElementById('codeBox').textContent;
@@ -2102,6 +2372,7 @@ document.addEventListener('keydown',function(e){
 switchSimStrategy();
 updateTeStrategy();
 updateGenerationParamSummary();
+initDefaultLevelsDir();
 </script>
 </body>
 </html>
