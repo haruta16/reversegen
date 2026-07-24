@@ -10,7 +10,7 @@
  */
 
 import { OfflineTile, PileType, TileFlag, type TileConfig } from './types.js';
-import type { TerrainTile } from '../types.js';
+import type { FallingTerrainStructure, TerrainStructure, TerrainTile } from '../types.js';
 
 // ═══════════════════════════════════════════════════
 //  Game constants
@@ -32,14 +32,23 @@ export class OfflineGame {
   dockTiles: OfflineTile[];
   /** Tiles that have been eliminated (discarded) */
   discardTiles: OfflineTile[];
+  /** Special terrain runtime rules shared by every solver clone. */
+  readonly terrainStructures: TerrainStructure[];
+  private readonly transferTileIds = new Set<number>();
+  private readonly fallingGroups: FallingTerrainStructure[] = [];
+  private readonly fallingGroupByTileId = new Map<number, FallingTerrainStructure>();
 
   // ── Construction ──
 
-  constructor(tiles: OfflineTile[]) {
+  constructor(tiles: OfflineTile[], terrainStructures: TerrainStructure[] = []) {
     this.allTiles = new Map();
     this.deskTiles = [];
     this.dockTiles = [];
     this.discardTiles = [];
+    this.terrainStructures = terrainStructures.map(structure => ({
+      ...structure,
+      tileIds: [...structure.tileIds],
+    }));
 
     for (const tile of tiles) {
       this.allTiles.set(tile.id, tile);
@@ -60,7 +69,41 @@ export class OfflineGame {
       }
     }
 
+    this.initializeTerrainStructures();
     this.updateTilesState();
+  }
+
+  private initializeTerrainStructures(): void {
+    const claimed = new Set<number>();
+    for (const structure of this.terrainStructures) {
+      if (structure.tileNum != null && structure.tileNum !== structure.tileIds.length) {
+        throw new Error(
+          `${structure.type}#${structure.id ?? '?'} 的 tileNum=${structure.tileNum}，`
+          + `但 tileIds 有 ${structure.tileIds.length} 张`,
+        );
+      }
+      for (const tileId of structure.tileIds) {
+        if (!this.allTiles.has(tileId)) {
+          throw new Error(`${structure.type}#${structure.id ?? '?'} 引用了不存在的 tile ${tileId}`);
+        }
+        if (claimed.has(tileId)) throw new Error(`tile ${tileId} 同时属于多个 terrainStructures`);
+        claimed.add(tileId);
+      }
+
+      if (structure.type === 'transfer') {
+        for (const tileId of structure.tileIds) this.transferTileIds.add(tileId);
+        continue;
+      }
+      if (!Number.isInteger(structure.viewLength)
+        || structure.viewLength < 1
+        || structure.viewLength > structure.tileIds.length) {
+        throw new Error(
+          `falling#${structure.id ?? '?'} 的 viewLength 必须在 1..${structure.tileIds.length} 之间`,
+        );
+      }
+      this.fallingGroups.push(structure);
+      for (const tileId of structure.tileIds) this.fallingGroupByTileId.set(tileId, structure);
+    }
   }
 
   // ── Derived properties ──
@@ -92,7 +135,7 @@ export class OfflineGame {
         c.flags = t.flags;
         return c;
       });
-    return new OfflineGame(tiles);
+    return new OfflineGame(tiles, this.terrainStructures);
   }
 
   // ═══════════════════════════════════════════════════
@@ -195,12 +238,29 @@ export class OfflineGame {
    * Also refreshes PerfectCovered and Invisible flags.
    */
   private updateTilesState(): void {
+    const hiddenFallingTileIds = this.hiddenFallingTileIds();
+
     // Phase 1: Compute RuntimeDependencies and Clickable
     for (const tile of this.allTiles.values()) {
       tile.runtimeDependencies.clear();
 
       if (tile.pileType !== PileType.Desk || tile.hasFlag(TileFlag.Destroyed)) {
         tile.removeFlag(TileFlag.Clickable | TileFlag.Invisible | TileFlag.PerfectCovered);
+        continue;
+      }
+
+      if (hiddenFallingTileIds.has(tile.id)) {
+        tile.setClickable(false);
+        tile.setFlag(TileFlag.Invisible);
+        tile.removeFlag(TileFlag.PerfectCovered);
+        continue;
+      }
+
+      const specialTile = this.transferTileIds.has(tile.id)
+        || this.fallingGroupByTileId.has(tile.id);
+      if (specialTile) {
+        tile.setClickable(true);
+        tile.removeFlag(TileFlag.PerfectCovered);
         continue;
       }
 
@@ -233,6 +293,10 @@ export class OfflineGame {
         tile.removeFlag(TileFlag.Invisible);
         continue;
       }
+      if (hiddenFallingTileIds.has(tile.id)) {
+        tile.setFlag(TileFlag.Invisible);
+        continue;
+      }
 
       const invisible =
         tile.hasFlag(TileFlag.PerfectCovered) ||
@@ -240,6 +304,27 @@ export class OfflineGame {
       if (invisible) tile.setFlag(TileFlag.Invisible);
       else tile.removeFlag(TileFlag.Invisible);
     }
+  }
+
+  /** Falling keeps viewLength tiles exposed and reveals the next ID after any collection. */
+  private hiddenFallingTileIds(): Set<number> {
+    const hidden = new Set<number>();
+    for (const group of this.fallingGroups) {
+      let collectedCount = 0;
+      for (const tileId of group.tileIds) {
+        const tile = this.allTiles.get(tileId)!;
+        if (tile.pileType !== PileType.Desk) collectedCount++;
+      }
+      const revealedCount = Math.min(
+        group.tileIds.length,
+        group.viewLength + collectedCount,
+      );
+      for (let index = revealedCount; index < group.tileIds.length; index++) {
+        const tile = this.allTiles.get(group.tileIds[index])!;
+        if (tile.pileType === PileType.Desk) hidden.add(tile.id);
+      }
+    }
+    return hidden;
   }
 
   /**
@@ -336,7 +421,7 @@ export class OfflineGame {
    * Port of C# CountUnlockGain.
    */
   countUnlockGain(removingTileId: number): number {
-    let gain = 0;
+    let gain = this.fallingRevealGain(removingTileId);
     for (const target of this.deskTiles) {
       if (target.id === removingTileId) continue;
       if (target.isClickable) continue;
@@ -346,6 +431,20 @@ export class OfflineGame {
       }
     }
     return gain;
+  }
+
+  private fallingRevealGain(removingTileId: number): number {
+    const group = this.fallingGroupByTileId.get(removingTileId);
+    const removing = this.allTiles.get(removingTileId);
+    if (!group || !removing || removing.pileType !== PileType.Desk || !removing.isClickable) return 0;
+
+    let collectedCount = 0;
+    for (const tileId of group.tileIds) {
+      if (this.allTiles.get(tileId)!.pileType !== PileType.Desk) collectedCount++;
+    }
+    const nextIndex = group.viewLength + collectedCount;
+    if (nextIndex >= group.tileIds.length) return 0;
+    return this.allTiles.get(group.tileIds[nextIndex])!.pileType === PileType.Desk ? 1 : 0;
   }
 
   /**
@@ -377,6 +476,7 @@ export class OfflineGame {
 
 export interface GameFactoryInput {
   terrainTiles: TerrainTile[];
+  terrainStructures?: TerrainStructure[];
   /** tileId → element value (1-based color) */
   elementValues: Map<number, number>;
   /** Initial dock entries from replay code */
@@ -389,7 +489,7 @@ export interface GameFactoryInput {
  * Create an OfflineGame from terrain + assigned colors + replay data.
  */
 export function createGame(input: GameFactoryInput): OfflineGame {
-  const { terrainTiles, elementValues, initialDock, eliminatedTileIds } = input;
+  const { terrainTiles, terrainStructures, elementValues, initialDock, eliminatedTileIds } = input;
 
   const tiles: OfflineTile[] = terrainTiles.map(tt => {
     const config: TileConfig = {
@@ -419,7 +519,7 @@ export function createGame(input: GameFactoryInput): OfflineGame {
     return tile;
   });
 
-  return new OfflineGame(tiles);
+  return new OfflineGame(tiles, terrainStructures);
 }
 
 // ═══════════════════════════════════════════════════════════════

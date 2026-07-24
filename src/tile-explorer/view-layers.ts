@@ -1,4 +1,5 @@
 import type { TerrainData, TerrainTile } from '../types.js';
+import { buildGenerationLogicalLayers } from '../logical-layers.js';
 import type { TileExplorerTile } from './types.js';
 
 export interface TileExplorerTerrainView {
@@ -46,6 +47,24 @@ export function buildTileExplorerTerrainView(terrain: TerrainData): TileExplorer
         throw new Error(`tile ${tile.id} 的 Dependency ${depId} 不在更高物理层`);
       }
     }
+  }
+
+  const logicalTerrain = buildGenerationLogicalLayers(terrain);
+  if (logicalTerrain.hasTerrainStructures) {
+    const physicalLayers = [...logicalTerrain.layers].reverse().map((layer, physicalLayer) =>
+      layer.map(tile => ({
+        id: tile.id,
+        physicalLayer,
+        shuffleable: !tile.isConst,
+        suit: tile.isConst && tile.constElementValue > 0 ? tile.constElementValue : undefined,
+      })));
+    const viewLayers = physicalLayers.map(layer => layer.map(tile => tile.id));
+    return {
+      physicalLayers,
+      viewLayers,
+      depthById: logicalTerrain.depthById,
+      sourceById,
+    };
   }
 
   const depthById = new Map<number, number>();

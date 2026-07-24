@@ -30,6 +30,7 @@ import {
   setLogLevel,
   LogLevel,
   computeDependencyDepth,
+  buildGenerationLogicalLayers,
   gradeStandard,
   gradeRefined,
   gradeStrategy1,
@@ -658,7 +659,10 @@ function buildGameFromReplay(
     offlineTiles.push(ot);
   }
 
-  return { game: new OfflineGame(offlineTiles), totalTiles: offlineTiles.length };
+  return {
+    game: new OfflineGame(offlineTiles, terrain.terrainStructures),
+    totalTiles: offlineTiles.length,
+  };
 }
 
 // ── Grade Config ──
@@ -968,14 +972,12 @@ const server = createServer(async (req, res) => {
       }
 
       // 计算依赖深度（供 LayerClosure 算法预填闭合率）
+      const logicalTerrain = buildGenerationLogicalLayers(terrain);
       const freeOnly = allTiles.filter(t => !t.isConst);
-      const tileMap = new Map(freeOnly.map(t => [t.id, t]));
-      const depthMap = computeDependencyDepth(freeOnly, tileMap);
-      const maxDepth = freeOnly.length > 0 ? Math.max(...depthMap.values()) : 0;
-      const tilesPerDepth: number[] = [];
-      for (let d = 1; d <= maxDepth; d++) {
-        tilesPerDepth.push(freeOnly.filter(t => depthMap.get(t.id) === d).length);
-      }
+      const maxDepth = logicalTerrain.layers.length;
+      const tilesPerDepth = logicalTerrain.layers.map(
+        layer => layer.filter(tile => !tile.isConst).length,
+      );
 
       json(res, {
         ok: true,
@@ -1820,7 +1822,7 @@ const server = createServer(async (req, res) => {
         offlineTiles.push(ot);
       }
 
-      const game = new OfflineGame(offlineTiles);
+      const game = new OfflineGame(offlineTiles, terrain.terrainStructures);
       const tMs = (timeout || 10) * 1000;
 
       if (mode === 'revive') {

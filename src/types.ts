@@ -28,11 +28,31 @@ export interface TerrainLayer {
   tiles: TerrainTile[];
 }
 
+/** 传送带结构：全部牌在生成逻辑中视为首层牌。 */
+export interface TransferTerrainStructure {
+  type: 'transfer';
+  id?: number;
+  tileIds: number[];
+  tileNum?: number;
+}
+
+/** 掉落结构：首批显示 viewLength 张，之后按 tileIds 顺序补牌。 */
+export interface FallingTerrainStructure {
+  type: 'falling';
+  id?: number;
+  tileIds: number[];
+  tileNum?: number;
+  viewLength: number;
+}
+
+export type TerrainStructure = TransferTerrainStructure | FallingTerrainStructure;
+
 /** 完整地形/关卡定义 */
 export interface TerrainData {
   levelResId?: number;
   levelHash?: string;       // 16 位小写十六进制，如 "550ede7fd250e2d4"
   layers: TerrainLayer[];
+  terrainStructures?: TerrainStructure[];
   LevelWidth?: number;
   LevelHeight?: number;
   elementsPerLevel?: number;

@@ -245,7 +245,7 @@ export function generateAndEvaluateOne(
 
     // 三次模拟（串行，保持简单）
     function sim(rate: number, s: number) {
-      const g = new OfflineGame(offlineTiles);
+      const g = new OfflineGame(offlineTiles, terrain.terrainStructures);
       const r = solvePlayerMistakeBatch(g, simRuns, seed + s, { mistakeRate: rate });
       const avgRemainingOnFail = r.losses > 0
         ? r.results.filter(item => !item.win).reduce((sum, item) => sum + item.remainingTilesOnFail, 0) / r.losses

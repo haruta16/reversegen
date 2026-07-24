@@ -22,6 +22,9 @@
 
 import type { TerrainTile, TerrainData, LayerClosureInput, LayerClosureOutput, DebtMetrics, ColorAllocationMode } from './types.js';
 import { getAllTiles } from './terrain-loader.js';
+import { buildGenerationLogicalLayers, computeDependencyDepth } from './logical-layers.js';
+
+export { computeDependencyDepth } from './logical-layers.js';
 
 // ═══════════════════════════════════════════════════════════
 // 主入口
@@ -44,12 +47,9 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
     throw new Error(`自由牌数量 ${freeTiles.length} 不是 3 的倍数`);
   }
 
-  const depthMap = computeDependencyDepth(allTiles, tileMap);
-  const maxDepth = Math.max(...depthMap.values());
-  const depthLayers: TerrainTile[][] = [];
-  for (let d = 1; d <= maxDepth; d++) {
-    depthLayers.push(allTiles.filter(t => depthMap.get(t.id) === d)); // 全量分层
-  }
+  const logicalTerrain = buildGenerationLogicalLayers(terrain);
+  const depthMap = logicalTerrain.depthById;
+  const depthLayers = logicalTerrain.layers;
 
   // ── 2. 分层统计 ──
   const freeTilesPerDepth = depthLayers.map(l => l.filter(t => !t.isConst).length);
@@ -80,40 +80,6 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
   const metrics = computeMetrics(assignments, allTiles, depthLayers, depthMap, tileMap, tileDepSets, dock, colorCount, actualCloseRates, p, retainedOldDebtTilesByLayer, colorAllocationMode, heavyColor, colorTotalTiles);
 
   return { assignments, triplets, metrics };
-}
-
-// ═══════════════════════════════════════════════════════════
-// 1. 依赖深度计算
-// ═══════════════════════════════════════════════════════════
-
-export function computeDependencyDepth(
-  tiles: TerrainTile[],
-  tileMap: Map<number, TerrainTile>,
-): Map<number, number> {
-  const depth = new Map<number, number>();
-
-  function walk(tileId: number): number {
-    const cached = depth.get(tileId);
-    if (cached !== undefined) return cached;
-
-    const tile = tileMap.get(tileId);
-    if (!tile || tile.dependencies.length === 0) {
-      depth.set(tileId, 1);
-      return 1;
-    }
-
-    let maxDep = 0;
-    for (const depId of tile.dependencies) {
-      const d = walk(depId);
-      if (d > maxDep) maxDep = d;
-    }
-    const result = maxDep + 1;
-    depth.set(tileId, result);
-    return result;
-  }
-
-  for (const tile of tiles) walk(tile.id);
-  return depth;
 }
 
 // ═══════════════════════════════════════════════════════════

@@ -4,7 +4,7 @@ import {
   generateBoardLayerClosure,
   generateBoardTileExplorer,
 } from './index.js';
-import { computeDependencyDepth } from './layer-closure-gen.js';
+import { buildGenerationLogicalLayers } from './logical-layers.js';
 import { getAllTiles, loadTerrainFromJson } from './terrain-loader.js';
 import type { DotNetRandomState } from './tile-explorer/random.js';
 import type { TileExplorerStrategy } from './tile-explorer/types.js';
@@ -191,11 +191,7 @@ function generateClosureReplay(
   const colorAllocationMaxRatio = ratio(params.colorAllocationMaxRatio, 'colorAllocationMaxRatio', 1);
   if (colorAllocationMaxRatio <= 0) throw new Error('colorAllocationMaxRatio 必须大于 0');
 
-  const allTiles = getAllTiles(terrain);
-  const freeTiles = allTiles.filter(tile => !tile.isConst);
-  const tileMap = new Map(allTiles.map(tile => [tile.id, tile]));
-  const depthMap = computeDependencyDepth(freeTiles, tileMap);
-  const depthCount = freeTiles.length ? Math.max(...depthMap.values()) : 0;
+  const depthCount = buildGenerationLogicalLayers(terrain).layers.length;
   let closeRates = requiredText(params.closeRates, 'closeRates')
     .split(',')
     .map((value, index) => ratio(value.trim(), `closeRates[${index}]`));

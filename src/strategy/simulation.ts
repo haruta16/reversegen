@@ -249,7 +249,11 @@ export function runSimulationPolicyVariants(
   if (new Set(options.variants.map(variant => variant.id)).size !== options.variants.length) {
     throw new Error('Simulation policy variant IDs must be unique');
   }
-  if (options.engine === 'rust') return runRustPolicyVariants(game, options);
+  // Rust protocol v2 does not carry terrainStructures yet. Structured boards
+  // must stay on the shared TypeScript state machine so falling visibility is exact.
+  if (options.engine === 'rust' && game.terrainStructures.length === 0) {
+    return runRustPolicyVariants(game, options);
+  }
   return Object.fromEntries(options.variants.map(variant => [variant.id, runTypescriptPolicy(game, {
     engine: options.engine,
     policy: { ...options.policy, config: { ...options.policy.config, ...variant.config } },

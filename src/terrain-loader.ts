@@ -4,7 +4,14 @@
  */
 
 import { readFileSync } from 'node:fs';
-import type { TerrainTile, TerrainLayer, TerrainData } from './types.js';
+import type {
+  FallingTerrainStructure,
+  TerrainTile,
+  TerrainLayer,
+  TerrainData,
+  TerrainStructure,
+  TransferTerrainStructure,
+} from './types.js';
 import { logger } from './logger.js';
 
 /**
@@ -40,14 +47,47 @@ function normalizeTerrain(raw: Record<string, unknown>): TerrainData {
     }
   }
 
+  const terrainStructures = normalizeTerrainStructures(raw.terrainStructures);
+
   return {
     levelResId: raw.levelResId as number | undefined,
     levelHash: (raw.LevelHash || raw.levelHash || '') as string,
     layers,
+    terrainStructures,
     LevelWidth: raw.LevelWidth as number | undefined,
     LevelHeight: raw.LevelHeight as number | undefined,
     elementsPerLevel: raw.elementsPerLevel as number | undefined,
   };
+}
+
+function normalizeTerrainStructures(raw: unknown): TerrainStructure[] {
+  if (!Array.isArray(raw)) return [];
+  const structures: TerrainStructure[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const source = entry as Record<string, unknown>;
+    const type = String(source.type ?? '').trim().toLowerCase();
+    if (type !== 'transfer' && type !== 'falling') continue;
+    const tileIds = Array.isArray(source.tileIds)
+      ? source.tileIds.map(Number).filter(Number.isInteger)
+      : [];
+    const common = {
+      type,
+      id: Number.isInteger(Number(source.id)) ? Number(source.id) : undefined,
+      tileIds,
+      tileNum: Number.isInteger(Number(source.tileNum)) ? Number(source.tileNum) : undefined,
+    };
+    if (type === 'transfer') {
+      structures.push(common as TransferTerrainStructure);
+    } else {
+      structures.push({
+        ...common,
+        type: 'falling',
+        viewLength: Number(source.viewLength),
+      } as FallingTerrainStructure);
+    }
+  }
+  return structures;
 }
 
 /** 将单张牌的原始 JSON 标准化为 TerrainTile */

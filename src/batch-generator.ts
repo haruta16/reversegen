@@ -358,7 +358,7 @@ export function generateAndEvaluateOne(
     const runOptimal = () => {
       if (!optimalAcceptance) return null;
       const optimal = solvePlayerShortestBatch(
-        new OfflineGame(offlineTiles), optimalAcceptance.runs, seed + 700000, 2000,
+        new OfflineGame(offlineTiles, terrain.terrainStructures), optimalAcceptance.runs, seed + 700000, 2000,
         { collectTrace },
       );
       const remainingTiles = optimal.losses > 0
@@ -408,7 +408,7 @@ export function generateAndEvaluateOne(
 
     // 三次模拟（串行，保持简单）
     function sim(rate: number, s: number) {
-      const g = new OfflineGame(offlineTiles);
+      const g = new OfflineGame(offlineTiles, terrain.terrainStructures);
       const r = evaluation.simulationEngine === 'rust'
         ? solvePlayerMistakeBatchRust(g, simRuns, seed + s, rate, collectTrace)
         : solvePlayerMistakeBatch(g, simRuns, seed + s, { mistakeRate: rate, collectTrace });

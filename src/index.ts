@@ -218,6 +218,9 @@ export function generateBoardTileExplorer(
 export type {
   TerrainTile,
   TerrainData,
+  TerrainStructure,
+  TransferTerrainStructure,
+  FallingTerrainStructure,
   ReverseGenOutput,
   CostStats,
   DockEntry,
@@ -233,6 +236,8 @@ export { TileState } from './types.js';
 // 算法
 export { runReverseGen } from './reverse-gen.js';
 export { runLayerClosureGen, computeDependencyDepth, assignColorTotals } from './layer-closure-gen.js';
+export { buildGenerationLogicalLayers } from './logical-layers.js';
+export type { GenerationLogicalLayers } from './logical-layers.js';
 export { runTileExplorerGen, colorGradientLayerGroups } from './tile-explorer/generator.js';
 export { buildTileExplorerTerrainView } from './tile-explorer/view-layers.js';
 export { DotNetRandom, seededShuffle } from './tile-explorer/random.js';

@@ -72,7 +72,7 @@ export function generateCandidate(
     constElementValue: tile.constElementValue,
     posX: tile.posX,
     posY: tile.posY,
-  }, values.get(tile.id) ?? 0)));
+  }, values.get(tile.id) ?? 0)), terrain.terrainStructures);
   return {
     candidate: {
       terrain_id: terrainId,
@@ -157,7 +157,7 @@ function generateTileExplorerCandidate(
     constElementValue: tile.constElementValue,
     posX: tile.posX,
     posY: tile.posY,
-  }, values.get(tile.id) ?? 0)));
+  }, values.get(tile.id) ?? 0)), terrain.terrainStructures);
   return {
     candidate: {
       terrain_id: terrainId,
