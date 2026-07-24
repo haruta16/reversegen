@@ -315,9 +315,10 @@ kbd{
   <input type="file" id="terrainFile" accept=".json,application/json" style="display:none" onchange="loadTerrainFile(this.files&&this.files[0])">
   <input type="file" id="levelsFolderPicker" accept=".json,application/json" webkitdirectory directory multiple style="display:none" onchange="selectLevelsDirectory(this.files)">
   <div class="terrain-loader">
-    <input type="text" id="levelsDir" class="levels-dir" placeholder="默认关卡目录" aria-label="默认关卡目录" title="可输入运行 GUI 的电脑上的 Levels 目录；也可选择当前电脑上的目录" oninput="clearSelectedLevelsDirectory()">
+    <input type="text" id="levelsDir" class="levels-dir" placeholder="默认关卡目录" aria-label="默认关卡目录" title="可输入运行 GUI 的电脑上的 Levels 目录；也可选择当前电脑上的目录" oninput="onLevelsDirInput()">
     <button type="button" class="btn btn-ghost" onclick="document.getElementById('levelsFolderPicker').click()">选择目录</button>
-    <input type="text" id="levelId" inputmode="numeric" placeholder="关卡 ID" aria-label="默认路径关卡 ID" onkeydown="if(event.key==='Enter'){event.preventDefault();loadLevel()}">
+    <input type="text" id="levelId" inputmode="numeric" list="levelList" autocomplete="off" placeholder="关卡 ID" aria-label="默认路径关卡 ID" title="输入或点击查看当前目录中的关卡" onkeydown="if(event.key==='Enter'){event.preventDefault();loadLevel()}">
+    <datalist id="levelList"></datalist>
     <button type="button" class="btn btn-ghost" onclick="loadLevel()" title="按关卡 ID 从当前默认目录加载">加载</button>
     <button type="button" class="btn btn-ghost" onclick="document.getElementById('terrainFile').click()">单独选文件</button>
     <span id="terrainFileName" class="file-name" style="font-size:10px;color:var(--dim)">未加载</span>
@@ -823,6 +824,61 @@ function clearSelectedLevelsDirectory(){
   }
 }
 
+var levelListRefreshTimer=0,levelListRequestId=0;
+
+function renderLevelList(levels){
+  var list=document.getElementById('levelList');
+  list.innerHTML='';
+  (levels||[]).forEach(function(level){
+    var option=document.createElement('option');
+    option.value=String(level.id);
+    var detail=[];
+    if(level.tiles!=null)detail.push(level.tiles+'张');
+    if(level.fileName&&level.fileName!==String(level.id)+'.json')detail.push(level.fileName);
+    option.label=detail.length?String(level.id)+' · '+detail.join(' · '):String(level.id);
+    list.appendChild(option);
+  });
+  document.getElementById('levelId').title=levels&&levels.length
+    ?'当前目录共 '+levels.length+' 个关卡；输入或点击查看列表'
+    :'当前目录没有可用关卡';
+}
+
+function localLevelList(files){
+  return Array.prototype.map.call(files||[],function(file){
+    var id=file.name.replace(/\.json$/i,'');
+    return{id:id,fileName:String(file.webkitRelativePath||file.name)};
+  }).sort(function(a,b){
+    var an=Number(a.id),bn=Number(b.id);
+    if(Number.isFinite(an)&&Number.isFinite(bn))return an-bn;
+    return String(a.id).localeCompare(String(b.id));
+  });
+}
+
+async function refreshLevelList(dir){
+  var requestId=++levelListRequestId;
+  try{
+    var url=dir?'/api/levels?dir='+encodeURIComponent(dir):'/api/levels';
+    var response=await appFetch(url);
+    var data=await response.json();
+    if(requestId!==levelListRequestId||!data.ok)return false;
+    renderLevelList(data.levels||[]);
+    var status=document.getElementById('terrainFileName');
+    if(!S.level)status.textContent=(data.levels||[]).length+' 个关卡可选';
+    return true;
+  }catch(e){
+    if(requestId===levelListRequestId)renderLevelList([]);
+    return false;
+  }
+}
+
+function onLevelsDirInput(){
+  clearSelectedLevelsDirectory();
+  clearTimeout(levelListRefreshTimer);
+  renderLevelList([]);
+  var dir=selectedLevelsDir();
+  levelListRefreshTimer=setTimeout(function(){refreshLevelList(dir)},350);
+}
+
 function selectedLevelsDir(){
   var input=document.getElementById('levelsDir');
   return input.dataset.localFolder==='1'?'':input.value.trim();
@@ -839,6 +895,7 @@ function selectLevelsDirectory(files){
   input.value='本地目录：'+folderName;
   input.dataset.localFolder='1';
   S.localLevelFiles=jsonFiles;
+  renderLevelList(localLevelList(jsonFiles));
   document.getElementById('terrainFileName').textContent=jsonFiles.length+' 个关卡';
   updateGenerationParamSummary();
   toast('已选择默认目录：'+folderName,'ok');
@@ -850,7 +907,11 @@ async function initDefaultLevelsDir(){
   try{
     var r=await appFetch('/api/levels');
     var data=await r.json();
-    if(data.ok&&!input.value)input.value=String(data.dir||'');
+    if(data.ok){
+      if(!input.value)input.value=String(data.dir||'');
+      renderLevelList(data.levels||[]);
+      if(!S.level)document.getElementById('terrainFileName').textContent=(data.levels||[]).length+' 个关卡可选';
+    }
   }catch(e){}
 }
 
@@ -864,7 +925,18 @@ async function loadTerrainFile(file){
     var uploaded=await upload.json();
     if(!uploaded.ok)throw new Error(uploaded.error);
     var loaded=await loadLevel({terrainPath:uploaded.resolvedPath});
-    if(loaded)document.getElementById('terrainFileName').textContent=file.name;
+    if(loaded){
+      document.getElementById('terrainFileName').textContent=file.name;
+      var selectedId=S.level&&S.level.levelResId!=null?String(S.level.levelResId):file.name.replace(/\.json$/i,'');
+      var options=document.getElementById('levelList').options;
+      var existing=Array.prototype.some.call(options,function(option){return option.value===selectedId});
+      if(!existing){
+        var option=document.createElement('option');
+        option.value=selectedId;
+        option.label=selectedId+' · '+file.name;
+        document.getElementById('levelList').appendChild(option);
+      }
+    }
     return loaded;
   }catch(e){
     document.getElementById('terrainFileName').textContent='未加载';
