@@ -211,7 +211,7 @@ canvas{width:100%;border-radius:6px;margin-top:4px;display:block}
 
 /* ── Generation parameter snapshot ── */
 .param-summary{
-  height:30px;margin-top:10px;display:grid;grid-template-columns:minmax(0,1fr) 42px 30px;
+  height:30px;margin-top:10px;display:grid;grid-template-columns:minmax(0,1fr) 60px 42px 30px;
   align-items:stretch;background:var(--ink);border:1px solid var(--line);border-radius:6px;
   color:var(--dim);overflow:hidden;transition:border-color .2s,box-shadow .2s;
 }
@@ -221,13 +221,14 @@ canvas{width:100%;border-radius:6px;margin-top:4px;display:block}
   color:var(--dim);font:9px/14px var(--mono);box-shadow:none;
 }
 .param-summary input:focus{border:0;box-shadow:none}
-.param-parse,.param-copy{
+.param-experience,.param-parse,.param-copy{
   display:flex;align-items:center;justify-content:center;border:0;border-left:1px solid var(--line2);
   background:transparent;color:var(--dim);cursor:pointer;transition:background .15s,color .15s;
 }
-.param-parse{font:600 9px var(--sans)}
-.param-parse:hover,.param-copy:hover{background:var(--accent-soft);color:var(--gold)}
-.param-parse:focus-visible,.param-copy:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}
+.param-experience,.param-parse{font:600 9px var(--sans)}
+.param-experience:hover:not(:disabled),.param-parse:hover,.param-copy:hover{background:var(--accent-soft);color:var(--gold)}
+.param-experience:focus-visible,.param-parse:focus-visible,.param-copy:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}
+.param-experience:disabled{opacity:.45;cursor:not-allowed}
 .param-copy svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .param-copy.copied{color:var(--ok);background:var(--accent-soft)}
 
@@ -465,6 +466,7 @@ kbd{
 
       <div class="param-summary" role="group" aria-label="当前生成参数">
         <input type="text" id="generationParamSummary" aria-label="当前生成参数串" title="整套生成参数的可复制文本；粘贴后点解析可恢复设置" spellcheck="false" onkeydown="if(event.key==='Enter'){event.preventDefault();parseGenerationParamSummary()}">
+        <button type="button" class="param-experience" id="btnGenerateExperience" onclick="generateCurrentParamsAsExperience()" aria-label="使用当前参数直接生成并体验" title="调用 TMM 直接生成并设为实际体验">直接体验</button>
         <button type="button" class="param-parse" onclick="parseGenerationParamSummary()" aria-label="解析生成参数串" title="解析生成参数串">解析</button>
         <button type="button" class="param-copy" id="btnCopyParams" onclick="copyGenerationParams()" aria-label="复制生成参数" title="复制生成参数">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M15 9V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"></path></svg>
@@ -539,6 +541,7 @@ kbd{
         <div class="code-block" id="codeBox"></div>
         <div class="code-actions">
           <button type="button" class="btn btn-secondary btn-xs" onclick="copyCode()">复制</button>
+          <button type="button" class="btn btn-primary btn-xs" id="btnSetExperience" onclick="setCurrentReplayAsExperience()">直接体验</button>
           <button class="btn btn-outline btn-xs" onclick="downloadCode()">下载 .txt</button>
           <span style="font-size:9px;color:var(--faint);margin-left:auto">Unity LoadLevel_V2() 兼容</span>
         </div>
@@ -2396,6 +2399,87 @@ async function copyCode(){
   var box=document.getElementById('codeBox');
   var result=await copyTextWithFallback(box.textContent,box);
   if(result==='copied')toast('ReplayCode 已复制','ok');
+}
+
+var experienceRequestSequence=0;
+var pendingExperienceRequests={};
+function platformParentOrigin(){
+  if(window.parent===window||!document.referrer)return'';
+  try{return new URL(document.referrer).origin}catch(e){return''}
+}
+function finishExperienceRequest(requestId,result){
+  var pending=pendingExperienceRequests[requestId];
+  if(!pending)return;
+  clearTimeout(pending.timer);
+  pending.button.disabled=false;
+  pending.button.textContent=pending.idleText;
+  delete pendingExperienceRequests[requestId];
+  if(result.ok){
+    toast(result.levelResId?'关卡 '+result.levelResId+' 已设为实际体验':'已设为实际体验','ok');
+  }else{
+    toast(result.error||'设定实际体验失败','err');
+  }
+}
+window.addEventListener('message',function(event){
+  var origin=platformParentOrigin();
+  if(!origin||event.source!==window.parent||event.origin!==origin)return;
+  var data=event.data;
+  if(!data||data.type!=='reversegen:experience-package-result')return;
+  finishExperienceRequest(String(data.requestId||''),data);
+});
+function setCurrentReplayAsExperience(){
+  var replayCode=document.getElementById('codeBox').textContent.trim();
+  if(!replayCode){toast('请先生成或导入 ReplayCode','err');return}
+  var origin=platformParentOrigin();
+  if(!origin){toast('请在 TMM 管理平台中使用直接体验','err');return}
+
+  var button=document.getElementById('btnSetExperience');
+  var requestId='reversegen-'+Date.now()+'-'+(++experienceRequestSequence);
+  button.disabled=true;
+  button.innerHTML='<span class="spinner"></span> 设定中...';
+  pendingExperienceRequests[requestId]={
+    button:button,
+    idleText:'直接体验',
+    timer:setTimeout(function(){
+      finishExperienceRequest(requestId,{ok:false,error:'设定实际体验超时，请重试'});
+    },30000),
+  };
+  window.parent.postMessage({
+    type:'reversegen:set-experience-package',
+    requestId:requestId,
+    replayCode:replayCode,
+  },origin);
+}
+function generateCurrentParamsAsExperience(){
+  var field=document.getElementById('generationParamSummary');
+  var parameterString=field.value.trim()||updateGenerationParamSummary();
+  var params;
+  try{params=decodeGenerationParamString(parameterString)}
+  catch(e){toast(e.message||'生成参数串格式无效','err');return}
+  var levelResId=parseInt(params.levelId,10);
+  if(!Number.isInteger(levelResId)||levelResId<=0){
+    toast('生成参数串缺少有效关卡 ID','err');return;
+  }
+
+  var origin=platformParentOrigin();
+  if(!origin){toast('请在 TMM 管理平台中使用直接体验','err');return}
+  var button=document.getElementById('btnGenerateExperience');
+  var requestId='reversegen-generate-'+Date.now()+'-'+(++experienceRequestSequence);
+  button.disabled=true;
+  button.textContent='生成中';
+  pendingExperienceRequests[requestId]={
+    button:button,
+    idleText:'直接体验',
+    timer:setTimeout(function(){
+      finishExperienceRequest(requestId,{ok:false,error:'生成并设定实际体验超时，请重试'});
+    },245000),
+  };
+  window.parent.postMessage({
+    type:'reversegen:generate-experience-package',
+    requestId:requestId,
+    levelResId:levelResId,
+    parameterString:parameterString,
+  },origin);
 }
 function downloadCode(){
   var t=document.getElementById('codeBox').textContent;
