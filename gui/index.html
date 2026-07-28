@@ -318,7 +318,7 @@ kbd{
   <div class="terrain-loader">
     <input type="text" id="levelsDir" class="levels-dir" placeholder="默认关卡目录" aria-label="默认关卡目录" title="可输入运行 GUI 的电脑上的 Levels 目录；也可选择当前电脑上的目录" oninput="onLevelsDirInput()">
     <button type="button" class="btn btn-ghost" onclick="document.getElementById('levelsFolderPicker').click()">选择目录</button>
-    <input type="text" id="levelId" inputmode="numeric" list="levelList" autocomplete="off" placeholder="关卡 ID" aria-label="默认路径关卡 ID" title="输入或点击查看当前目录中的关卡" onkeydown="if(event.key==='Enter'){event.preventDefault();loadLevel()}">
+    <input type="text" id="levelId" inputmode="numeric" list="levelList" autocomplete="off" placeholder="关卡 ID" aria-label="默认路径关卡 ID" title="输入或点击查看当前目录中的关卡" oninput="onLevelIdInput()" onkeydown="if(event.key==='Enter'){event.preventDefault();loadLevel()}">
     <datalist id="levelList"></datalist>
     <button type="button" class="btn btn-ghost" onclick="loadLevel()" title="按关卡 ID 从当前默认目录加载">加载</button>
     <button type="button" class="btn btn-ghost" onclick="document.getElementById('terrainFile').click()">单独选文件</button>
@@ -827,7 +827,7 @@ function clearSelectedLevelsDirectory(){
   }
 }
 
-var levelListRefreshTimer=0,levelListRequestId=0;
+var levelListRefreshTimer=0,levelListRequestId=0,levelListAutoLoadTimer=0;
 
 function renderLevelList(levels){
   var list=document.getElementById('levelList');
@@ -844,6 +844,19 @@ function renderLevelList(levels){
   document.getElementById('levelId').title=levels&&levels.length
     ?'当前目录共 '+levels.length+' 个关卡；输入或点击查看列表'
     :'当前目录没有可用关卡';
+}
+
+function onLevelIdInput(){
+  clearTimeout(levelListAutoLoadTimer);
+  var input=document.getElementById('levelId');
+  var id=input.value.trim();
+  if(!id)return;
+  var options=document.getElementById('levelList').options;
+  var isListed=Array.prototype.some.call(options,function(option){return option.value===id});
+  if(!isListed)return;
+  levelListAutoLoadTimer=setTimeout(function(){
+    if(document.getElementById('levelId').value.trim()===id)loadLevel();
+  },0);
 }
 
 function localLevelList(files){
