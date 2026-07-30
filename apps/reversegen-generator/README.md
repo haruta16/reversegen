@@ -127,10 +127,11 @@ Content-Type: application/json
 }
 ```
 
-接口兼容首页复制按钮当前生成的三种参数串：
+接口兼容首页复制按钮当前生成的四种参数串：
 
 - CostLadder：4 段位置格式；
 - LayerClosure：8 段位置格式；
+- Zen Match：`Zen:花色数:策略:seed:关卡ID` 的 5 段位置格式；
 - TileExplorer：`RGP1.` 开头的 Base64URL JSON。
 
 接口始终使用请求中传入的关卡内容，不读取参数串里的文件路径。参数串关卡 ID 与关卡
