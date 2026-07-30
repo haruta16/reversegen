@@ -25,6 +25,7 @@ import {
   generateBoard,
   generateBoardLayerClosure,
   generateBoardTileExplorer,
+  generateBoardZenMatch,
   loadTerrainFromFile,
   printTerrainSummary,
   setLogLevel,
@@ -42,6 +43,7 @@ const { values } = parseArgs({
     algorithm:     { type: 'string', short: 'a', default: 'cost-ladder' },
     cost:          { type: 'string', short: 'c' },
     colors:        { type: 'string', short: 'k' },
+    seed:          { type: 'string', default: '0' },
     hash:          { type: 'string' },
     // LayerClosure 算法专用参数
     'close-rates':  { type: 'string' },
@@ -63,6 +65,8 @@ const { values } = parseArgs({
     'limit-full-first': { type: 'boolean' },
     'solvability-random-mode': { type: 'boolean' },
     'gradient-groups': { type: 'string' },
+    // Zen Match 算法专用参数
+    'zen-strategy': { type: 'string', default: '4' },
     json:          { type: 'boolean', short: 'j', default: false },
     quiet:         { type: 'boolean', short: 'q', default: false },
     verbose:       { type: 'boolean', short: 'v', default: false },
@@ -84,7 +88,7 @@ USAGE:
 
 OPTIONS:
   -t, --terrain <path>     Path to terrain JSON file (Unity level format) (required)
-  -a, --algorithm <name>   算法选择: cost-ladder (默认) | closure | tile-explorer
+  -a, --algorithm <name>   算法选择: cost-ladder (默认) | closure | tile-explorer | zen-match
   -k, --colors <n>         花色数量
   --hash <hex>             Level hash override (16-char hex)
   -j, --json               Output results as JSON
@@ -114,6 +118,10 @@ OPTIONS:
     --hard-tag <n>         难关标签，影响部分策略默认值
     --gradient-groups <j>  ColorGradient 花色分组 JSON，如 [[1,2],[3,4]]
 
+  Zen Match 算法参数 (-a zen-match):
+    --zen-strategy <4|5>   Zen 本地生成策略（默认: 4）
+    --seed <n>             生成随机种子（默认: 0）
+
 EXAMPLES:
   # CostLadder (默认)
   npx tsx cli/generate.ts -t level.json -c 3,3,2,2,2,1 -k 8
@@ -121,6 +129,10 @@ EXAMPLES:
   # LayerClosure
   npx tsx cli/generate.ts -t level.json -a closure \\
     --close-rates 0.3,0.5,0.8 -k 8 --style uniform
+
+  # Zen Match strategy 5
+  npx tsx cli/generate.ts -t level.json -a zen-match \\
+    --colors 5 --seed 12345 --zen-strategy 5
 
   # JSON output
   npx tsx cli/generate.ts -t level.json -c 3,3,2 -k 6 --json
@@ -215,7 +227,46 @@ try {
     printTerrainSummary(terrain);
   }
 
-  if (algorithm === 'tile-explorer') {
+  if (algorithm === 'zen-match') {
+    const colorCount = parseInt(values.colors ?? '5', 10);
+    const seed = Number(values.seed ?? '0');
+    const strategy = Number(values['zen-strategy'] ?? '4');
+    if (!Number.isInteger(colorCount) || colorCount < 1 || colorCount > 64) {
+      throw new Error('--colors 必须是 1-64 的整数');
+    }
+    if (!Number.isInteger(seed)) throw new Error('--seed 必须是整数');
+    if (strategy !== 4 && strategy !== 5) throw new Error('--zen-strategy 必须是 4 或 5');
+    const result = generateBoardZenMatch({
+      terrain,
+      uniqueCount: colorCount,
+      seed,
+      strategy,
+      levelHash: values.hash,
+    });
+    if (values.quiet) console.log(result.replayCode);
+    else if (values.json) {
+      console.log(JSON.stringify({
+        algorithm: 'zen-match',
+        replayCode: result.replayCode,
+        levelHash: result.levelHash,
+        assignments: Object.fromEntries(result.assignments),
+        abstractAssignments: Object.fromEntries(result.abstractAssignments),
+        topMatchTileIds: result.topMatchTileIds,
+        requestedUniqueCount: result.requestedUniqueCount,
+        actualColorCount: result.actualColorCount,
+        seed: result.seed,
+        strategy: result.strategy,
+      }, null, 2));
+    } else {
+      console.log('\n── Zen Match Results ──');
+      console.log(`  策略: ${result.strategy}`);
+      console.log(`  Seed: ${result.seed}`);
+      console.log(`  花色: ${result.actualColorCount}/${result.requestedUniqueCount}`);
+      console.log(`  顶部保底: [${result.topMatchTileIds.join(', ')}]`);
+      console.log(`  Level hash: ${result.levelHash}`);
+      console.log(`\n── ReplayCode ──\n  ${result.replayCode}`);
+    }
+  } else if (algorithm === 'tile-explorer') {
     const colorCount = parseInt(values.colors ?? '5', 10);
     const difficulty = parseInt(values.difficulty ?? '1', 10);
     const sequenceSeed = parseInt(values['sequence-seed'] ?? '0', 10);

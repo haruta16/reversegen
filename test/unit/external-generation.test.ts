@@ -68,6 +68,44 @@ describe('external Replay generation API core', () => {
     assert.equal(replay?.elementCount, 8);
   });
 
+  it('decodes the current positional Zen Match copy format', () => {
+    assert.deepEqual(
+      decodeGenerationParameterString('Zen:5:4:0:100075'),
+      {
+        algorithm: 'zen-match',
+        levelId: '100075',
+        colorCount: '5',
+        zenStrategy: '4',
+        seed: '0',
+      },
+    );
+  });
+
+  it('keeps legacy Zen Match RGP1 parameters readable', () => {
+    const snapshot = {
+      algorithm: 'zen-match' as const,
+      levelId: '100075',
+      colorCount: '5',
+      zenStrategy: '4',
+      seed: '0',
+    };
+    const parameterString = `RGP1.${Buffer.from(JSON.stringify(snapshot)).toString('base64url')}`;
+    assert.deepEqual(decodeGenerationParameterString(parameterString), snapshot);
+  });
+
+  it('generates Zen Match ReplayCode from a positional parameter string', () => {
+    const parameterString = 'Zen:5:5:12345:100075';
+    const result = generateReplayFromExternalInput({
+      parameterString,
+      terrain: terrainObject,
+    });
+    const replay = decodeFromString(result.replayCode);
+    assert.equal(result.algorithm, 'zen-match');
+    assert.equal(result.elementCount, 5);
+    assert.equal(replay?.instanceArray.length, 84);
+    assert.equal(replay?.elementCount, 5);
+  });
+
   it('rejects a parameter string for a different level file', () => {
     assert.throws(
       () => generateReplayFromExternalInput({

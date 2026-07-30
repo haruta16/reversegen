@@ -1,5 +1,6 @@
 import type { DebtMetrics } from '../types.js';
 import type { TileExplorerStrategy } from '../tile-explorer/types.js';
+import type { ZenMatchStrategy } from '../zen-match/types.js';
 
 export const STRATEGY_SCHEMA_VERSION = 2 as const;
 
@@ -64,7 +65,19 @@ export interface TileExplorerGeneratorSpec {
   };
 }
 
-export type GeneratorSpec = LayerClosureGeneratorSpec | TileExplorerGeneratorSpec;
+export interface ZenMatchGeneratorSpec {
+  method: 'zen_match';
+  version: 1;
+  parameters: {
+    generation_strategy: ZenMatchStrategy;
+    color_count: LayerClosureGeneratorSpec['parameters']['color_count'];
+  };
+}
+
+export type GeneratorSpec =
+  | LayerClosureGeneratorSpec
+  | TileExplorerGeneratorSpec
+  | ZenMatchGeneratorSpec;
 
 export interface TileExplorerGeneratorMetrics {
   strategy: TileExplorerStrategy;
@@ -75,6 +88,14 @@ export interface TileExplorerGeneratorMetrics {
   typeCycle: number[];
   sequenceSeed: number;
   placementSeed: number;
+}
+
+export interface ZenMatchGeneratorMetrics {
+  strategy: ZenMatchStrategy;
+  colorCount: number;
+  requestedUniqueCount: number;
+  topMatchTileIds: number[];
+  seed: number;
 }
 
 export interface SimulationPolicySpec {
@@ -134,7 +155,7 @@ export interface CandidateBoard {
     method: GeneratorSpec['method'];
     version: number;
     parameters: Record<string, unknown>;
-    metrics: DebtMetrics | TileExplorerGeneratorMetrics;
+    metrics: DebtMetrics | TileExplorerGeneratorMetrics | ZenMatchGeneratorMetrics;
   };
   assignments: Array<[number, number]>;
   replay_code: string;

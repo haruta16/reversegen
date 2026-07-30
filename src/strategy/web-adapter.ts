@@ -223,7 +223,7 @@ function editorPolicy(value: LayerClosureGeneratorSpec['parameters']['spread']):
 
 export function strategyV2ToEditor(strategy: StrategyDefinition, meta: StrategyEditorMeta = {}): EditorStrategy {
   if (strategy.generator.method !== 'layer_closure') {
-    throw new Error('当前可视化产出策略编辑器仅支持 layer_closure；tile_explorer 可直接使用 strategy v2 JSON');
+    throw new Error('当前可视化产出策略编辑器仅支持 layer_closure；tile_explorer/zen_match 可直接使用 strategy v2 JSON');
   }
   const generator = strategy.generator;
   const player = strategy.pipeline.find(stage => stage.type === 'simulate' && stage.policy.id === 'mistake_player') as SimulateStage | undefined;
@@ -364,7 +364,7 @@ function summary(record: StrategyRunRecord, stageId: string, variantId: string) 
 export function strategyRecordToBatchRow(record: StrategyRunRecord, terrainIndex = 0): BatchRow {
   const parameters = record.candidate.generator.parameters;
   const metrics = record.candidate.generator.metrics as Partial<DebtMetrics>;
-  const isTileExplorer = record.candidate.generator.method === 'tile_explorer';
+  const isLayerClosure = record.candidate.generator.method === 'layer_closure';
   const sim1 = summary(record, 'player_metrics', 'mistake_01');
   const sim5 = summary(record, 'player_metrics', 'mistake_05');
   const sim15 = summary(record, 'player_metrics', 'mistake_15');
@@ -379,11 +379,11 @@ export function strategyRecordToBatchRow(record: StrategyRunRecord, terrainIndex
     attemptIndex: record.candidate.attempt,
     isMaxGradeProbe: false,
     colorCount: Number(parameters.color_count),
-    closeRates: isTileExplorer ? [] : parameters.close_rates as number[],
-    spreadParam: isTileExplorer ? 0.5 : Number(parameters.spread),
-    debtPersistenceWeight: isTileExplorer ? 0 : Number(parameters.debt),
-    colorAllocationMode: !isTileExplorer && parameters.color_allocation === 'single-heavy' ? 'single-heavy' : 'balanced',
-    colorAllocationMaxRatio: isTileExplorer || parameters.color_allocation_max_ratio == null ? undefined : Number(parameters.color_allocation_max_ratio),
+    closeRates: isLayerClosure ? parameters.close_rates as number[] : [],
+    spreadParam: isLayerClosure ? Number(parameters.spread) : 0.5,
+    debtPersistenceWeight: isLayerClosure ? Number(parameters.debt) : 0,
+    colorAllocationMode: isLayerClosure && parameters.color_allocation === 'single-heavy' ? 'single-heavy' : 'balanced',
+    colorAllocationMaxRatio: !isLayerClosure || parameters.color_allocation_max_ratio == null ? undefined : Number(parameters.color_allocation_max_ratio),
     heavyColor: metrics.heavyColor ?? 0,
     colorTripletCounts: metrics.colorTripletCounts ?? [],
     freeTiles: metrics.totalTiles ?? record.candidate.assignments.length,

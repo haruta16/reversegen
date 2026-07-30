@@ -2,12 +2,18 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import test from 'node:test';
-import { loadTerrainFromFile, LogLevel, setLogLevel } from '../../src/index.js';
+import {
+  executeStrategyPipeline,
+  loadTerrainFromFile,
+  LogLevel,
+  setLogLevel,
+} from '../../src/index.js';
 import { validateStrategyDefinition } from '../../src/strategy/definition.js';
 import { generateCandidate } from '../../src/strategy/generator.js';
 import { deriveSeed } from '../../src/strategy/random.js';
 import {
   compileEditorStrategyV2,
+  strategyRecordToBatchRow,
   strategyV2ToEditor,
   webBatchConfigToStrategyV2,
 } from '../../src/strategy/web-adapter.js';
@@ -81,4 +87,62 @@ test('web batch request compiles to the same strategy v2 execution model', () =>
   assert.equal(definition.pipeline[0].type, 'simulate');
   assert.equal(definition.pipeline[0].type === 'simulate' && definition.pipeline[0].engine, 'rust');
   assert.deepEqual(definition.target.grades, [0, 1, 2, 3, 4, 5]);
+});
+
+test('zen_match is a first-class strategy-v2 generator and enters grading pipeline', () => {
+  const definition = validateStrategyDefinition({
+    schema_version: 2,
+    id: 'zen_match_pipeline_test',
+    version: 1,
+    scope: { levels_dir: resolve('test/fixtures'), levels: ['100075'] },
+    target: { grades: [0, 1, 2, 3, 4, 5], count_per_grade: 1, max_attempts_per_level: 2 },
+    generator: {
+      method: 'zen_match',
+      version: 1,
+      parameters: {
+        generation_strategy: 5,
+        color_count: { kind: 'fixed', value: 5 },
+      },
+    },
+    pipeline: [
+      {
+        id: 'player',
+        type: 'simulate',
+        engine: 'typescript',
+        runs: 1,
+        policy: { id: 'mistake_player', version: 1, config: {} },
+        variants: [
+          { id: 'sim1', config: { mistake_rate: 0.01 } },
+          { id: 'sim5', config: { mistake_rate: 0.05 } },
+          { id: 'sim15', config: { mistake_rate: 0.15 } },
+        ],
+      },
+      {
+        id: 'grade',
+        type: 'grade',
+        method: 'strategy2',
+        source: 'player',
+        inputs: { sim1: 'sim1', sim5: 'sim5', sim15: 'sim15' },
+      },
+    ],
+    runtime: { seed: 20260729, concurrency: 1, trace: { enabled: false, sample_rate: 0 } },
+    output: { format: 'jsonl' },
+  });
+  const terrain = loadTerrainFromFile(terrainPath);
+  const generated = generateCandidate(
+    terrain,
+    terrainPath,
+    1,
+    definition.generator,
+    definition.runtime.seed,
+  );
+  assert.equal(generated.candidate.generator.method, 'zen_match');
+  assert.equal(generated.candidate.assignments.length, 84);
+  assert.equal(generated.candidate.generator.parameters.generation_strategy, 5);
+  const record = executeStrategyPipeline(definition, generated.candidate, generated.game);
+  assert.equal(record.stages.at(-1)?.type, 'grade');
+  const row = strategyRecordToBatchRow(record);
+  assert.equal(row.replayCode, generated.candidate.replay_code);
+  assert.equal(row.colorCount, 5);
+  assert.deepEqual(row.closeRates, []);
 });

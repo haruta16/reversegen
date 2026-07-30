@@ -1,4 +1,10 @@
-import type { LayerClosureGeneratorSpec, PipelineStage, StrategyDefinition, TileExplorerGeneratorSpec } from './types.js';
+import type {
+  LayerClosureGeneratorSpec,
+  PipelineStage,
+  StrategyDefinition,
+  TileExplorerGeneratorSpec,
+  ZenMatchGeneratorSpec,
+} from './types.js';
 import { STRATEGY_SCHEMA_VERSION } from './types.js';
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -43,7 +49,11 @@ export function validateStrategyDefinition(value: unknown): StrategyDefinition {
   assert(new Set(strategy.target.grades).size === strategy.target.grades.length, 'target.grades contains duplicates');
   assert(Number.isInteger(strategy.target.count_per_grade) && strategy.target.count_per_grade > 0, 'target.count_per_grade must be positive');
   assert(Number.isInteger(strategy.target.max_attempts_per_level) && strategy.target.max_attempts_per_level > 0, 'target.max_attempts_per_level must be positive');
-  assert((strategy.generator?.method === 'layer_closure' || strategy.generator?.method === 'tile_explorer') && strategy.generator.version === 1, 'unsupported generator');
+  assert((
+    strategy.generator?.method === 'layer_closure'
+    || strategy.generator?.method === 'tile_explorer'
+    || strategy.generator?.method === 'zen_match'
+  ) && strategy.generator.version === 1, 'unsupported generator');
   const parameters = strategy.generator.parameters;
   assert(parameters != null && typeof parameters === 'object', 'generator.parameters is required');
   assert(parameters.color_count != null && typeof parameters.color_count === 'object', 'generator.parameters.color_count is required');
@@ -67,7 +77,7 @@ export function validateStrategyDefinition(value: unknown): StrategyDefinition {
     if (layerParameters.color_allocation.mode === 'single_heavy' && layerParameters.color_allocation.max_ratio != null) {
       assert(layerParameters.color_allocation.max_ratio > 0 && layerParameters.color_allocation.max_ratio <= 1, 'color_allocation.max_ratio must be within (0,1]');
     }
-  } else {
+  } else if (strategy.generator.method === 'tile_explorer') {
     const tileParameters = parameters as TileExplorerGeneratorSpec['parameters'];
     const supportedStrategies = new Set([
       'default', 'top_two_easy', 'sliding_window', 'limit_layer_random', 'easy_hard_easy',
@@ -86,6 +96,18 @@ export function validateStrategyDefinition(value: unknown): StrategyDefinition {
     if (tileParameters.strategy === 'color_gradient') {
       assert(Array.isArray(tileParameters.color_gradient_type_groups) && tileParameters.color_gradient_type_groups.length > 0, 'color_gradient_type_groups is required for color_gradient');
       assert(tileParameters.color_gradient_type_groups.every(group => Array.isArray(group) && group.length > 0 && group.every(value => Number.isInteger(value) && value > 0)), 'color_gradient_type_groups must contain positive integers');
+    }
+  } else {
+    const zenParameters = parameters as ZenMatchGeneratorSpec['parameters'];
+    assert(
+      zenParameters.generation_strategy === 4 || zenParameters.generation_strategy === 5,
+      'generator.parameters.generation_strategy must be 4 or 5',
+    );
+    if (zenParameters.color_count.kind === 'fixed') {
+      assert(
+        zenParameters.color_count.value <= 64,
+        'Zen Match fixed color_count must not exceed ReplayCode limit 64',
+      );
     }
   }
   assert(Array.isArray(strategy.pipeline) && strategy.pipeline.length > 0, 'pipeline is required');

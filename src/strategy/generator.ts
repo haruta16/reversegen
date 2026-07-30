@@ -1,9 +1,20 @@
-import { generateBoardLayerClosure, generateBoardTileExplorer, getAllTiles } from '../index.js';
+import {
+  generateBoardLayerClosure,
+  generateBoardTileExplorer,
+  generateBoardZenMatch,
+  getAllTiles,
+} from '../index.js';
 import { colorCountFromRatio, randomizeParams, type UnifiedParams } from '../batch-generator.js';
 import { OfflineGame } from '../solver/offline-game.js';
 import { OfflineTile } from '../solver/types.js';
 import type { TerrainData } from '../types.js';
-import type { CandidateBoard, GeneratorSpec, LayerClosureGeneratorSpec, TileExplorerGeneratorSpec } from './types.js';
+import type {
+  CandidateBoard,
+  GeneratorSpec,
+  LayerClosureGeneratorSpec,
+  TileExplorerGeneratorSpec,
+  ZenMatchGeneratorSpec,
+} from './types.js';
 import { deriveSeed, seededRandom } from './random.js';
 
 function unifiedParameters(spec: LayerClosureGeneratorSpec): UnifiedParams {
@@ -46,6 +57,9 @@ export function generateCandidate(
   const seed = deriveSeed(rootSeed, terrainId, attempt, 'candidate');
   if (spec.method === 'tile_explorer') {
     return generateTileExplorerCandidate(terrain, terrainPath, attempt, spec, seed, terrainId);
+  }
+  if (spec.method === 'zen_match') {
+    return generateZenMatchCandidate(terrain, terrainPath, attempt, spec, seed, terrainId);
   }
   const params = randomizeParams(unifiedParameters(spec), terrain, seededRandom(seed, 'parameters'));
   const result = generateBoardLayerClosure({
@@ -187,6 +201,77 @@ function generateTileExplorerCandidate(
         },
       },
       assignments: [...result.assignments.entries()].sort((a, b) => a[0] - b[0]),
+      replay_code: result.replayCode,
+    },
+    game,
+  };
+}
+
+function generateZenMatchCandidate(
+  terrain: TerrainData,
+  terrainPath: string,
+  attempt: number,
+  spec: ZenMatchGeneratorSpec,
+  seed: number,
+  terrainId: string,
+): GeneratedCandidate {
+  const parameterRng = seededRandom(seed, 'parameters');
+  const colorSpec = spec.parameters.color_count;
+  const freeTiles = getAllTiles(terrain).filter(tile => !tile.isConst).length;
+  let colorCount: number;
+  if (colorSpec.kind === 'fixed') colorCount = colorSpec.value;
+  else {
+    const ratio = colorSpec.min + parameterRng() * (colorSpec.max - colorSpec.min);
+    const jitter = Math.max(0, Math.floor(colorSpec.jitter ?? 0));
+    const offset = jitter ? Math.floor(parameterRng() * (jitter * 2 + 1)) - jitter : 0;
+    colorCount = colorCountFromRatio(ratio, freeTiles) + offset;
+  }
+  colorCount = Math.min(64, Math.max(1, colorCount));
+  const zenSeed = seed | 0;
+  const result = generateBoardZenMatch({
+    terrain,
+    uniqueCount: colorCount,
+    seed: zenSeed,
+    strategy: spec.parameters.generation_strategy,
+  });
+  const allTiles = getAllTiles(terrain);
+  const values = new Map(result.assignments);
+  for (const tile of allTiles) {
+    if (tile.isConst && tile.constElementValue > 0) values.set(tile.id, tile.constElementValue);
+  }
+  const game = new OfflineGame(allTiles.map(tile => new OfflineTile({
+    id: tile.id,
+    layer: tile.layer,
+    dependencies: [...tile.dependencies],
+    isConst: tile.isConst,
+    constElementValue: tile.constElementValue,
+    posX: tile.posX,
+    posY: tile.posY,
+  }, values.get(tile.id) ?? 0)), terrain.terrainStructures);
+  return {
+    candidate: {
+      terrain_id: terrainId,
+      terrain_path: terrainPath,
+      tile_count: allTiles.length,
+      attempt,
+      seed,
+      generator: {
+        method: spec.method,
+        version: spec.version,
+        parameters: {
+          generation_strategy: result.strategy,
+          color_count: colorCount,
+          seed: zenSeed,
+        },
+        metrics: {
+          strategy: result.strategy,
+          colorCount: result.actualColorCount,
+          requestedUniqueCount: result.requestedUniqueCount,
+          topMatchTileIds: result.topMatchTileIds,
+          seed: result.seed,
+        },
+      },
+      assignments: [...result.assignments.entries()].sort((left, right) => left[0] - right[0]),
       replay_code: result.replayCode,
     },
     game,

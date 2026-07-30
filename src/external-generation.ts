@@ -3,6 +3,7 @@ import {
   generateBoard,
   generateBoardLayerClosure,
   generateBoardTileExplorer,
+  generateBoardZenMatch,
 } from './index.js';
 import { buildGenerationLogicalLayers } from './logical-layers.js';
 import { getAllTiles, loadTerrainFromJson } from './terrain-loader.js';
@@ -11,7 +12,7 @@ import type { TileExplorerStrategy } from './tile-explorer/types.js';
 import type { TerrainData } from './types.js';
 
 export type GenerationParameterSnapshot = Record<string, unknown> & {
-  algorithm: 'cost-ladder' | 'closure' | 'tile-explorer';
+  algorithm: 'cost-ladder' | 'closure' | 'tile-explorer' | 'zen-match';
   levelId?: string;
   colorCount?: string | number;
 };
@@ -96,7 +97,8 @@ function decodeBase64UrlJson(encoded: string): GenerationParameterSnapshot {
 
 /**
  * Decode the exact formats currently emitted by the main page's copy button:
- * Cost (4 positional fields), LayerClosure (8 positional fields), and RGP1.
+ * Cost (4 positional fields), LayerClosure (8 positional fields),
+ * Zen Match (5 positional fields), and legacy RGP1.
  */
 export function decodeGenerationParameterString(input: string): GenerationParameterSnapshot {
   const raw = requiredText(input, 'parameterString');
@@ -115,6 +117,15 @@ export function decodeGenerationParameterString(input: string): GenerationParame
 
   const parts = raw.replace(/：/g, ':').split(':').map(part => part.trim());
   if (parts.length === 9 && parts[8] === '') parts.pop();
+  if (parts.length === 5 && /^zen(?:match)?$/i.test(parts[0])) {
+    return {
+      algorithm: 'zen-match',
+      colorCount: parts[1],
+      zenStrategy: parts[2],
+      seed: parts[3],
+      levelId: parts[4],
+    };
+  }
   if (parts.length === 8) {
     return {
       levelId: parts[7],
@@ -137,7 +148,9 @@ export function decodeGenerationParameterString(input: string): GenerationParame
       targetStd: parts[2],
     };
   }
-  throw new Error('参数串格式无效：LayerClosure 需要 8 段，CostLadder 需要 4 段，TileExplorer 需要 RGP1');
+  throw new Error(
+    '参数串格式无效：LayerClosure 需要 8 段，CostLadder 需要 4 段，Zen Match 格式为 Zen:花色:策略:seed:关卡，TileExplorer 需要 RGP1',
+  );
 }
 
 function validateTerrain(params: GenerationParameterSnapshot, terrain: TerrainData): void {
@@ -288,16 +301,41 @@ function generateTileExplorerReplay(
   };
 }
 
+function generateZenMatchReplay(
+  params: GenerationParameterSnapshot,
+  terrain: TerrainData,
+): ExternalReplayGenerationOutput {
+  const uniqueCount = integer(params.colorCount, 'colorCount', 1, 64);
+  const seed = integer(params.seed ?? 0, 'seed');
+  const strategy = integer(params.zenStrategy ?? 4, 'zenStrategy');
+  if (strategy !== 4 && strategy !== 5) throw new Error('zenStrategy 必须是 4 或 5');
+  const result = generateBoardZenMatch({
+    terrain,
+    uniqueCount,
+    seed,
+    strategy,
+  });
+  const replay = decodeFromString(result.replayCode);
+  return {
+    replayCode: result.replayCode,
+    algorithm: 'zen-match',
+    levelResId: terrain.levelResId,
+    elementCount: replay?.elementCount ?? result.actualColorCount,
+    levelHash: result.levelHash,
+  };
+}
+
 export function generateReplayFromExternalInput(
   input: ExternalReplayGenerationInput,
 ): ExternalReplayGenerationOutput {
   const params = decodeGenerationParameterString(input.parameterString);
-  if (!['cost-ladder', 'closure', 'tile-explorer'].includes(params.algorithm)) {
+  if (!['cost-ladder', 'closure', 'tile-explorer', 'zen-match'].includes(params.algorithm)) {
     throw new Error('参数串缺少有效 algorithm');
   }
   const terrain = parseTerrain(input.terrain);
   validateTerrain(params, terrain);
   if (params.algorithm === 'cost-ladder') return generateCostReplay(params, terrain);
   if (params.algorithm === 'closure') return generateClosureReplay(params, terrain);
+  if (params.algorithm === 'zen-match') return generateZenMatchReplay(params, terrain);
   return generateTileExplorerReplay(params, terrain);
 }

@@ -17,9 +17,11 @@ import { getAllTiles, getConstTiles } from './terrain-loader.js';
 import { runReverseGen } from './reverse-gen.js';
 import { runLayerClosureGen } from './layer-closure-gen.js';
 import { runTileExplorerGen } from './tile-explorer/generator.js';
+import { runZenMatchGen } from './zen-match/generator.js';
 import { generateReplayCode, getCanonicalTileOrder } from './replay-serializer.js';
 import { logger } from './logger.js';
 import type { TileExplorerBoardOutput, TileExplorerInput } from './tile-explorer/types.js';
+import type { ZenMatchBoardOutput, ZenMatchInput } from './zen-match/types.js';
 
 // ── 高层 API 类型 ──
 
@@ -93,6 +95,14 @@ export interface GenerateBoardTileExplorerInput extends TileExplorerInput {
 
 /** Tile Explorer 算法结果 + ReverseGen 通用 ReplayCode。 */
 export type GenerateBoardTileExplorerOutput = TileExplorerBoardOutput;
+
+/** Zen Match strategy 4/5 input plus an optional ReplayCode hash override. */
+export interface GenerateBoardZenMatchInput extends ZenMatchInput {
+  levelHash?: string;
+}
+
+/** Zen Match semantic generation result plus ReverseGen ReplayCode. */
+export type GenerateBoardZenMatchOutput = ZenMatchBoardOutput;
 
 function buildReplay(
   terrain: TerrainData,
@@ -212,6 +222,27 @@ export function generateBoardTileExplorer(
   return { ...result, ...replay };
 }
 
+/**
+ * High-level Zen Match generator. Converted Shell tile IDs are used directly;
+ * the Zen export's +1 ID offset preserves node ordering without a second ID map.
+ */
+export function generateBoardZenMatch(
+  input: GenerateBoardZenMatchInput,
+): GenerateBoardZenMatchOutput {
+  const { levelHash, ...algorithmInput } = input;
+  logger.info('═══════════════════════════════════════');
+  logger.info(`  Zen Match 牌局生成 · strategy ${input.strategy ?? 4}`);
+  logger.info('═══════════════════════════════════════');
+  const result = runZenMatchGen(algorithmInput);
+  const replay = buildReplay(input.terrain, result.assignments, levelHash);
+  logger.info(
+    `  花色:${result.actualColorCount}/${result.requestedUniqueCount} `
+    + `顶部保底:${result.topMatchTileIds.length} Seed:${result.seed}`,
+  );
+  logger.info('═══════════════════════════════════════');
+  return { ...result, ...replay };
+}
+
 // ── 公共 API 重新导出 ──
 
 // 类型
@@ -241,6 +272,7 @@ export type { GenerationLogicalLayers } from './logical-layers.js';
 export { runTileExplorerGen, colorGradientLayerGroups } from './tile-explorer/generator.js';
 export { buildTileExplorerTerrainView } from './tile-explorer/view-layers.js';
 export { DotNetRandom, seededShuffle } from './tile-explorer/random.js';
+export { runZenMatchGen } from './zen-match/generator.js';
 export type {
   TileExplorerStrategy,
   TileExplorerInput,
@@ -249,6 +281,12 @@ export type {
   TileExplorerTile,
 } from './tile-explorer/types.js';
 export type { DotNetRandomState } from './tile-explorer/random.js';
+export type {
+  ZenMatchStrategy,
+  ZenMatchInput,
+  ZenMatchOutput,
+  ZenMatchBoardOutput,
+} from './zen-match/types.js';
 
 // 序列化
 export {

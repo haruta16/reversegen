@@ -8,7 +8,8 @@
 
 **与 Unity 零依赖**，纯 TypeScript，CLI / Web GUI / API 三种方式。
 
-当前唯一生成算法：**ReverseGen CostLadder**。未来可扩展多算法。
+当前提供 **ReverseGen CostLadder、LayerClosure、TileExplorer、ZenMatch**
+四个生成器，统一输出 Shell tile 花色分配和 ReplayCode。
 
 ---
 
@@ -22,6 +23,9 @@ src/                          # 核心库
 ├── dependency-graph.ts       # BFS 传递依赖闭包
 ├── triple-builder.ts         # C(n,3) 枚举 + cost 计算
 ├── reverse-gen.ts            # ★ CostLadder 生成算法
+├── layer-closure-gen.ts      # LayerClosure 生成算法
+├── tile-explorer/            # Tile Explorer 生成器
+├── zen-match/                # Zen Match 策略 4/5
 ├── greedy-sim.ts             # 纯贪心模拟验证
 ├── replay-serializer.ts      # ReplayCode 编解码
 ├── terrain-loader.ts         # 地形加载

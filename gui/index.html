@@ -356,6 +356,7 @@ kbd{
         <button class="tab" data-algo="cost-ladder" onclick="switchAlgo('cost-ladder')">CostLadder</button>
         <button class="tab active" data-algo="closure" onclick="switchAlgo('closure')">LayerClosure</button>
         <button class="tab" data-algo="tile-explorer" onclick="switchAlgo('tile-explorer')">TileExplorer</button>
+        <button class="tab" data-algo="zen-match" onclick="switchAlgo('zen-match')">ZenMatch</button>
       </div>
 
       <!-- CostLadder -->
@@ -462,6 +463,27 @@ kbd{
           <select id="teLimitFullFirst" onchange="updateTeParameterRelevance()"><option value="">按难关标记默认（标记=1 时完整）</option><option value="true">使用完整混层范围</option><option value="false">只使用余数层</option></select>
         </div>
         <div id="teStrategyHelp" style="font-size:9px;color:var(--faint);margin-top:4px">view_layers 由地形 Dependencies 自动计算。</div>
+      </div>
+
+      <!-- Zen Match -->
+      <div id="panelZenMatch" style="display:none">
+        <div class="strategy-explainer">复刻 Zen Match 静态牌型生成：顶部候选保底一组三消，策略 4 全局随机铺牌，策略 5 按层铺牌。</div>
+        <div class="row" style="margin-top:8px">
+          <div>
+            <label>花色数 <span class="technical-name">N</span> <button type="button" class="param-help" data-param-help="zenColorCount" aria-label="解释 Zen 花色数">?</button></label>
+            <input type="number" id="zenColorCount" value="5" min="1" max="64" step="1">
+          </div>
+          <div>
+            <label>生成策略 <button type="button" class="param-help" data-param-help="zenStrategy" aria-label="解释 Zen 生成策略">?</button></label>
+            <select id="zenStrategy">
+              <option value="4">策略 4 · TopMatchFullRandom</option>
+              <option value="5">策略 5 · LegacyTopMatchFullRandom</option>
+            </select>
+          </div>
+        </div>
+        <label style="margin-top:6px">随机种子 <span class="technical-name">Seed</span> <button type="button" class="param-help" data-param-help="zenSeed" aria-label="解释 Zen 随机种子">?</button></label>
+        <input type="number" id="zenSeed" value="0" step="1">
+        <div style="font-size:9px;color:var(--faint);margin-top:5px">直接使用 Shell tile ID 和 Dependencies；适用于 Zen 转换后的静态地形，不支持 transfer/falling。</div>
       </div>
 
       <div class="param-summary" role="group" aria-label="当前生成参数">
@@ -719,6 +741,9 @@ var PARAM_HELP={
   tePlacementState:{title:'摆放随机状态',copy:'用于精确还原外部工具的完整随机状态，填写后优先于摆放种子。',caution:'日常调参通常留空。'},
   teTypeCycle:{title:'指定花色循环',copy:'直接写出花色轮换顺序，例如 1,2,3,1,4。',caution:'填写后会覆盖花色数、花色权重和花色顺序种子。'},
   teTypeWeights:{title:'花色权重',copy:'控制各花色在循环中出现多少次。',effect:'例如 1,2,1 表示第 2 色出现频率约为其他颜色的两倍。'},
+  zenColorCount:{title:'Zen 花色数（N）',copy:'Zen 生成入口的 uniqueTileTypesCount。实际生成花色数不会超过自由牌三元组数量。'},
+  zenStrategy:{title:'Zen 生成策略',copy:'策略 4 在顶部保底后全局随机铺设剩余牌；策略 5 在顶部保底后按物理层顺序铺设。'},
+  zenSeed:{title:'Zen 随机种子',copy:'控制顶部候选、牌型队列和剩余牌位置。相同参数在当前实现中可稳定复现。'},
   teEasyLayers:{title:'前段简单批次',copy:'仅基础分层策略使用；指定开局前多少批只按一层分配。',effect:'批次数越多，开局跨层混合越少。'},
   teHardTag:{title:'难关标记（Hard Tag）',copy:'兼容原生产规则的标签，会影响限制分层随机和可解性策略的默认值。',caution:'它本身不是难度分数。'},
   teLowerCoefficient:{title:'普通层保底比例',copy:'可解性策略中，普通可见层预先组成完整三张的候选占比。',effect:'比例高通常会提供更多直接可消组。'},
@@ -1199,7 +1224,11 @@ function collectGenerationParams(){
   var body={
     levelId:S.level&&S.level.levelResId!=null?String(S.level.levelResId):document.getElementById('levelId').value.trim(),
     algorithm:S.algo,
-    colorCount:(S.algo==='tile-explorer'?document.getElementById('teColorCount'):document.getElementById('colorCount')).value,
+    colorCount:S.algo==='tile-explorer'
+      ?document.getElementById('teColorCount').value
+      :S.algo==='zen-match'
+        ?document.getElementById('zenColorCount').value
+        :document.getElementById('colorCount').value,
   };
   if(S.terrainPath)body.terrainPath=S.terrainPath;
   var dir=selectedLevelsDir();
@@ -1238,6 +1267,9 @@ function collectGenerationParams(){
       body.solvabilityRandomMode=document.getElementById('teRandomMode').value;
     }
     if(gradient)body.colorGradientTypeGroups=document.getElementById('teGradientGroups').value.trim();
+  }else if(S.algo==='zen-match'){
+    body.zenStrategy=document.getElementById('zenStrategy').value;
+    body.seed=document.getElementById('zenSeed').value;
   }else{
     body.targetStd=document.getElementById('targetStd').value;
     body.costArray=document.getElementById('costArray').value.trim();
@@ -1267,6 +1299,15 @@ function encodeGenerationParamString(params){
       String(params.levelId||''),
     ].join(':');
   }
+  if(params.algorithm==='zen-match'){
+    return[
+      'Zen',
+      String(params.colorCount||''),
+      String(params.zenStrategy||''),
+      String(params.seed||''),
+      String(params.levelId||''),
+    ].join(':');
+  }
   if(params.algorithm==='tile-explorer'){
     var bytes=new TextEncoder().encode(JSON.stringify(params)),binary='';
     for(var i=0;i<bytes.length;i++)binary+=String.fromCharCode(bytes[i]);
@@ -1291,7 +1332,12 @@ function decodePositionalGenerationParamString(raw){
   var parts=raw.replace(/：/g,':').split(':').map(function(part){return part.trim()});
   if(parts.length===9&&parts[8]==='')parts.pop();
   var params;
-  if(parts.length===8){
+  if(parts.length===5&&/^zen(?:match)?$/i.test(parts[0])){
+    params={
+      algorithm:'zen-match',colorCount:parts[1],zenStrategy:parts[2],
+      seed:parts[3],levelId:parts[4],
+    };
+  }else if(parts.length===8){
     params={
       levelId:parts[7],algorithm:'closure',colorCount:parts[1],
       closeRates:parts[0].split(',').map(function(value){return String(parseFloat(value)/100)}).join(','),
@@ -1305,7 +1351,7 @@ function decodePositionalGenerationParamString(raw){
       levelId:parts[3],algorithm:'cost-ladder',colorCount:parts[1],
       costArray:parts[0],targetStd:parts[2],
     };
-  }else throw new Error('参数数量无效：闭合算法需要 8 段，Cost 算法需要 4 段');
+  }else throw new Error('参数数量无效：闭合算法需要 8 段，Cost 算法需要 4 段，Zen 算法格式为 Zen:花色:策略:seed:关卡');
   if(current.levelsDir)params.levelsDir=current.levelsDir;
   return params;
 }
@@ -1445,7 +1491,7 @@ async function copyGenerationParams(){
   if(await copyTextWithFallback(text,field)==='copied')copied();
 }
 
-var GENERATION_PARAM_INPUTS='#levelId,#levelsDir,#dock,#colorCount,#colorAllocation,#heavyColorMaxRatio,#spreadParam,#debtPersistence,#targetStd,#costArray,#closeRateSliders .slider,#panelTileExplorer input,#panelTileExplorer select,#panelTileExplorer textarea';
+var GENERATION_PARAM_INPUTS='#levelId,#levelsDir,#dock,#colorCount,#colorAllocation,#heavyColorMaxRatio,#spreadParam,#debtPersistence,#targetStd,#costArray,#closeRateSliders .slider,#panelTileExplorer input,#panelTileExplorer select,#panelTileExplorer textarea,#panelZenMatch input,#panelZenMatch select';
 document.addEventListener('input',function(event){
   if(event.target&&event.target.matches&&event.target.matches(GENERATION_PARAM_INPUTS))updateGenerationParamSummary();
 });
@@ -1462,6 +1508,7 @@ function switchAlgo(algo){
   document.getElementById('panelCost').style.display=algo==='cost-ladder'?'':'none';
   document.getElementById('panelClosure').style.display=algo==='closure'?'':'none';
   document.getElementById('panelTileExplorer').style.display=algo==='tile-explorer'?'':'none';
+  document.getElementById('panelZenMatch').style.display=algo==='zen-match'?'':'none';
   validateParams();
   updateGenerationParamSummary();
 }
@@ -1520,9 +1567,18 @@ async function generate(){
 function showResult(d){
   document.getElementById('resultCard').style.display='';
   document.getElementById('codeBox').textContent=d.replayCode;
-  document.getElementById('resultAlgo').textContent=d.algorithm==='closure'?'LayerClosure':d.algorithm==='tile-explorer'?'TileExplorer':'CostLadder';
+  document.getElementById('resultAlgo').textContent=d.algorithm==='closure'
+    ?'LayerClosure'
+    :d.algorithm==='tile-explorer'
+      ?'TileExplorer'
+      :d.algorithm==='zen-match'
+        ?'ZenMatch'
+        :'CostLadder';
 
-  if(d.algorithm==='closure')showClosure(d);else if(d.algorithm==='tile-explorer')showTileExplorer(d);else showCostLadder(d);
+  if(d.algorithm==='closure')showClosure(d);
+  else if(d.algorithm==='tile-explorer')showTileExplorer(d);
+  else if(d.algorithm==='zen-match')showZenMatch(d);
+  else showCostLadder(d);
 
   var ed=document.getElementById('elemDist');
   var dist={};
@@ -1547,6 +1603,20 @@ function showTileExplorer(d){
     '<div class="stat"><div class="n">'+((d.typeCycle||[]).length)+'</div>'+resultHelpLabel('循环长度','resultCycleLength')+'</div>'+
     '<div class="stat"><div class="n">'+d.sequenceSeed+'</div>'+resultHelpLabel('花色顺序种子','resultSequenceSeed')+'</div>'+
     '<div class="stat"><div class="n">'+d.placementSeed+'</div>'+resultHelpLabel('摆放种子','resultPlacementSeed')+'</div>';
+  bindParamHelpButtons(stats);
+  document.getElementById('stepSection').style.display='none';
+  document.getElementById('chartPanel').style.display='none';
+}
+
+function showZenMatch(d){
+  var stats=document.getElementById('stats');
+  stats.innerHTML=
+    '<div class="stat"><div class="n n-ok">'+d.strategy+'</div>'+resultHelpLabel('Zen 策略','zenStrategy')+'</div>'+
+    '<div class="stat"><div class="n">'+d.seed+'</div>'+resultHelpLabel('Seed','zenSeed')+'</div>'+
+    '<div class="stat"><div class="n">'+d.actualColorCount+'/'+d.requestedUniqueCount+'</div>'+resultHelpLabel('实际 / 请求花色','zenColorCount')+'</div>'+
+    '<div class="stat"><div class="n">'+((d.topMatchTileIds||[]).length)+'</div>'+resultHelpLabel('顶部保底牌','resultTriplets')+'</div>'+
+    '<div class="stat"><div class="n">'+((d.terrainSummary||{}).totalTiles||0)+'</div>'+resultHelpLabel('总牌数','resultTotalTiles')+'</div>'+
+    '<div class="stat"><div class="n">'+(((d.terrainSummary||{}).freeTiles)||0)+'/'+(((d.terrainSummary||{}).constTiles)||0)+'</div>'+resultHelpLabel('自由 / 固定','resultFreeConst')+'</div>';
   bindParamHelpButtons(stats);
   document.getElementById('stepSection').style.display='none';
   document.getElementById('chartPanel').style.display='none';
@@ -1806,7 +1876,7 @@ async function decodeCode(){
 
 function generationParamShapeError(params){
   if(!params||typeof params!=='object')return'参数串内容无效';
-  if(params.algorithm!=='closure'&&params.algorithm!=='cost-ladder'&&params.algorithm!=='tile-explorer')return'参数串缺少有效算法';
+  if(params.algorithm!=='closure'&&params.algorithm!=='cost-ladder'&&params.algorithm!=='tile-explorer'&&params.algorithm!=='zen-match')return'参数串缺少有效算法';
   if(!String(params.levelId||'').trim()&&!String(params.terrainPath||'').trim())return'参数串缺少地形信息';
   var colorCount=parseInt(params.colorCount);
   if(!Number.isFinite(colorCount)||colorCount<1||colorCount>99)return'花色数必须在 1–99 之间';
@@ -1833,6 +1903,12 @@ function generationParamShapeError(params){
       catch(e){return'ColorGradient 花色分组 JSON 无效'}
     }
   }
+  if(params.algorithm==='zen-match'){
+    var zenSeed=Number(params.seed),zenStrategy=Number(params.zenStrategy);
+    if(colorCount>64)return'Zen Match 花色数不能超过 64';
+    if(!Number.isInteger(zenSeed))return'Zen Match Seed 必须是整数';
+    if(zenStrategy!==4&&zenStrategy!==5)return'Zen Match 策略必须是 4 或 5';
+  }
   return'';
 }
 
@@ -1853,6 +1929,11 @@ function inspectTerrainCompatibility(params,level){
   if(params.algorithm==='tile-explorer'){
     if(Number(level.freeTiles)%3!==0)return{error:'地形无法满足参数：自由牌数量不是 3 的倍数'};
     if(!Number(level.depthCount))return{error:'地形无法满足参数：缺少依赖深度信息'};
+    return{error:''};
+  }
+  if(params.algorithm==='zen-match'){
+    if(Number(level.freeTiles)%3!==0)return{error:'地形无法满足参数：自由牌数量不是 3 的倍数'};
+    if(Number(level.totalTiles)%3!==0)return{error:'地形无法满足参数：总牌数量不是 3 的倍数'};
     return{error:''};
   }
 
@@ -1904,6 +1985,7 @@ async function applyGenerationParamString(code,out){
     S.localLevelFiles=null;
   }
   if(params.algorithm==='tile-explorer')document.getElementById('teColorCount').value=String(parseInt(params.colorCount));
+  else if(params.algorithm==='zen-match')document.getElementById('zenColorCount').value=String(parseInt(params.colorCount));
   else document.getElementById('colorCount').value=String(parseInt(params.colorCount));
   var loaded=useCurrentTerrain||await loadLevel(requestedTerrainPath?{terrainPath:requestedTerrainPath}:undefined);
   if(!loaded){out.textContent='未找到对应关卡；请用默认路径加载，或先选择关卡文件';out.className='msg msg-err';return false}
@@ -1942,6 +2024,9 @@ async function applyGenerationParamString(code,out){
     document.getElementById('teRandomMode').value=params.solvabilityRandomMode==null?'':String(params.solvabilityRandomMode);
     document.getElementById('teGradientGroups').value=String(params.colorGradientTypeGroups||'');
     updateTeStrategy();
+  }else if(params.algorithm==='zen-match'){
+    document.getElementById('zenStrategy').value=String(params.zenStrategy||4);
+    document.getElementById('zenSeed').value=String(params.seed||0);
   }else{
     document.getElementById('targetStd').value=String(params.targetStd==null?1:params.targetStd);
     document.getElementById('costArray').value=String(params.costArray||'').trim();

@@ -1,6 +1,6 @@
 # ReverseGen · 牌局生成器
 
-从 Unity TileMatch 项目中剥离的**独立牌局生成工具**。提供 CostLadder、LayerClosure、TileExplorer 三个平级生成器，统一输出「牌局花色分配 + ReplayCode 序列化种子」。
+从 Unity TileMatch 项目中剥离的**独立牌局生成工具**。提供 CostLadder、LayerClosure、TileExplorer、ZenMatch 四个平级生成器，统一输出「牌局花色分配 + ReplayCode 序列化种子」。
 
 与 Unity 零依赖。CLI / Web GUI / TypeScript API 三种使用方式。
 
@@ -36,6 +36,11 @@ npx tsx cli/generate.ts \
   --te-strategy solvability_coefficient_v2 --difficulty 2 --colors 5 \
   --sequence-seed 123 --placement-seed 456
 
+# Zen Match 静态策略 4/5
+npx tsx cli/generate.ts \
+  --terrain /path/to/1200001.json --algorithm zen-match \
+  --colors 5 --seed 12345 --zen-strategy 5
+
 # 仅输出 ReplayCode（可管道）
 npx tsx cli/generate.ts -t level.json -c 3,3,2 -k 6 -q | pbcopy
 
@@ -55,6 +60,10 @@ npx tsx gui/server.ts --host 127.0.0.1 --open
 ```
 
 界面操作流程：点击“选择地形文件”并选取 JSON → 设置 Cost（或点 🎲 随机生成）→ 点“生成牌局”→ 右侧查看结果。批量产关支持一次选择多个 JSON 文件。
+
+Zen Match 的复制参数采用与 LayerClosure 相同的可读分段形式：
+`Zen:花色数:策略:seed:关卡ID`，例如 `Zen:5:4:0:100075`。旧版
+`RGP1` 参数仍可解析，但页面不再为 Zen Match 生成这种不透明参数串。
 
 服务默认监听 `0.0.0.0`。同一局域网内的设备应选择与自身网络对应的物理网卡地址（例如 `[WLAN]` 或 `[以太网]`）；WSL、VMware、VPN 等地址会单独标为虚拟网卡，通常无需使用。地形由访问页面的设备在浏览器中选择并上传，因此远程设备不需要知道服务端的关卡目录；首次运行时若 Windows 防火墙询问，请允许专用网络访问。
 
@@ -104,6 +113,29 @@ result.assignments;  // 与其他生成器相同的 tileId → 花色
 result.replayCode;   // 可直接进入模拟、打关和分档流程
 result.viewLayers;   // 从地形 Dependencies 自动计算
 ```
+
+Zen Match 生成器直接使用已经转换为 Shell 格式的 tile ID、Layer 和
+Dependencies，不再解析 Zen 原始 terrain。Shell ID 相对 Zen node ID 的整体
+`+1` 不改变节点顺序，生成器内部不需要维护双 ID：
+
+```typescript
+import { generateBoardZenMatch } from 'reversegen';
+
+const result = generateBoardZenMatch({
+  terrain,
+  uniqueCount: 5,
+  seed: 12345,
+  strategy: 5,
+});
+
+result.assignments;      // Shell tileId → 花色
+result.topMatchTileIds;  // 顶部保底三消的 Shell tile ID
+result.replayCode;
+```
+
+ZenMatch 保留固定牌、三张牌型队列、一步顶部候选扩展、策略 4
+全局随机铺牌和策略 5 分层铺牌的语义。它面向静态依赖地形，不支持
+transfer/falling；ReplayCode 会把 Zen 的抽象花色标签归一化为 `1..K`。
 
 ### 难度分档策略1
 
@@ -187,6 +219,7 @@ reversegen/
 │   ├── reverse-gen.ts        # ★ CostLadder 生成算法
 │   ├── layer-closure-gen.ts  # ★ LayerClosure 生成算法
 │   ├── tile-explorer/        # ★ Tile Explorer 策略、.NET RNG、view_layers
+│   ├── zen-match/            # ★ Zen Match 策略 4/5
 │   ├── replay-serializer.ts  # ReplayCode 编解码
 │   ├── cost-generator.ts     # Cost 数组随机生成器
 │   ├── dependency-graph.ts   # BFS 传递依赖闭包

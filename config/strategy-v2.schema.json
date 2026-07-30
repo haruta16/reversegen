@@ -30,7 +30,11 @@
         "max_attempts_per_level": {"type": "integer", "minimum": 1}
       }
     },
-    "generator": {"$ref": "#/$defs/layerClosureGenerator"},
+    "generator": {"oneOf": [
+      {"$ref": "#/$defs/layerClosureGenerator"},
+      {"$ref": "#/$defs/tileExplorerGenerator"},
+      {"$ref": "#/$defs/zenMatchGenerator"}
+    ]},
     "pipeline": {"type": "array", "minItems": 1, "items": {"oneOf": [{"$ref": "#/$defs/simulate"}, {"$ref": "#/$defs/grade"}, {"$ref": "#/$defs/filter"}]}},
     "runtime": {
       "type": "object",
@@ -72,10 +76,7 @@
               {"$ref": "#/$defs/range"},
               {"type": "object", "additionalProperties": false, "required": ["kind", "values"], "properties": {"kind": {"const": "fixed"}, "values": {"type": "array", "items": {"type": "number"}}}}
             ]},
-            "color_count": {"oneOf": [
-              {"type": "object", "additionalProperties": false, "required": ["kind", "min", "max"], "properties": {"kind": {"const": "ratio_range"}, "min": {"type": "number"}, "max": {"type": "number"}, "jitter": {"type": "integer", "minimum": 0}}},
-              {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "fixed"}, "value": {"type": "integer", "minimum": 1}}}
-            ]},
+            "color_count": {"$ref": "#/$defs/colorCount"},
             "spread": {"oneOf": [{"$ref": "#/$defs/range"}, {"$ref": "#/$defs/fixedNumber"}]},
             "debt": {"oneOf": [{"$ref": "#/$defs/range"}, {"$ref": "#/$defs/fixedNumber"}]},
             "color_allocation": {"oneOf": [
@@ -86,6 +87,52 @@
         }
       }
     },
+    "tileExplorerGenerator": {
+      "type": "object", "additionalProperties": false, "required": ["method", "version", "parameters"],
+      "properties": {
+        "method": {"const": "tile_explorer"}, "version": {"const": 1},
+        "parameters": {
+          "type": "object", "additionalProperties": false,
+          "required": ["strategy", "difficulty", "color_count"],
+          "properties": {
+            "strategy": {"enum": ["default", "top_two_easy", "sliding_window", "limit_layer_random", "easy_hard_easy", "solvability_coefficient", "solvability_coefficient_v2", "solvability_coefficient_v3", "color_gradient"]},
+            "difficulty": {"oneOf": [
+              {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "fixed"}, "value": {"type": "integer", "minimum": 1}}},
+              {"type": "object", "additionalProperties": false, "required": ["kind", "min", "max"], "properties": {"kind": {"const": "range"}, "min": {"type": "integer", "minimum": 1}, "max": {"type": "integer", "minimum": 1}}}
+            ]},
+            "color_count": {"$ref": "#/$defs/colorCount"},
+            "type_cycle": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 1}},
+            "tile_type_weights": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 0}},
+            "easy_layer_count": {"type": "integer", "minimum": 0},
+            "level_hard_tag": {"type": "integer"},
+            "limit_full_first": {"type": "boolean"},
+            "solvability_lower_coefficient": {"type": "number", "minimum": 0, "maximum": 1},
+            "solvability_top_coefficient": {"type": "number", "minimum": 0, "maximum": 1},
+            "fallback_extra_layers": {"type": "integer", "minimum": 0},
+            "solvability_random_mode": {"type": "boolean"},
+            "color_gradient_type_groups": {"type": "array", "minItems": 1, "items": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 1}}}
+          }
+        }
+      }
+    },
+    "zenMatchGenerator": {
+      "type": "object", "additionalProperties": false, "required": ["method", "version", "parameters"],
+      "properties": {
+        "method": {"const": "zen_match"}, "version": {"const": 1},
+        "parameters": {
+          "type": "object", "additionalProperties": false,
+          "required": ["generation_strategy", "color_count"],
+          "properties": {
+            "generation_strategy": {"enum": [4, 5]},
+            "color_count": {"$ref": "#/$defs/colorCount"}
+          }
+        }
+      }
+    },
+    "colorCount": {"oneOf": [
+      {"type": "object", "additionalProperties": false, "required": ["kind", "min", "max"], "properties": {"kind": {"const": "ratio_range"}, "min": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}, "max": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}, "jitter": {"type": "integer", "minimum": 0}}},
+      {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "fixed"}, "value": {"type": "integer", "minimum": 1}}}
+    ]},
     "fixedNumber": {"type": "object", "additionalProperties": false, "required": ["kind", "value"], "properties": {"kind": {"const": "fixed"}, "value": {"type": "number"}}},
     "policy": {
       "type": "object", "additionalProperties": false, "required": ["id", "version", "config"],

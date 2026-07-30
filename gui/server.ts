@@ -22,6 +22,7 @@ import {
   generateBoard,
   generateBoardLayerClosure,
   generateBoardTileExplorer,
+  generateBoardZenMatch,
   loadTerrainFromFile,
   getAllTiles,
   getCanonicalTileOrder,
@@ -1012,6 +1013,7 @@ const server = createServer(async (req, res) => {
         teStrategy, difficulty, sequenceSeed, placementSeed, placementRandomState, typeCycle, typeWeights,
         easyLayerCount, hardTag, limitFullFirst, lowerCoefficient, topCoefficient,
         fallbackExtraLayers, solvabilityRandomMode, colorGradientTypeGroups,
+        zenStrategy, seed,
         levelId, levelsDir, terrainPath, levelHash,
       } = body as {
         algorithm?: string;
@@ -1025,6 +1027,7 @@ const server = createServer(async (req, res) => {
         typeCycle?: string; typeWeights?: string; easyLayerCount?: string; hardTag?: string;
         limitFullFirst?: string | boolean; lowerCoefficient?: string; topCoefficient?: string;
         fallbackExtraLayers?: string; solvabilityRandomMode?: string | boolean; colorGradientTypeGroups?: string;
+        zenStrategy?: string; seed?: string;
         levelId?: string; levelsDir?: string; terrainPath?: string; levelHash?: string;
       };
 
@@ -1036,7 +1039,62 @@ const server = createServer(async (req, res) => {
       const terrain = loadTerrainFromFile(path);
       const allTiles = getAllTiles(terrain);
 
-      if (algorithm === 'tile-explorer') {
+      if (algorithm === 'zen-match') {
+        const k = Number(colorCount || '5');
+        const resolvedSeed = Number(seed || '0');
+        const resolvedStrategy = Number(zenStrategy || '4');
+        if (!Number.isInteger(k) || k < 1 || k > 64) {
+          throw new Error('Zen Match 花色数必须是 1-64 的整数');
+        }
+        if (!Number.isInteger(resolvedSeed)) throw new Error('Zen Match Seed 必须是整数');
+        if (resolvedStrategy !== 4 && resolvedStrategy !== 5) {
+          throw new Error('Zen Match 策略必须是 4 或 5');
+        }
+        const result = generateBoardZenMatch({
+          terrain,
+          uniqueCount: k,
+          seed: resolvedSeed,
+          strategy: resolvedStrategy,
+          levelHash,
+        });
+        const ordered = getCanonicalTileOrder(allTiles);
+        const tileSummary = ordered.map((tile, index) => ({
+          index,
+          id: tile.id,
+          layer: tile.layer,
+          isConst: tile.isConst,
+          element: result.assignments.get(tile.id) ?? tile.constElementValue ?? 0,
+        }));
+        json(res, {
+          ok: true,
+          algorithm: 'zen-match',
+          levelResId: terrain.levelResId,
+          replayCode: result.replayCode,
+          elementCount: decodeFromString(result.replayCode)?.elementCount ?? result.actualColorCount,
+          levelHash: result.levelHash,
+          assignments: Object.fromEntries(result.assignments),
+          abstractAssignments: Object.fromEntries(result.abstractAssignments),
+          topMatchTileIds: result.topMatchTileIds,
+          strategy: result.strategy,
+          seed: result.seed,
+          requestedUniqueCount: result.requestedUniqueCount,
+          actualColorCount: result.actualColorCount,
+          colorCount: k,
+          metrics: {
+            colorCount: result.actualColorCount,
+            topMatchCount: result.topMatchTileIds.length,
+            strategy: result.strategy,
+          },
+          terrainSummary: {
+            layers: terrain.layers.length,
+            totalTiles: allTiles.length,
+            freeTiles: allTiles.filter(tile => !tile.isConst).length,
+            constTiles: allTiles.filter(tile => tile.isConst).length,
+            source: basename(path),
+          },
+          tiles: tileSummary,
+        });
+      } else if (algorithm === 'tile-explorer') {
         const k = parseInt(colorCount || '5', 10);
         const parseIntegerList = (raw: string | undefined, name: string): number[] | undefined => {
           if (!raw?.trim()) return undefined;
