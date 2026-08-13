@@ -20,6 +20,15 @@ export interface TerrainTile {
   posX: number;
   /** 牌面中心坐标 Y（用于几何可视性计算） */
   posY: number;
+  /**
+   * 挂件（特殊机制）枚举，数值与 Unity ssExtraEnum 严格一致。
+   * 0 = Empty（无机制挂件）。缺省视为 0。两个来源：
+   *  1. 地形 JSON 里每张 tile 写着的 extraEnum（静态摆放）
+   *  2. 外部注入的机制配置（enum:count，由生成/模拟入口传入）
+   */
+  extraEnum?: number;
+  /** 挂件参数（如大型地形 footprint "2"/"3"），无参数时为空字符串。 */
+  extraParam?: string;
 }
 
 /** 一层牌 */

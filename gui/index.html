@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -357,6 +357,13 @@ kbd{
         <button class="tab active" data-algo="closure" onclick="switchAlgo('closure')">LayerClosure</button>
         <button class="tab" data-algo="tile-explorer" onclick="switchAlgo('tile-explorer')">TileExplorer</button>
         <button class="tab" data-algo="zen-match" onclick="switchAlgo('zen-match')">ZenMatch</button>
+      </div>
+
+      <!-- 特殊机制（所有算法通用，可空） -->
+      <div style="margin-top:8px">
+        <label>特殊机制 <button type="button" class="param-help" data-param-help="mechanics" aria-label="解释特殊机制">?</button></label>
+        <input type="text" id="mechanics" placeholder="如 31:3,39:2（可空）" oninput="validateParams()">
+        <div class="msg" id="mechanicsNote"></div>
       </div>
 
       <!-- CostLadder -->
@@ -727,6 +734,7 @@ var PARAM_HELP={
   costArray:{title:'Cost 目标数组',copy:'每个数字对应一次三消，表示凑齐这一组牌前还要释放多少张压住它的牌。数组长度要等于本关可消除的总组数。',effect:'数字越大，这一步通常越绕、卡槽压力越高。',caution:'它控制的是算法路线，不直接等于玩家难度。'},
   targetStd:{title:'Cost 起伏强度（σ）',copy:'只在点击骰子自动生成 Cost 数组时使用，不直接参与最终牌局计算。',effect:'数值小，步骤较平；数值大，高低起伏更明显。'},
   closeRates:{title:'层闭合率',copy:'到达某个依赖深度时，累计已有多少比例的牌能组成完整三张；最后一层自动补到 100%。',effect:'同一层数下，闭合率高通常更容易及时消除，低则更容易留下散牌。'},
+  mechanics:{title:'特殊机制',copy:'机制挂件清单，格式为 枚举:数量，逗号分隔（如 31:3,39:2）。与 ReplayCode 并列组成完整一关，两个来源：地形 tile 里写着的挂件 + 这里的外部注入。',effect:'31=彩色魔药（三消后按花色交错清除 6 组牌）；39=泡泡（吸取玩法，数量是每轮收集数，0=随机 2-3）。',caution:'注入数量必须与地形摆放的挂件数量一致（泡泡 39 是行为参数，不校验数量）。'},
   dock:{title:'Dock 容量',copy:'卡槽能暂存的牌数，只参与暴露债务、OI 等分析指标，不改变花色如何摆放。',caution:'应与实际游戏规则保持一致。'},
   colorCount:{title:'花色数',copy:'本局使用多少种图案。',effect:'花色多时通常更容易同时积攒多种散牌，但最终难度还受地形和其他参数影响。'},
   colorAllocation:{title:'花色配额',copy:'“均匀分配”让各花色牌量接近；“单色极重”让一个主色占较多牌，其他颜色较少。'},
@@ -1231,6 +1239,8 @@ function collectGenerationParams(){
         :document.getElementById('colorCount').value,
   };
   if(S.terrainPath)body.terrainPath=S.terrainPath;
+  var mechanicsText=document.getElementById('mechanics').value.trim();
+  if(mechanicsText)body.mechanics=mechanicsText;
   var dir=selectedLevelsDir();
   if(dir)body.levelsDir=dir;
   if(S.algo==='closure'){

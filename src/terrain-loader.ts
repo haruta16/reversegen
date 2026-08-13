@@ -102,6 +102,9 @@ function normalizeTile(raw: Record<string, unknown>): TerrainTile {
     constElementValue: (raw.ConstElementValue ?? raw.constElementValue ?? 0) as number,
     posX: (raw.PosX ?? raw.posX ?? 0) as number,
     posY: (raw.PosY ?? raw.posY ?? 0) as number,
+    // 挂件（特殊机制）：缺省 = Empty(0)，参数缺省为空串
+    extraEnum: (raw.extraEnum ?? raw.ExtraEnum ?? 0) as number,
+    extraParam: (raw.extraParam ?? raw.ExtraParam ?? '') as string,
   };
 }
 
@@ -135,6 +138,16 @@ export function printTerrainSummary(terrain: TerrainData): void {
   logger.info(`  总牌数: ${allTiles.length}`);
   logger.info(`  自由牌: ${freeTiles.length} (${freeTiles.length / 3} 步)`);
   logger.info(`  固定牌: ${constTiles.length}`);
+  const extraCounts = new Map<number, number>();
+  for (const t of allTiles) {
+    const e = t.extraEnum ?? 0;
+    if (e !== 0) extraCounts.set(e, (extraCounts.get(e) ?? 0) + 1);
+  }
+  if (extraCounts.size > 0) {
+    const summary = [...extraCounts.entries()].sort((a, b) => a[0] - b[0])
+      .map(([e, c]) => `${e}x${c}`).join(', ');
+    logger.info(`  挂件(extraEnum): ${summary}`);
+  }
   if (constTiles.length > 0) {
     const constValues = [...new Set(constTiles.map(t => t.constElementValue))].sort((a, b) => a - b);
     logger.info(`  固定花色值: [${constValues.join(', ')}]`);

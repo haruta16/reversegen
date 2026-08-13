@@ -22,6 +22,9 @@ import {
   computeTileDepSets,
   computeCloseRatesFromAssignments,
   buildGenerationLogicalLayers,
+  parseMechanicCounts,
+  countTerrainExtras,
+  validateMechanicCounts,
 } from '../../src/index.js';
 import type { TerrainTile } from '../../src/index.js';
 import { generateReplayFromExternalInput } from '../../src/external-generation.js';
@@ -155,6 +158,9 @@ export async function handleTerrainInfo(req: IncomingMessage, res: ServerRespons
         height: terrain.LevelHeight,
         resolvedPath: path,
         suitPreview: suitPreview ?? null,
+        // 特殊机制：地形 tile 里写着的挂件（来源 1）
+        extras: [...countTerrainExtras(allTiles).entries()].sort((a, b) => a[0] - b[0])
+          .map(([extraEnum, count]) => ({ extraEnum, count })),
         // LayerClosure 深度信息
         depthCount: maxDepth,
         tilesPerDepth,
@@ -177,6 +183,7 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
         fallbackExtraLayers, solvabilityRandomMode, colorGradientTypeGroups,
         zenStrategy, seed,
         levelId, levelsDir, terrainPath, levelHash,
+        mechanics,
       } = body as {
         algorithm?: string;
         costArray?: string; colorCount?: string;           // CostLadder
@@ -191,6 +198,8 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
         fallbackExtraLayers?: string; solvabilityRandomMode?: string | boolean; colorGradientTypeGroups?: string;
         zenStrategy?: string; seed?: string;
         levelId?: string; levelsDir?: string; terrainPath?: string; levelHash?: string;
+        /** 特殊机制（enum:count 文本，如 "31:3,39:2"），外部注入来源 */
+        mechanics?: string;
       };
 
       const path = resolveTerrainPath(levelId, levelsDir, terrainPath);
@@ -200,6 +209,22 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
       }
       const terrain = loadTerrainFromFile(path);
       const allTiles = getAllTiles(terrain);
+
+      // ── 特殊机制：外部注入（enum:count）与地形摆放（tile.extraEnum）两个来源 ──
+      const mechanicsText = typeof mechanics === 'string' ? mechanics.trim() : '';
+      const requestedMechanics = mechanicsText ? parseMechanicCounts(mechanicsText) : new Map<number, number>();
+      const terrainExtras = countTerrainExtras(allTiles);
+      const mechanicsErrors = validateMechanicCounts(requestedMechanics, terrainExtras);
+      if (mechanicsErrors.length > 0) {
+        json(res, { ok: false, error: `机制配置无效: ${mechanicsErrors.map(e => e.message).join('; ')}` }, 400);
+        return true;
+      }
+      const mechanicsSummary = {
+        requested: mechanicsText || null,
+        requestedCounts: Object.fromEntries(requestedMechanics),
+        terrainExtras: Object.fromEntries(terrainExtras),
+        errors: mechanicsErrors,
+      };
 
       if (algorithm === 'zen-match') {
         const k = Number(colorCount || '5');
@@ -247,6 +272,7 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
             topMatchCount: result.topMatchTileIds.length,
             strategy: result.strategy,
           },
+          mechanics: mechanicsSummary,
           terrainSummary: {
             layers: terrain.layers.length,
             totalTiles: allTiles.length,
@@ -336,6 +362,7 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
             generatedGroupCount: result.generatedGroupCount,
           },
           colorCount: k,
+          mechanics: mechanicsSummary,
           terrainSummary: {
             layers: terrain.layers.length,
             totalTiles: allTiles.length,
@@ -396,6 +423,7 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
           tripletCount: result.triplets.length,
           metrics: result.metrics,
           colorCount: k,
+          mechanics: mechanicsSummary,
           terrainSummary: {
             layers: terrain.layers.length,
             totalTiles: allTiles.length,
@@ -450,6 +478,7 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
           matchRate: result.matchRate,
           costTargets: costs,
           colorCount: k,
+          mechanics: mechanicsSummary,
           terrainSummary: {
             layers: terrain.layers.length,
             totalTiles: allTiles.length,

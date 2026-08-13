@@ -357,6 +357,26 @@ export { logger, setLogLevel, LogLevel } from './logger.js';
 // 常量
 export { MAX_DOCK_SLOTS } from './constants.js';
 
+// 特殊机制（挂件）
+export {
+  mechanicInfo,
+  isKnownMechanic,
+  MECHANICS,
+  MAGIC_BOTTLE_TARGET_WHITELIST,
+  MAGIC_BOTTLE_CONSTANTS,
+  BUBBLE_CONSTANTS,
+} from './mechanics/registry.js';
+export type { MechanicInfo, MechanicKind, MechanicParamSchema } from './mechanics/registry.js';
+export {
+  parseMechanicCounts,
+  serializeMechanicCounts,
+  countTerrainExtras,
+  validateMechanicCounts,
+  formatBoardSpec,
+  parseBoardSpec,
+} from './mechanics/spec.js';
+export type { MechanicCounts, MechanicSpecError, BoardSpec } from './mechanics/spec.js';
+
 // Replay 候选收集与导出
 export {
   REPLAY_SELECTION_HEADERS,
