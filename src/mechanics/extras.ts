@@ -102,27 +102,29 @@ export function applyDecayStep(game: OfflineGame, stepType: string | null): void
   }
 }
 
-/** 收集回调（OnCollect）：衰减 Value→0+有效收集；揭示 isDone；订单 consumed。 */
+/** 收集回调钩子表：behavior → 收集语义（新增收集类行为在此登记）。 */
+export type CollectHook = (tile: OfflineTile, extra: TileExtra) => void;
+
+export const COLLECT_HOOKS: Partial<Record<string, CollectHook>> = {
+  /** 衰减：Value>0 → 有效收集 + 归零 */
+  decay: (_tile, extra) => {
+    if (extra.countdown !== undefined && extra.countdown > 0) {
+      extra.isValidCollect = true;
+      extra.countdown = 0;
+    }
+  },
+  /** 揭示：收集即 isDone */
+  reveal: (_tile, extra) => { extra.isDone = true; },
+  /** 订单：收集即 consumed */
+  order: (_tile, extra) => { extra.isConsumed = true; },
+};
+
+/** 收集回调（OnCollect）：通过钩子表按 behavior 分发。 */
 export function onTileCollected(tile: OfflineTile): void {
   for (const extra of tile.extras) {
     const info = mechanicInfo(extra.extraEnum);
     if (!info) continue;
-    switch (info.behavior) {
-      case 'decay':
-        if (extra.countdown !== undefined && extra.countdown > 0) {
-          extra.isValidCollect = true;
-          extra.countdown = 0;
-        }
-        break;
-      case 'reveal':
-        extra.isDone = true;
-        break;
-      case 'order':
-        extra.isConsumed = true;
-        break;
-      default:
-        break;
-    }
+    COLLECT_HOOKS[info.behavior]?.(tile, extra);
   }
 }
 

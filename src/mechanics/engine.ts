@@ -29,14 +29,12 @@ import {
   selectGiftBoxMagicBottleGroups,
 } from './extras.js';
 import {
-  DANDELION_CONSTANTS,
+  BUBBLE_CONSTANTS,
   GIFTBOX_CONSTANTS,
   GIFTBOX_EFFECTS,
-} from './registry.js';
-import {
-  BUBBLE_CONSTANTS,
   MAGIC_BOTTLE_CONSTANTS,
   MAGIC_BOTTLE_TARGET_WHITELIST,
+  MECHANIC_SEED_SALTS,
 } from './registry.js';
 import type { MechanicStep, TileExtra } from './types.js';
 
@@ -294,6 +292,88 @@ export function dockMagicPlan(
   return plan;
 }
 // ═══════════════════════════════════════════════════════════
+//  三消分发策略表（MATCH_BEHAVIORS）
+// ═══════════════════════════════════════════════════════════
+
+export type MatchBehavior = (game: OfflineGame, matchedTiles: OfflineTile[]) => MechanicStep[];
+
+/** 魔药：matchedTiles[0] 带魔药挂件时触发交错清除。 */
+function magicBottleMatchBehavior(game: OfflineGame, matchedTiles: OfflineTile[]): MechanicStep[] {
+  const step = magicBottleOnMatch(game, matchedTiles);
+  return step ? [step] : [];
+}
+
+/** 蒲公英：至少 3 张蒲公英参与本次三消时扩散转化。 */
+function dandelionMatchBehavior(game: OfflineGame, matchedTiles: OfflineTile[]): MechanicStep[] {
+  if (!isDandelionMatch(matchedTiles)) return [];
+  const targets = selectDandelionTargets(game, extraActionSeed(game, MECHANIC_SEED_SALTS.DANDELION_TARGETS));
+  if (targets.length === 0) return [];
+  return [{ type: 'dandelion-spread', tileIds: targets.map(t => t.id) }];
+}
+
+/** 礼盒：加权随机效果 → 步骤列表。 */
+function giftBoxMatchBehavior(game: OfflineGame, matchedTiles: OfflineTile[]): MechanicStep[] {
+  const effect = rollGiftBoxEffect(game, extraActionSeed(game, MECHANIC_SEED_SALTS.GIFTBOX_EFFECT));
+  switch (effect) {
+    case GIFTBOX_EFFECTS.AddDockSlot:
+      return [{ type: 'giftbox-add-dock-slot' }];
+    case GIFTBOX_EFFECTS.MagicWand: {
+      const tiles = selectMagicWandTargets(game);
+      return tiles.length > 0 ? [{ type: 'magic-step', tileIds: tiles.map(t => t.id) }] : [];
+    }
+    case GIFTBOX_EFFECTS.DockAllMagicWand: {
+      const plan = dockDirectedMagicPlan(game);
+      if (plan.length === 0) return [];
+      const tileIds: number[] = [];
+      for (const target of plan) {
+        for (const tile of game.dockTiles) {
+          if (tile.elementValue === target.elementValue && !tileIds.includes(tile.id)) tileIds.push(tile.id);
+        }
+        for (const tile of target.deskTiles) {
+          if (!tileIds.includes(tile.id)) tileIds.push(tile.id);
+        }
+      }
+      return [{ type: 'dock-magic-clear', tileIds }];
+    }
+    case GIFTBOX_EFFECTS.RevealUnknown:
+      return [{ type: 'giftbox-reveal-unknown' }];
+    case GIFTBOX_EFFECTS.Shuffle:
+      return [{ type: 'giftbox-shuffle' }];
+    case GIFTBOX_EFFECTS.ApplyUnknown: {
+      const tiles = selectRandomTiles(
+        game.deskTiles.filter(t => !t.hasFlag(TileFlag.Destroyed) && t.extras.length === 0),
+        GIFTBOX_CONSTANTS.APPLY_UNKNOWN_MIN_COUNT,
+        GIFTBOX_CONSTANTS.APPLY_UNKNOWN_MAX_COUNT,
+        extraActionSeed(game, MECHANIC_SEED_SALTS.GIFTBOX_APPLY_UNKNOWN),
+      );
+      return tiles.length > 0 ? [{ type: 'giftbox-apply-unknown', tileIds: tiles.map(t => t.id) }] : [];
+    }
+    case GIFTBOX_EFFECTS.ApplyFlip: {
+      const tiles = selectRandomTiles(
+        game.deskTiles.filter(t => !t.hasFlag(TileFlag.Destroyed) && t.extras.length === 0 && !t.isClickable),
+        GIFTBOX_CONSTANTS.APPLY_FLIP_MIN_COUNT,
+        GIFTBOX_CONSTANTS.APPLY_FLIP_MAX_COUNT,
+        extraActionSeed(game, MECHANIC_SEED_SALTS.GIFTBOX_APPLY_FLIP),
+      );
+      return tiles.length > 0 ? [{ type: 'giftbox-apply-flip', tileIds: tiles.map(t => t.id) }] : [];
+    }
+    case GIFTBOX_EFFECTS.ApplyMagicBottle: {
+      const tiles = selectGiftBoxMagicBottleGroups(game, extraActionSeed(game, MECHANIC_SEED_SALTS.GIFTBOX_APPLY_MAGIC_BOTTLE));
+      return tiles.length > 0 ? [{ type: 'giftbox-apply-magic-bottle', tileIds: tiles.map(t => t.id) }] : [];
+    }
+    default:
+      return [];
+  }
+}
+
+/** 三消分发表：extraEnum → 行为（新增机制在此登记一行）。 */
+export const MATCH_BEHAVIORS: Map<number, MatchBehavior> = new Map([
+  [31, magicBottleMatchBehavior],
+  [36, dandelionMatchBehavior],
+  [37, giftBoxMatchBehavior],
+]);
+
+// ═══════════════════════════════════════════════════════════
 //  MechanicEngine — OfflineGame 的机制驱动
 // ═══════════════════════════════════════════════════════════
 
@@ -339,94 +419,16 @@ export class MechanicEngine {
 
   /**
    * OnMatch 分发（由 OfflineGame 在三消后调用）。
-   * 对齐 Unity：matchedTiles[0] 的每个挂件各自触发（去重守卫），返回按顺序应用的步骤。
+   * 对齐 Unity：matchedTiles[0] 的每个挂件各自触发（去重守卫），
+   * 行为通过 MATCH_BEHAVIORS 策略表分发——新增机制只需登记一行。
    */
   onMatch(matchedTiles: OfflineTile[]): MechanicStep[] {
     const steps: MechanicStep[] = [];
     if (matchedTiles.length === 0) return steps;
-    const game = this.game;
     const leader = matchedTiles[0];
-
     for (const extra of leader.extras) {
-      switch (extra.extraEnum) {
-        case 31: { // 魔药
-          const step = magicBottleOnMatch(game, matchedTiles);
-          if (step) steps.push(step);
-          break;
-        }
-        case 36: { // 蒲公英：至少 3 张蒲公英参与本次三消
-          if (!isDandelionMatch(matchedTiles)) break;
-          const targets = selectDandelionTargets(game, extraActionSeed(game, 36));
-          if (targets.length === 0) break;
-          steps.push({ type: 'dandelion-spread', tileIds: targets.map(t => t.id) });
-          break;
-        }
-        case 37: { // 礼盒：加权随机效果
-          const effect = rollGiftBoxEffect(game, extraActionSeed(game, 3700));
-          switch (effect) {
-            case GIFTBOX_EFFECTS.AddDockSlot:
-              steps.push({ type: 'giftbox-add-dock-slot' });
-              break;
-            case GIFTBOX_EFFECTS.MagicWand: {
-              const tiles = selectMagicWandTargets(game);
-              if (tiles.length > 0) steps.push({ type: 'magic-step', tileIds: tiles.map(t => t.id) });
-              break;
-            }
-            case GIFTBOX_EFFECTS.DockAllMagicWand: {
-              const plan = dockDirectedMagicPlan(game);
-              if (plan.length > 0) {
-                const tileIds: number[] = [];
-                for (const target of plan) {
-                  for (const tile of game.dockTiles) {
-                    if (tile.elementValue === target.elementValue && !tileIds.includes(tile.id)) tileIds.push(tile.id);
-                  }
-                  for (const tile of target.deskTiles) {
-                    if (!tileIds.includes(tile.id)) tileIds.push(tile.id);
-                  }
-                }
-                steps.push({ type: 'dock-magic-clear', tileIds });
-              }
-              break;
-            }
-            case GIFTBOX_EFFECTS.RevealUnknown:
-              steps.push({ type: 'giftbox-reveal-unknown' });
-              break;
-            case GIFTBOX_EFFECTS.Shuffle:
-              steps.push({ type: 'giftbox-shuffle' });
-              break;
-            case GIFTBOX_EFFECTS.ApplyUnknown: {
-              const tiles = selectRandomTiles(
-                game.deskTiles.filter(t => !t.hasFlag(TileFlag.Destroyed) && t.extras.length === 0),
-                GIFTBOX_CONSTANTS.APPLY_UNKNOWN_MIN_COUNT,
-                GIFTBOX_CONSTANTS.APPLY_UNKNOWN_MAX_COUNT,
-                extraActionSeed(game, 3701),
-              );
-              if (tiles.length > 0) steps.push({ type: 'giftbox-apply-unknown', tileIds: tiles.map(t => t.id) });
-              break;
-            }
-            case GIFTBOX_EFFECTS.ApplyFlip: {
-              const tiles = selectRandomTiles(
-                game.deskTiles.filter(t => !t.hasFlag(TileFlag.Destroyed) && t.extras.length === 0 && !t.isClickable),
-                GIFTBOX_CONSTANTS.APPLY_FLIP_MIN_COUNT,
-                GIFTBOX_CONSTANTS.APPLY_FLIP_MAX_COUNT,
-                extraActionSeed(game, 3702),
-              );
-              if (tiles.length > 0) steps.push({ type: 'giftbox-apply-flip', tileIds: tiles.map(t => t.id) });
-              break;
-            }
-            case GIFTBOX_EFFECTS.ApplyMagicBottle: {
-              const tiles = selectGiftBoxMagicBottleGroups(game, extraActionSeed(game, 3703));
-              if (tiles.length > 0) steps.push({ type: 'giftbox-apply-magic-bottle', tileIds: tiles.map(t => t.id) });
-              break;
-            }
-            default:
-              break;
-          }
-          break;
-        }
-        default:
-          break;
-      }
+      const behavior = MATCH_BEHAVIORS.get(extra.extraEnum);
+      if (behavior) steps.push(...behavior(this.game, matchedTiles));
     }
     return steps;
   }
@@ -491,11 +493,9 @@ export class MechanicEngine {
     return [{ type: 'bubble-assign', tileIds: targets.map(t => t.id) }];
   }
 
-  /** 泡泡随机收集数种子：与 Unity 修复后的公式一致（levelId*397^levelResID^dock数^轮次）。 */
+  /** 泡泡随机收集数种子：共享战场派生种子（盐 39）+ 轮次数（与 Unity 修复后公式一致）。 */
   private bubbleCollectCountSeed(): number {
-    const game = this.game;
-    let seed = mul397(game.levelId) ^ game.levelResId;
-    seed = mul397(seed) ^ game.dockTiles.length;
+    let seed = extraActionSeed(this.game, MECHANIC_SEED_SALTS.BUBBLE_COLLECT_COUNT);
     seed = mul397(seed) ^ this.bubble.completedCollectRounds;
     return seed | 0;
   }

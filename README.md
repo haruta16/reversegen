@@ -293,5 +293,6 @@ C# `List.Sort` 是不稳定排序，JS `Array.sort` 是稳定排序。同等 cos
 ## 更多信息
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — 架构设计原理、依赖图、数据流、测试策略
+- [docs/mechanics-alignment.md](./docs/mechanics-alignment.md) — 特殊机制对齐契约（信息来源、确定性随机约定、接入状态、已知风险）
 - [gui/server.ts](./gui/server.ts) — 服务器 API 端点
 - [test/](./test/) — 测试用例

@@ -98,6 +98,25 @@ export const GIFTBOX_EFFECTS = {
   ApplyMagicBottle: 11,
 } as const;
 
+/**
+ * 派生种子盐值表（与 Unity ExtraDeterministicRandom 的盐值常量逐位一致）：
+ * 同一局面下的不同随机调用点用不同盐值区分，保证既确定性又互不相同。
+ */
+export const MECHANIC_SEED_SALTS = {
+  /** 蒲公英扩散目标选择 */
+  DANDELION_TARGETS: 36,
+  /** 泡泡随机收集数（接入共享公式后） */
+  BUBBLE_COLLECT_COUNT: 39,
+  /** 礼盒效果加权滚动 */
+  GIFTBOX_EFFECT: 3700,
+  /** 礼盒：施加问号的随机选牌 */
+  GIFTBOX_APPLY_UNKNOWN: 3701,
+  /** 礼盒：施加翻转的随机选牌 */
+  GIFTBOX_APPLY_FLIP: 3702,
+  /** 礼盒：转化魔药的随机组数 */
+  GIFTBOX_APPLY_MAGIC_BOTTLE: 3703,
+} as const;
+
 /** 礼盒效果权重（EffectWeights，插入顺序 = 选择顺序）。 */
 export const GIFTBOX_EFFECT_WEIGHTS: Array<[number, number]> = [
   [GIFTBOX_EFFECTS.AddDockSlot, 30],

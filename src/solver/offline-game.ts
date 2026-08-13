@@ -12,7 +12,8 @@
 import { OfflineTile, PileType, TileFlag, type TileConfig } from './types.js';
 import type { FallingTerrainStructure, TerrainStructure, TerrainTile } from '../types.js';
 import { MechanicEngine, tileExtrasFromTerrain } from '../mechanics/engine.js';
-import { applyDecayStep, onTileCollected, initExtraState, shuffleBoard, shuffleBoardSeed } from '../mechanics/extras.js';
+import { STEP_APPLIERS } from '../mechanics/step-appliers.js';
+import { applyDecayStep, onTileCollected } from '../mechanics/extras.js';
 import type { MechanicStep, MechanicStepRecord } from '../mechanics/types.js';
 import { MAX_DOCK_SLOTS } from '../constants.js';
 
@@ -174,6 +175,52 @@ export class OfflineGame {
   }
 
   // ═══════════════════════════════════════════════════
+  //  Mechanism operation surface（行为策略表使用的最小操作面）
+  // ═══════════════════════════════════════════════════
+
+  /** 把指定牌移入 Dock（不触发三消）；泡泡吸取/魔法棒等机制收集使用。 */
+  mechanicMoveToDock(tileIds: number[]): void {
+    for (const id of tileIds) {
+      const tile = this.allTiles.get(id);
+      if (!tile || tile.pileType !== PileType.Desk) continue;
+      const idx = this.deskTiles.indexOf(tile);
+      if (idx >= 0) this.deskTiles.splice(idx, 1);
+      tile.pileType = PileType.Dock;
+      tile.flags = TileFlag.None;
+      this.dockTiles.push(tile);
+    }
+    this.sortDockTiles();
+  }
+
+  /** 消除指定牌（Desk/Dock 均可），移入 Discard。 */
+  mechanicEliminate(tileIds: number[]): void {
+    for (const id of tileIds) {
+      const tile = this.allTiles.get(id);
+      if (!tile || tile.hasFlag(TileFlag.Destroyed)) continue;
+      const deskIdx = tile.pileType === PileType.Desk ? this.deskTiles.indexOf(tile) : -1;
+      const dockIdx = tile.pileType === PileType.Dock ? this.dockTiles.indexOf(tile) : -1;
+      if (deskIdx >= 0) this.deskTiles.splice(deskIdx, 1);
+      if (dockIdx >= 0) this.dockTiles.splice(dockIdx, 1);
+      tile.pileType = PileType.Discard;
+      tile.flags = TileFlag.Destroyed;
+      this.discardTiles.push(tile);
+    }
+  }
+
+  /** 结算 Dock 三消（一次一组），返回被消除的组（无则 null）。 */
+  mechanicResolveDockMatch(): OfflineTile[] | null {
+    const matched = this.checkDockMatch();
+    if (!matched || matched.length === 0) return null;
+    this.mechanicEliminate(matched.map(m => m.id));
+    return matched;
+  }
+
+  /** Dock 槽位 +1（礼盒 AddDockSlot，上限 8）。 */
+  mechanicAddDockSlot(): void {
+    if (this.maxSlotCount < 8) this.dockSlotBonus += 1;
+  }
+
+  // ═══════════════════════════════════════════════════
   //  Core game logic
   // ═══════════════════════════════════════════════════
 
@@ -237,166 +284,18 @@ export class OfflineGame {
     this.runMechanicTicks();
   }
 
-  /** 应用机制步骤（魔药清除 / 泡泡指派 / 泡泡吸取 / Dock 魔法清除）。 */
-  private applyMechanicStep(step: MechanicStep): void {
+  /**
+   * 应用机制步骤（公开入口：策略表分发 + 日志 + 衰减结算）。
+   * 行为实现见 src/mechanics/step-appliers.ts 的 STEP_APPLIERS 表。
+   */
+  applyMechanicStep(step: MechanicStep): void {
     this.actionCount += 1;
     this.mechanicLog.push({ ...step, stepIndex: this.actionCount });
-
-    switch (step.type) {
-      case 'magic-bottle-clear':
-      case 'dock-magic-clear': {
-        // 清除名单可能同时含 Desk 与 Dock 牌，统一标记 Destroyed 并移入 Discard
-        for (const id of step.tileIds) {
-          const tile = this.allTiles.get(id);
-          if (!tile || tile.hasFlag(TileFlag.Destroyed)) continue;
-          const deskIdx = tile.pileType === PileType.Desk ? this.deskTiles.indexOf(tile) : -1;
-          const dockIdx = tile.pileType === PileType.Dock ? this.dockTiles.indexOf(tile) : -1;
-          if (deskIdx >= 0) this.deskTiles.splice(deskIdx, 1);
-          if (dockIdx >= 0) this.dockTiles.splice(dockIdx, 1);
-          tile.pileType = PileType.Discard;
-          tile.flags = TileFlag.Destroyed;
-          this.discardTiles.push(tile);
-        }
-        this.updateTilesState();
-        break;
-      }
-      case 'bubble-assign': {
-        // 指派 = 动态追加泡泡挂件（对齐 AssignBubbleTilesAsync → SetActiveBubbleTiles）
-        for (const id of step.tileIds) {
-          const tile = this.allTiles.get(id);
-          if (tile && !tile.extras.some(e => e.extraEnum === 39)) {
-            tile.extras.push({ extraEnum: 39, extraParam: '' });
-          }
-        }
-        this.mechanics.bubble.activeBubbleTileIds = new Set(step.tileIds);
-        this.mechanics.bubble.activeRoundCounted = false;
-        break;
-      }
-      case 'bubble-collect': {
-        // 泡泡吸取：标记牌进入 Dock，不触发普通三消（对齐 BubbleCollectStep）
-        for (const id of step.tileIds) {
-          const tile = this.allTiles.get(id);
-          if (!tile || tile.pileType !== PileType.Desk) continue;
-          const idx = this.deskTiles.indexOf(tile);
-          if (idx >= 0) this.deskTiles.splice(idx, 1);
-          tile.pileType = PileType.Dock;
-          tile.flags = TileFlag.None;
-          this.dockTiles.push(tile);
-        }
-        this.sortDockTiles();
-        this.updateTilesState();
-        if (!this.mechanics.bubble.activeRoundCounted) {
-          this.mechanics.bubble.completedCollectRounds += 1;
-          this.mechanics.bubble.activeRoundCounted = true;
-        }
-        this.mechanics.bubble.cooldownTicks = 1;
-        break;
-      }
-      case 'dandelion-spread': {
-        // 蒲公英扩散：目标牌转化为蒲公英（元素 1402 + 挂件，对齐 PreparePendingTargets）
-        for (const id of step.tileIds) {
-          const tile = this.allTiles.get(id);
-          if (!tile || tile.hasFlag(TileFlag.Destroyed)) continue;
-          tile.elementValue = 1402;
-          if (!tile.extras.some(e => e.extraEnum === 36)) {
-            const extra = { extraEnum: 36, extraParam: '' };
-            initExtraState(extra);
-            tile.extras.push(extra);
-          }
-        }
-        this.updateTilesState();
-        break;
-      }
-      case 'giftbox-add-dock-slot': {
-        if (this.maxSlotCount < 8) this.dockSlotBonus += 1;
-        break;
-      }
-      case 'giftbox-reveal-unknown': {
-        for (const tile of this.deskTiles) {
-          for (const extra of tile.extras) {
-            if (extra.extraEnum === 2 || extra.extraEnum === 202 || extra.extraEnum === 203) {
-              extra.isDone = true;
-            }
-          }
-        }
-        break;
-      }
-      case 'giftbox-shuffle': {
-        shuffleBoard(this, shuffleBoardSeed(this));
-        this.updateTilesState();
-        break;
-      }
-      case 'giftbox-apply-unknown': {
-        for (const id of step.tileIds) {
-          const tile = this.allTiles.get(id);
-          if (!tile || tile.hasFlag(TileFlag.Destroyed)) continue;
-          if (!tile.extras.some(e => e.extraEnum === 2)) {
-            const extra = { extraEnum: 2, extraParam: '' };
-            initExtraState(extra);
-            tile.extras.push(extra);
-          }
-        }
-        break;
-      }
-      case 'giftbox-apply-flip': {
-        for (const id of step.tileIds) {
-          const tile = this.allTiles.get(id);
-          if (!tile || tile.hasFlag(TileFlag.Destroyed)) continue;
-          if (!tile.extras.some(e => e.extraEnum === 7)) {
-            const extra = { extraEnum: 7, extraParam: '' };
-            initExtraState(extra);
-            tile.extras.push(extra);
-          }
-        }
-        break;
-      }
-      case 'giftbox-apply-magic-bottle': {
-        for (const id of step.tileIds) {
-          const tile = this.allTiles.get(id);
-          if (!tile || tile.hasFlag(TileFlag.Destroyed)) continue;
-          tile.elementValue = 1301;
-          if (!tile.extras.some(e => e.extraEnum === 31)) {
-            const extra = { extraEnum: 31, extraParam: '' };
-            initExtraState(extra);
-            tile.extras.push(extra);
-          }
-        }
-        this.updateTilesState();
-        break;
-      }
-      case 'magic-step': {
-        // 魔法棒：定向收集进 Dock（不触发普通三消）→ 结算三消 → 链式 OnMatch
-        for (const id of step.tileIds) {
-          const tile = this.allTiles.get(id);
-          if (!tile || tile.pileType !== PileType.Desk) continue;
-          const idx = this.deskTiles.indexOf(tile);
-          if (idx >= 0) this.deskTiles.splice(idx, 1);
-          tile.pileType = PileType.Dock;
-          tile.flags = TileFlag.None;
-          this.dockTiles.push(tile);
-        }
-        this.sortDockTiles();
-        const matched = this.checkDockMatch();
-        if (matched && matched.length > 0) {
-          for (const m of matched) {
-            const dockIdx = this.dockTiles.indexOf(m);
-            if (dockIdx >= 0) this.dockTiles.splice(dockIdx, 1);
-            m.pileType = PileType.Discard;
-            m.flags = TileFlag.Destroyed;
-            this.discardTiles.push(m);
-          }
-          for (const chainStep of this.mechanics.onMatch(matched)) {
-            this.applyMechanicStep(chainStep);
-          }
-        }
-        this.updateTilesState();
-        break;
-      }
-    }
+    const applier = STEP_APPLIERS[step.type];
+    if (applier) applier(this, step);
     // 对齐 Unity：每个应用的步骤都会触发衰减挂件 OnStep
     applyDecayStep(this, step.type);
   }
-
   /** 循环执行泡泡 tick 直到静止（guard 防病态环）。 */
   private runMechanicTicks(): void {
     for (let guard = 0; guard < 64; guard++) {
@@ -458,7 +357,8 @@ export class OfflineGame {
    * If RuntimeDependencies is empty → tile is Clickable.
    * Also refreshes PerfectCovered and Invisible flags.
    */
-  private updateTilesState(): void {
+  /** 重算所有 Desk 牌的 RuntimeDependencies / Clickable / 遮挡标志。 */
+  updateTilesState(): void {
     const hiddenFallingTileIds = this.hiddenFallingTileIds();
 
     // Phase 1: Compute RuntimeDependencies and Clickable

@@ -388,6 +388,7 @@ export type { MechanicCounts, MechanicSpecError, BoardSpec } from './mechanics/s
 // 机制引擎（确定性移植）
 export {
   MechanicEngine,
+  MATCH_BEHAVIORS,
   magicBottleShuffleSeed,
   isPotionTargetAllowed,
   selectMagicBottleTargets,
@@ -422,6 +423,11 @@ export {
 } from './mechanics/extras.js';
 export type { BubbleState } from './mechanics/engine.js';
 export type { TileExtra, MechanicStep, MechanicStepRecord } from './mechanics/types.js';
+
+// 机制行为策略表（新增机制登记处）
+export { STEP_APPLIERS } from './mechanics/step-appliers.js';
+export type { StepApplier } from './mechanics/step-appliers.js';
+export { COLLECT_HOOKS } from './mechanics/extras.js';
 
 // Replay 候选收集与导出
 export {
