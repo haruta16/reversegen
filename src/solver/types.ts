@@ -5,6 +5,8 @@
  * RuntimeDependencies are dynamic: only deps still on Desk.
  */
 
+import type { TileExtra } from '../mechanics/types.js';
+
 // ── Tile flags (bitmask) ──
 
 export enum TileFlag {
@@ -36,6 +38,8 @@ export interface TileConfig {
   posX: number;
   /** Tile center Y coordinate (for geometry visibility) */
   posY: number;
+  /** 挂件（特殊机制）列表，缺省为空 */
+  extras?: TileExtra[];
 }
 
 // ── Offline tile (mutable runtime state) ──
@@ -46,12 +50,16 @@ export class OfflineTile {
   pileType: PileType = PileType.Desk;
   flags: TileFlag = TileFlag.None;
 
+  /** 挂件列表（运行时可变：泡泡角标会动态追加，对齐 Unity tile.Extras） */
+  extras: TileExtra[];
+
   /** Dynamic: only dependencies still on Desk (not yet collected) */
   runtimeDependencies: Set<number> = new Set();
 
   constructor(config: TileConfig, elementValue: number) {
     this.config = config;
     this.elementValue = elementValue;
+    this.extras = (config.extras ?? []).map(e => ({ ...e }));
   }
 
   get id(): number {
@@ -83,6 +91,7 @@ export class OfflineTile {
     const t = new OfflineTile(this.config, this.elementValue);
     t.pileType = this.pileType;
     t.flags = this.flags;
+    t.extras = this.extras.map(e => ({ ...e }));
     // runtimeDependencies is rebuilt in UpdateTilesState, not cloned
     return t;
   }

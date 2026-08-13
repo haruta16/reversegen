@@ -11,6 +11,8 @@
 
 import { OfflineTile, PileType, TileFlag, type TileConfig } from './types.js';
 import type { FallingTerrainStructure, TerrainStructure, TerrainTile } from '../types.js';
+import { MechanicEngine, tileExtrasFromTerrain } from '../mechanics/engine.js';
+import type { MechanicStep, MechanicStepRecord } from '../mechanics/types.js';
 import { MAX_DOCK_SLOTS } from '../constants.js';
 
 // ═══════════════════════════════════════════════════
@@ -23,6 +25,16 @@ const TILE_SIZE = 10; // tile is 10×10 units, centered at (posX, posY)
 //  OfflineGame
 // ═══════════════════════════════════════════════════
 
+/** OfflineGame 构造选项（机制等可选上下文）。 */
+export interface OfflineGameOptions {
+  /** 关卡 ID（泡泡/魔药的派生种子使用，对齐 Unity battle.levelId） */
+  levelId?: number;
+  /** 关卡资源 ID（对齐 Unity battle.levelResID） */
+  levelResId?: number;
+  /** 机制配置（extraEnum → 数量/参数，与 Unity extraConfig 同构） */
+  mechanicConfig?: Map<number, number>;
+}
+
 export class OfflineGame {
   /** All tiles indexed by ID */
   readonly allTiles: Map<number, OfflineTile>;
@@ -34,13 +46,23 @@ export class OfflineGame {
   discardTiles: OfflineTile[];
   /** Special terrain runtime rules shared by every solver clone. */
   readonly terrainStructures: TerrainStructure[];
+  /** 关卡 ID（派生种子用） */
+  readonly levelId: number;
+  /** 关卡资源 ID（派生种子用） */
+  readonly levelResId: number;
+  /** 机制引擎（魔药/泡泡），clone 时深拷贝 */
+  readonly mechanics: MechanicEngine;
+  /** 机制步骤日志（跑关验证） */
+  readonly mechanicLog: MechanicStepRecord[] = [];
+  /** 累计动作序号（点击/复活/机制步骤统一计数） */
+  actionCount = 0;
   private readonly transferTileIds = new Set<number>();
   private readonly fallingGroups: FallingTerrainStructure[] = [];
   private readonly fallingGroupByTileId = new Map<number, FallingTerrainStructure>();
 
   // ── Construction ──
 
-  constructor(tiles: OfflineTile[], terrainStructures: TerrainStructure[] = []) {
+  constructor(tiles: OfflineTile[], terrainStructures: TerrainStructure[] = [], options: OfflineGameOptions = {}) {
     this.allTiles = new Map();
     this.deskTiles = [];
     this.dockTiles = [];
@@ -49,6 +71,8 @@ export class OfflineGame {
       ...structure,
       tileIds: [...structure.tileIds],
     }));
+    this.levelId = options.levelId ?? 0;
+    this.levelResId = options.levelResId ?? 0;
 
     for (const tile of tiles) {
       this.allTiles.set(tile.id, tile);
@@ -68,6 +92,8 @@ export class OfflineGame {
           break;
       }
     }
+
+    this.mechanics = new MechanicEngine(this, options.mechanicConfig);
 
     this.initializeTerrainStructures();
     this.updateTilesState();
@@ -133,9 +159,15 @@ export class OfflineGame {
         const c = new OfflineTile(t.config, t.elementValue);
         c.pileType = t.pileType;
         c.flags = t.flags;
+        c.extras = t.extras.map(e => ({ ...e }));
         return c;
       });
-    return new OfflineGame(tiles, this.terrainStructures);
+    const copy = new OfflineGame(tiles, this.terrainStructures, {
+      levelId: this.levelId,
+      levelResId: this.levelResId,
+    });
+    copy.mechanics.copyFrom(this.mechanics);
+    return copy;
   }
 
   // ═══════════════════════════════════════════════════
@@ -181,8 +213,85 @@ export class OfflineGame {
       }
     }
 
+    // 3.5 机制分发：魔药 OnMatch（matched 已 Destroyed，索敌排除它们，对齐 Unity）
+    if (matched && matched.length > 0) {
+      const mechanicStep = this.mechanics.onMatch(matched);
+      if (mechanicStep) this.applyMechanicStep(mechanicStep);
+    }
+
     // 4. Update tile states (recompute RuntimeDependencies → Clickable)
     this.updateTilesState();
+
+    // 4.5 动作计数 + 泡泡 tick 至静止（对齐 Unity OnUpdate 的确定性等价）
+    this.actionCount += 1;
+    this.runMechanicTicks();
+  }
+
+  /** 应用机制步骤（魔药清除 / 泡泡指派 / 泡泡吸取 / Dock 魔法清除）。 */
+  private applyMechanicStep(step: MechanicStep): void {
+    this.actionCount += 1;
+    this.mechanicLog.push({ ...step, stepIndex: this.actionCount });
+
+    switch (step.type) {
+      case 'magic-bottle-clear':
+      case 'dock-magic-clear': {
+        // 清除名单可能同时含 Desk 与 Dock 牌，统一标记 Destroyed 并移入 Discard
+        for (const id of step.tileIds) {
+          const tile = this.allTiles.get(id);
+          if (!tile || tile.hasFlag(TileFlag.Destroyed)) continue;
+          const deskIdx = tile.pileType === PileType.Desk ? this.deskTiles.indexOf(tile) : -1;
+          const dockIdx = tile.pileType === PileType.Dock ? this.dockTiles.indexOf(tile) : -1;
+          if (deskIdx >= 0) this.deskTiles.splice(deskIdx, 1);
+          if (dockIdx >= 0) this.dockTiles.splice(dockIdx, 1);
+          tile.pileType = PileType.Discard;
+          tile.flags = TileFlag.Destroyed;
+          this.discardTiles.push(tile);
+        }
+        this.updateTilesState();
+        break;
+      }
+      case 'bubble-assign': {
+        // 指派 = 动态追加泡泡挂件（对齐 AssignBubbleTilesAsync → SetActiveBubbleTiles）
+        for (const id of step.tileIds) {
+          const tile = this.allTiles.get(id);
+          if (tile && !tile.extras.some(e => e.extraEnum === 39)) {
+            tile.extras.push({ extraEnum: 39, extraParam: '' });
+          }
+        }
+        this.mechanics.bubble.activeBubbleTileIds = new Set(step.tileIds);
+        this.mechanics.bubble.activeRoundCounted = false;
+        break;
+      }
+      case 'bubble-collect': {
+        // 泡泡吸取：标记牌进入 Dock，不触发普通三消（对齐 BubbleCollectStep）
+        for (const id of step.tileIds) {
+          const tile = this.allTiles.get(id);
+          if (!tile || tile.pileType !== PileType.Desk) continue;
+          const idx = this.deskTiles.indexOf(tile);
+          if (idx >= 0) this.deskTiles.splice(idx, 1);
+          tile.pileType = PileType.Dock;
+          tile.flags = TileFlag.None;
+          this.dockTiles.push(tile);
+        }
+        this.sortDockTiles();
+        this.updateTilesState();
+        if (!this.mechanics.bubble.activeRoundCounted) {
+          this.mechanics.bubble.completedCollectRounds += 1;
+          this.mechanics.bubble.activeRoundCounted = true;
+        }
+        this.mechanics.bubble.cooldownTicks = 1;
+        break;
+      }
+    }
+  }
+
+  /** 循环执行泡泡 tick 直到静止（guard 防病态环）。 */
+  private runMechanicTicks(): void {
+    for (let guard = 0; guard < 64; guard++) {
+      const steps = this.mechanics.tick();
+      if (steps.length === 0) break;
+      for (const step of steps) this.applyMechanicStep(step);
+    }
   }
 
   /**
@@ -404,7 +513,14 @@ export class OfflineGame {
       .map(([color, count]) => `${color}:${count}`)
       .join(',');
 
-    return `${deskIds}|${dockSig}`;
+    // 挂件标记也是状态的一部分（泡泡角标影响后续机制选择）
+    const markedIds = this.deskTiles
+      .filter(t => t.extras.length > 0)
+      .map(t => `${t.id}:${t.extras.map(e => e.extraEnum).join('+')}`)
+      .sort()
+      .join(',');
+
+    return `${deskIds}|${dockSig}|${markedIds}|m${this.mechanics.fingerprint()}`;
   }
 
   // ═══════════════════════════════════════════════════
@@ -483,13 +599,17 @@ export interface GameFactoryInput {
   initialDock?: { tileId: number; element: number }[];
   /** Already-eliminated tile IDs (from replay code instanceArray) */
   eliminatedTileIds?: Set<number>;
+  /** 关卡资源 ID（机制派生种子用，对齐 Unity battle.levelResID） */
+  levelResId?: number;
+  /** 机制配置（extraEnum → 数量/参数，与 Unity extraConfig 同构） */
+  mechanicConfig?: Map<number, number>;
 }
 
 /**
  * Create an OfflineGame from terrain + assigned colors + replay data.
  */
 export function createGame(input: GameFactoryInput): OfflineGame {
-  const { terrainTiles, terrainStructures, elementValues, initialDock, eliminatedTileIds } = input;
+  const { terrainTiles, terrainStructures, elementValues, initialDock, eliminatedTileIds, levelResId, mechanicConfig } = input;
 
   const tiles: OfflineTile[] = terrainTiles.map(tt => {
     const config: TileConfig = {
@@ -500,6 +620,7 @@ export function createGame(input: GameFactoryInput): OfflineGame {
       constElementValue: tt.constElementValue,
       posX: tt.posX,
       posY: tt.posY,
+      extras: tileExtrasFromTerrain(tt.extraEnum, tt.extraParam),
     };
     const ev = elementValues.get(tt.id) ?? 1;
     const tile = new OfflineTile(config, ev);
@@ -519,7 +640,7 @@ export function createGame(input: GameFactoryInput): OfflineGame {
     return tile;
   });
 
-  return new OfflineGame(tiles, terrainStructures);
+  return new OfflineGame(tiles, terrainStructures, { levelId: levelResId ?? 0, levelResId, mechanicConfig });
 }
 
 // ═══════════════════════════════════════════════════════════════

@@ -377,6 +377,22 @@ export {
 } from './mechanics/spec.js';
 export type { MechanicCounts, MechanicSpecError, BoardSpec } from './mechanics/spec.js';
 
+// 机制引擎（确定性移植）
+export {
+  MechanicEngine,
+  magicBottleShuffleSeed,
+  isPotionTargetAllowed,
+  selectMagicBottleTargets,
+  magicBottleOnMatch,
+  isBubbleAssignCandidate,
+  selectBubbleAssignTargets,
+  isBubbleCollectCandidate,
+  dockMagicPlan,
+  tileExtrasFromTerrain,
+} from './mechanics/engine.js';
+export type { BubbleState } from './mechanics/engine.js';
+export type { TileExtra, MechanicStep, MechanicStepRecord } from './mechanics/types.js';
+
 // Replay 候选收集与导出
 export {
   REPLAY_SELECTION_HEADERS,
