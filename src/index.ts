@@ -365,8 +365,16 @@ export {
   MAGIC_BOTTLE_TARGET_WHITELIST,
   MAGIC_BOTTLE_CONSTANTS,
   BUBBLE_CONSTANTS,
+  DANDELION_TARGET_WHITELIST,
+  DANDELION_CONSTANTS,
+  DANDELION_SINGLE_GROUP_PROBABILITY,
+  GIFTBOX_CONSTANTS,
+  GIFTBOX_EFFECTS,
+  GIFTBOX_EFFECT_WEIGHTS,
+  REVEAL_EXTRAS,
+  DECAY_EXTRAS,
 } from './mechanics/registry.js';
-export type { MechanicInfo, MechanicKind, MechanicParamSchema } from './mechanics/registry.js';
+export type { MechanicInfo, MechanicKind, MechanicParamSchema, MechanicBehavior } from './mechanics/registry.js';
 export {
   parseMechanicCounts,
   serializeMechanicCounts,
@@ -390,6 +398,28 @@ export {
   dockMagicPlan,
   tileExtrasFromTerrain,
 } from './mechanics/engine.js';
+
+// 其余挂件行为（衰减/揭示/订单/蒲公英/礼盒/魔法棒/洗牌）
+export {
+  extraActionSeed,
+  initExtraState,
+  isExtraConsumed,
+  isUnrevealedUnknownTile,
+  applyDecayStep,
+  onTileCollected,
+  isDandelionTargetAllowed,
+  selectDandelionTargets,
+  isDandelionMatch,
+  selectMagicWandTargets,
+  dockDirectedMagicPlan,
+  giftBoxAvailableEffects,
+  rollGiftBoxEffect,
+  selectRandomTiles,
+  giftBoxConvertibleGroups,
+  selectGiftBoxMagicBottleGroups,
+  shuffleBoardSeed,
+  shuffleBoard,
+} from './mechanics/extras.js';
 export type { BubbleState } from './mechanics/engine.js';
 export type { TileExtra, MechanicStep, MechanicStepRecord } from './mechanics/types.js';
 

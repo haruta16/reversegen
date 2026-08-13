@@ -12,6 +12,7 @@
 import { OfflineTile, PileType, TileFlag, type TileConfig } from './types.js';
 import type { FallingTerrainStructure, TerrainStructure, TerrainTile } from '../types.js';
 import { MechanicEngine, tileExtrasFromTerrain } from '../mechanics/engine.js';
+import { applyDecayStep, onTileCollected, initExtraState, shuffleBoard, shuffleBoardSeed } from '../mechanics/extras.js';
 import type { MechanicStep, MechanicStepRecord } from '../mechanics/types.js';
 import { MAX_DOCK_SLOTS } from '../constants.js';
 
@@ -56,6 +57,8 @@ export class OfflineGame {
   readonly mechanicLog: MechanicStepRecord[] = [];
   /** 累计动作序号（点击/复活/机制步骤统一计数） */
   actionCount = 0;
+  /** Dock 槽位加成（礼盒 AddDockSlot 效果，上限 8） */
+  dockSlotBonus = 0;
   private readonly transferTileIds = new Set<number>();
   private readonly fallingGroups: FallingTerrainStructure[] = [];
   private readonly fallingGroupByTileId = new Map<number, FallingTerrainStructure>();
@@ -139,7 +142,7 @@ export class OfflineGame {
   }
 
   get maxSlotCount(): number {
-    return MAX_DOCK_SLOTS;
+    return MAX_DOCK_SLOTS + this.dockSlotBonus;
   }
 
   get isWin(): boolean {
@@ -201,6 +204,9 @@ export class OfflineGame {
     this.dockTiles.push(tile);
     this.sortDockTiles();
 
+    // 2.5 收集回调（OnCollect）：揭示/衰减有效收集/订单 consumed
+    onTileCollected(tile);
+
     // 3. Check for match (3 same-color in dock)
     const matched = this.checkDockMatch();
     if (matched && matched.length > 0) {
@@ -213,14 +219,18 @@ export class OfflineGame {
       }
     }
 
-    // 3.5 机制分发：魔药 OnMatch（matched 已 Destroyed，索敌排除它们，对齐 Unity）
+    // 3.5 机制分发：OnMatch（matched 已 Destroyed；魔药/蒲公英/礼盒按守卫各自触发）
     if (matched && matched.length > 0) {
-      const mechanicStep = this.mechanics.onMatch(matched);
-      if (mechanicStep) this.applyMechanicStep(mechanicStep);
+      for (const mechanicStep of this.mechanics.onMatch(matched)) {
+        this.applyMechanicStep(mechanicStep);
+      }
     }
 
     // 4. Update tile states (recompute RuntimeDependencies → Clickable)
     this.updateTilesState();
+
+    // 4.2 衰减挂件 OnStep（收集步骤触发；日历/复活节跳过魔药步）
+    applyDecayStep(this, 'collect');
 
     // 4.5 动作计数 + 泡泡 tick 至静止（对齐 Unity OnUpdate 的确定性等价）
     this.actionCount += 1;
@@ -282,7 +292,109 @@ export class OfflineGame {
         this.mechanics.bubble.cooldownTicks = 1;
         break;
       }
+      case 'dandelion-spread': {
+        // 蒲公英扩散：目标牌转化为蒲公英（元素 1402 + 挂件，对齐 PreparePendingTargets）
+        for (const id of step.tileIds) {
+          const tile = this.allTiles.get(id);
+          if (!tile || tile.hasFlag(TileFlag.Destroyed)) continue;
+          tile.elementValue = 1402;
+          if (!tile.extras.some(e => e.extraEnum === 36)) {
+            const extra = { extraEnum: 36, extraParam: '' };
+            initExtraState(extra);
+            tile.extras.push(extra);
+          }
+        }
+        this.updateTilesState();
+        break;
+      }
+      case 'giftbox-add-dock-slot': {
+        if (this.maxSlotCount < 8) this.dockSlotBonus += 1;
+        break;
+      }
+      case 'giftbox-reveal-unknown': {
+        for (const tile of this.deskTiles) {
+          for (const extra of tile.extras) {
+            if (extra.extraEnum === 2 || extra.extraEnum === 202 || extra.extraEnum === 203) {
+              extra.isDone = true;
+            }
+          }
+        }
+        break;
+      }
+      case 'giftbox-shuffle': {
+        shuffleBoard(this, shuffleBoardSeed(this));
+        this.updateTilesState();
+        break;
+      }
+      case 'giftbox-apply-unknown': {
+        for (const id of step.tileIds) {
+          const tile = this.allTiles.get(id);
+          if (!tile || tile.hasFlag(TileFlag.Destroyed)) continue;
+          if (!tile.extras.some(e => e.extraEnum === 2)) {
+            const extra = { extraEnum: 2, extraParam: '' };
+            initExtraState(extra);
+            tile.extras.push(extra);
+          }
+        }
+        break;
+      }
+      case 'giftbox-apply-flip': {
+        for (const id of step.tileIds) {
+          const tile = this.allTiles.get(id);
+          if (!tile || tile.hasFlag(TileFlag.Destroyed)) continue;
+          if (!tile.extras.some(e => e.extraEnum === 7)) {
+            const extra = { extraEnum: 7, extraParam: '' };
+            initExtraState(extra);
+            tile.extras.push(extra);
+          }
+        }
+        break;
+      }
+      case 'giftbox-apply-magic-bottle': {
+        for (const id of step.tileIds) {
+          const tile = this.allTiles.get(id);
+          if (!tile || tile.hasFlag(TileFlag.Destroyed)) continue;
+          tile.elementValue = 1301;
+          if (!tile.extras.some(e => e.extraEnum === 31)) {
+            const extra = { extraEnum: 31, extraParam: '' };
+            initExtraState(extra);
+            tile.extras.push(extra);
+          }
+        }
+        this.updateTilesState();
+        break;
+      }
+      case 'magic-step': {
+        // 魔法棒：定向收集进 Dock（不触发普通三消）→ 结算三消 → 链式 OnMatch
+        for (const id of step.tileIds) {
+          const tile = this.allTiles.get(id);
+          if (!tile || tile.pileType !== PileType.Desk) continue;
+          const idx = this.deskTiles.indexOf(tile);
+          if (idx >= 0) this.deskTiles.splice(idx, 1);
+          tile.pileType = PileType.Dock;
+          tile.flags = TileFlag.None;
+          this.dockTiles.push(tile);
+        }
+        this.sortDockTiles();
+        const matched = this.checkDockMatch();
+        if (matched && matched.length > 0) {
+          for (const m of matched) {
+            const dockIdx = this.dockTiles.indexOf(m);
+            if (dockIdx >= 0) this.dockTiles.splice(dockIdx, 1);
+            m.pileType = PileType.Discard;
+            m.flags = TileFlag.Destroyed;
+            this.discardTiles.push(m);
+          }
+          for (const chainStep of this.mechanics.onMatch(matched)) {
+            this.applyMechanicStep(chainStep);
+          }
+        }
+        this.updateTilesState();
+        break;
+      }
     }
+    // 对齐 Unity：每个应用的步骤都会触发衰减挂件 OnStep
+    applyDecayStep(this, step.type);
   }
 
   /** 循环执行泡泡 tick 直到静止（guard 防病态环）。 */
@@ -513,10 +625,13 @@ export class OfflineGame {
       .map(([color, count]) => `${color}:${count}`)
       .join(',');
 
-    // 挂件标记也是状态的一部分（泡泡角标影响后续机制选择）
+    // 挂件与运行时状态也是状态的一部分（角标/倒计时/揭示影响后续机制选择）
     const markedIds = this.deskTiles
       .filter(t => t.extras.length > 0)
-      .map(t => `${t.id}:${t.extras.map(e => e.extraEnum).join('+')}`)
+      .map(t => `${t.id}:${t.extras.map(e => {
+        const state = [e.countdown ?? '', e.isDone ? 1 : 0, e.isConsumed ? 1 : 0].join('.');
+        return `${e.extraEnum}(${state})`;
+      }).join('+')}`)
       .sort()
       .join(',');
 

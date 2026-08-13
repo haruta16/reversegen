@@ -18,6 +18,22 @@ import type { OfflineGame } from '../solver/offline-game.js';
 import { OfflineTile, PileType, TileFlag } from '../solver/types.js';
 import { computeVisibleMatchGroups } from '../solver/solver-player.js';
 import {
+  extraActionSeed,
+  selectDandelionTargets,
+  isDandelionMatch,
+  isUnrevealedUnknownTile,
+  rollGiftBoxEffect,
+  selectMagicWandTargets,
+  dockDirectedMagicPlan,
+  selectRandomTiles,
+  selectGiftBoxMagicBottleGroups,
+} from './extras.js';
+import {
+  DANDELION_CONSTANTS,
+  GIFTBOX_CONSTANTS,
+  GIFTBOX_EFFECTS,
+} from './registry.js';
+import {
   BUBBLE_CONSTANTS,
   MAGIC_BOTTLE_CONSTANTS,
   MAGIC_BOTTLE_TARGET_WHITELIST,
@@ -210,7 +226,10 @@ export function selectBubbleAssignTargets(game: OfflineGame, count: number): Off
   const candidates = game.deskTiles
     .filter(isBubbleAssignCandidate)
     .sort((a, b) => {
-      // OrderBy(IsUnrevealedUnknownTile ? 1 : 0) — reversegen 暂未建模 UnknownMark，恒为 0
+      // OrderBy(IsUnrevealedUnknownTile ? 1 : 0)：未揭示问号排后
+      const unknownA = isUnrevealedUnknownTile(a) ? 1 : 0;
+      const unknownB = isUnrevealedUnknownTile(b) ? 1 : 0;
+      if (unknownA !== unknownB) return unknownA - unknownB;
       const costA = bubbleElementCost(game, a.elementValue);
       const costB = bubbleElementCost(game, b.elementValue);
       if (costA !== costB) return costA - costB;
@@ -318,9 +337,98 @@ export class MechanicEngine {
     ].join('|');
   }
 
-  /** 魔药 OnMatch 分发（由 OfflineGame 在三消后调用）。 */
-  onMatch(matchedTiles: OfflineTile[]): MechanicStep | null {
-    return magicBottleOnMatch(this.game, matchedTiles);
+  /**
+   * OnMatch 分发（由 OfflineGame 在三消后调用）。
+   * 对齐 Unity：matchedTiles[0] 的每个挂件各自触发（去重守卫），返回按顺序应用的步骤。
+   */
+  onMatch(matchedTiles: OfflineTile[]): MechanicStep[] {
+    const steps: MechanicStep[] = [];
+    if (matchedTiles.length === 0) return steps;
+    const game = this.game;
+    const leader = matchedTiles[0];
+
+    for (const extra of leader.extras) {
+      switch (extra.extraEnum) {
+        case 31: { // 魔药
+          const step = magicBottleOnMatch(game, matchedTiles);
+          if (step) steps.push(step);
+          break;
+        }
+        case 36: { // 蒲公英：至少 3 张蒲公英参与本次三消
+          if (!isDandelionMatch(matchedTiles)) break;
+          const targets = selectDandelionTargets(game, extraActionSeed(game, 36));
+          if (targets.length === 0) break;
+          steps.push({ type: 'dandelion-spread', tileIds: targets.map(t => t.id) });
+          break;
+        }
+        case 37: { // 礼盒：加权随机效果
+          const effect = rollGiftBoxEffect(game, extraActionSeed(game, 3700));
+          switch (effect) {
+            case GIFTBOX_EFFECTS.AddDockSlot:
+              steps.push({ type: 'giftbox-add-dock-slot' });
+              break;
+            case GIFTBOX_EFFECTS.MagicWand: {
+              const tiles = selectMagicWandTargets(game);
+              if (tiles.length > 0) steps.push({ type: 'magic-step', tileIds: tiles.map(t => t.id) });
+              break;
+            }
+            case GIFTBOX_EFFECTS.DockAllMagicWand: {
+              const plan = dockDirectedMagicPlan(game);
+              if (plan.length > 0) {
+                const tileIds: number[] = [];
+                for (const target of plan) {
+                  for (const tile of game.dockTiles) {
+                    if (tile.elementValue === target.elementValue && !tileIds.includes(tile.id)) tileIds.push(tile.id);
+                  }
+                  for (const tile of target.deskTiles) {
+                    if (!tileIds.includes(tile.id)) tileIds.push(tile.id);
+                  }
+                }
+                steps.push({ type: 'dock-magic-clear', tileIds });
+              }
+              break;
+            }
+            case GIFTBOX_EFFECTS.RevealUnknown:
+              steps.push({ type: 'giftbox-reveal-unknown' });
+              break;
+            case GIFTBOX_EFFECTS.Shuffle:
+              steps.push({ type: 'giftbox-shuffle' });
+              break;
+            case GIFTBOX_EFFECTS.ApplyUnknown: {
+              const tiles = selectRandomTiles(
+                game.deskTiles.filter(t => !t.hasFlag(TileFlag.Destroyed) && t.extras.length === 0),
+                GIFTBOX_CONSTANTS.APPLY_UNKNOWN_MIN_COUNT,
+                GIFTBOX_CONSTANTS.APPLY_UNKNOWN_MAX_COUNT,
+                extraActionSeed(game, 3701),
+              );
+              if (tiles.length > 0) steps.push({ type: 'giftbox-apply-unknown', tileIds: tiles.map(t => t.id) });
+              break;
+            }
+            case GIFTBOX_EFFECTS.ApplyFlip: {
+              const tiles = selectRandomTiles(
+                game.deskTiles.filter(t => !t.hasFlag(TileFlag.Destroyed) && t.extras.length === 0 && !t.isClickable),
+                GIFTBOX_CONSTANTS.APPLY_FLIP_MIN_COUNT,
+                GIFTBOX_CONSTANTS.APPLY_FLIP_MAX_COUNT,
+                extraActionSeed(game, 3702),
+              );
+              if (tiles.length > 0) steps.push({ type: 'giftbox-apply-flip', tileIds: tiles.map(t => t.id) });
+              break;
+            }
+            case GIFTBOX_EFFECTS.ApplyMagicBottle: {
+              const tiles = selectGiftBoxMagicBottleGroups(game, extraActionSeed(game, 3703));
+              if (tiles.length > 0) steps.push({ type: 'giftbox-apply-magic-bottle', tileIds: tiles.map(t => t.id) });
+              break;
+            }
+            default:
+              break;
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    }
+    return steps;
   }
 
   /**
