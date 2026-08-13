@@ -24,6 +24,7 @@ import { gradeStrategy2 } from './grader.js';
 import type { TerrainData, TerrainTile, ColorAllocationMode } from './types.js';
 import type { SimSnapshot } from './grader.js';
 import { mulberry32 } from './random-utils.js';
+import { MAX_DOCK_SLOTS } from './constants.js';
 
 // ═══════════════════════════════════════════════════════════
 // 类型
@@ -346,7 +347,7 @@ export function generateAndEvaluateOne(
   try {
     const result = generateBoardLayerClosure({
       terrain, closeRates: params.closeRates, colorCount: params.colorCount,
-      dock: 7, spreadParam: params.spreadParam, debtPersistenceWeight: params.debtPersistenceWeight,
+      dock: MAX_DOCK_SLOTS, spreadParam: params.spreadParam, debtPersistenceWeight: params.debtPersistenceWeight,
       colorAllocationMode: params.colorAllocationMode,
       colorAllocationMaxRatio: params.colorAllocationMaxRatio,
       colorAllocationRng: mulberry32(seed + 31337),

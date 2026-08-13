@@ -17,13 +17,16 @@
 
 ```
 src/                          # 核心库
-├── types.ts                  # 公共类型定义
+├── types.ts                  # 类型聚合入口（领域类型拆在 types/）
+├── types/                    # 地形 / Triple / 牌局 / LayerClosure 领域类型
+├── constants.ts              # 全局常量（Dock 槽位等）
 ├── logger.ts                 # 分级日志
 ├── crc16.ts                  # CRC16/MODBUS
 ├── dependency-graph.ts       # BFS 传递依赖闭包
 ├── triple-builder.ts         # C(n,3) 枚举 + cost 计算
 ├── reverse-gen.ts            # ★ CostLadder 生成算法
-├── layer-closure-gen.ts      # LayerClosure 生成算法
+├── layer-closure-gen.ts      # LayerClosure 编排入口 + 兼容 re-export
+├── layer-closure/            #   quota / matrix / placement / metrics 模块
 ├── tile-explorer/            # Tile Explorer 生成器
 ├── zen-match/                # Zen Match 策略 4/5
 ├── greedy-sim.ts             # 纯贪心模拟验证
@@ -33,6 +36,7 @@ src/                          # 核心库
 ├── index.ts                  # 公共 API
 └── solver/                   # 游戏引擎 + 求解器
     ├── offline-game.ts       # 离线游戏状态机
+    ├── solver-player.ts      # 统一玩家引擎（各画像变体共用）
     ├── solver-dfs.ts         # DFS 求解器
     ├── solver-greedy.ts      # 贪心求解器
     ├── solver-random.ts      # 随机批量求解器
@@ -52,7 +56,15 @@ tools/                        # 分析工具
 
 cli/generate.ts               # CLI 工具
 gui/                          # Web GUI
-├── server.ts                 # HTTP 服务器
+├── server.ts                 # HTTP 服务骨架（基础路径/健康检查/静态文件/路由分发）
+├── lib/                      # 按域拆分的 API 模块
+│   ├── runtime.ts            #   共享状态与工具（地形解析/缓存/分档配置）
+│   ├── api-generate.ts       #   生成/解码/回放分析 API
+│   ├── api-analyze.ts        #   DAG 分析与可解性验证 API
+│   ├── api-simulate.ts       #   玩家模拟 API
+│   ├── api-grade.ts          #   难度分档 API
+│   ├── api-batch.ts          #   批量生产与候选收集 API
+│   └── api-strategy.ts       #   生成策略管理 API
 ├── index.html                # 牌局生成器页面
 └── analysis.html             # DAG 分析页面 (4 种图)
 test/
@@ -103,6 +115,11 @@ test/  ──→ src/
 | Cost = \|depSet \ collectedIds\| | 动态成本，模拟真实消除的"越消越容易" |
 | 黑名单 | 防止贪心退化为每步选最便宜的 |
 | r-chain 约束 (Σcᵢ = 3N) | 数学合法性保证 |
+
+> ⚠️ **前提局限**：CostLadder 建立在"贪心路径 = 最优解路径"的前提上，该前提
+> 已被 DFS 求解器反证（贪心判定无解的关卡往往存在真实最优解）。因此 CostLadder
+> 精确控制的是贪心模拟的 cost 链，可解性与真实难度必须用 `src/solver/` 验证。
+> 详见 [project-journey.md](./project-journey.md) 第四节。
 
 ---
 
@@ -253,8 +270,9 @@ JSON 文件 → terrain-loader → TerrainTile[]
 ### 黑名单
 cost ≤ 选中 triple 的候选全部封杀，防止贪心退化为每步选最便宜的。
 
-### 池化
-连续同 cost 步骤在同一快照下互选，避免"同伴互杀"。
+### 池化（历史机制，已移除）
+早期版本含"连续同 cost 步骤在同一快照下互选"的多选分支，但池构造始终为
+count=1 使其不可达；该分支已删除，当前算法为每步独立快照的标准贪心。
 
 ### 抢救
 候选耗光时从黑名单尾部找回，遵循时间局部性原则。

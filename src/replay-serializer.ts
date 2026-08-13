@@ -42,8 +42,9 @@ export const FORMAT_VERSION = 4;
 /** 最大花色种类数（受 instanceArray 中 6bit 索引限制） */
 export const MAX_ELEMENT_COUNT = 64;
 
-/** Dock 最大槽位数（受游戏规则限制） */
-export const MAX_DOCK_SLOTS = 7;
+/** Dock 最大槽位数（受游戏规则限制），定义见 constants.ts。 */
+import { MAX_DOCK_SLOTS } from './constants.js';
+export { MAX_DOCK_SLOTS };
 
 // ── 公共 API ──
 

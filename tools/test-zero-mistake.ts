@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { OfflineGame } from '../src/solver/offline-game.js';
 import { OfflineTile } from '../src/solver/types.js';
-import { solvePlayerMistakeBatch } from '../src/solver/solver-player-mistake-new.js';
+import { solvePlayerMistakeBatch } from '../src/solver/solver-player-mistake.js';
 import { decodeFromString, getCanonicalTileOrder } from '../src/replay-serializer.js';
 import { loadTerrainFromFile, getAllTiles, LogLevel, setLogLevel } from '../src/index.js';
 setLogLevel(LogLevel.Silent);

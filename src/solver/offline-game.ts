@@ -11,12 +11,12 @@
 
 import { OfflineTile, PileType, TileFlag, type TileConfig } from './types.js';
 import type { FallingTerrainStructure, TerrainStructure, TerrainTile } from '../types.js';
+import { MAX_DOCK_SLOTS } from '../constants.js';
 
 // ═══════════════════════════════════════════════════
 //  Game constants
 // ═══════════════════════════════════════════════════
 
-const MAX_DOCK_SLOTS = 7;
 const TILE_SIZE = 10; // tile is 10×10 units, centered at (posX, posY)
 
 // ═══════════════════════════════════════════════════

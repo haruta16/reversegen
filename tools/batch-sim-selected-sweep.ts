@@ -35,7 +35,7 @@ import {
   setLogLevel,
 } from '../src/index.js';
 import { createGame } from '../src/solver/offline-game.js';
-import { solvePlayerMistakeBatch } from '../src/solver/solver-player-mistake-new.js';
+import { solvePlayerMistakeBatch } from '../src/solver/solver-player-mistake.js';
 import { solvePlayerShortestBatch } from '../src/solver/solver-player-shortest.js';
 import type { ReplayData, TerrainTile } from '../src/types.js';
 

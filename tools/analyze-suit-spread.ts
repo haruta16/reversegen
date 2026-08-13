@@ -143,19 +143,18 @@ function calculateSpread(replayCode: string, context: TerrainContext): { spread:
   }
   const colors = new Set(assignments.values()).size;
   const closeRates = computeCloseRatesFromAssignments(assignments, context.depthLayers);
-  const metrics = computeMetrics(
+  const metrics = computeMetrics({
     assignments,
-    context.freeTiles,
-    context.depthLayers,
-    context.depthMap,
-    context.allTileMap,
-    context.tileDepSets,
-    7,
-    colors,
-    closeRates,
-    0,
-    [],
-  );
+    tiles: context.freeTiles,
+    depthLayers: context.depthLayers,
+    depthMap: context.depthMap,
+    tileMap: context.allTileMap,
+    tileDepSets: context.tileDepSets,
+    dock: 7,
+    colorCount: colors,
+    actualCloseRates: closeRates,
+    debtPersistenceWeight: 0,
+  });
   return { spread: metrics.suitSpread, spreadNorm: metrics.suitSpreadNorm };
 }
 

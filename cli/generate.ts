@@ -33,6 +33,7 @@ import {
   looksLikeReplayCode,
   decodeFromString,
   formatHash,
+  MAX_DOCK_SLOTS,
 } from '../src/index.js';
 
 // ── CLI Argument Parsing ──
@@ -47,7 +48,7 @@ const { values } = parseArgs({
     hash:          { type: 'string' },
     // LayerClosure 算法专用参数
     'close-rates':  { type: 'string' },
-        'dock':         { type: 'string', default: '7' },
+        'dock':         { type: 'string', default: String(MAX_DOCK_SLOTS) },
     'spread':       { type: 'string', default: '0.5' },
     'debt-persistence': { type: 'string', default: '0' },
     // Tile Explorer 算法专用参数

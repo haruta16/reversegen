@@ -18,8 +18,9 @@
  *
  * === 辅助机制（可调整/替换，不影响算法正确性）===
  *
- * 5. 池化: 连续同 cost 步骤在同一快照下互选，避免"同伴互杀"。
- *    去掉池化 → 算法仍正确，匹配率下降。
+ * 5. 池化（历史机制，已移除）: 连续同 cost 步骤在同一快照下互选。
+ *    早期版本含池化多选分支，但池构造始终为 count=1 使其不可达；
+ *    为避免文档与实现不一致，该分支已删除（见 executeStep 前说明）。
  *
  * 6. 抢救: 候选耗光时从黑名单尾部找回。搜索方向可改（头部/随机）。
  *
@@ -87,22 +88,15 @@ export function runReverseGen(input: ReverseGenInput): ReverseGenOutput {
   const tileToBanTriples = new Map<number, TripleKey[]>();
   const tileColorMap = new Map<number, number>();
 
-  // ── 池构造（静态: 基于 cost 数组的连续同值分组）──
-  // 这是静态决策——因为 cost 目标数组是固定输入，连续同值的判断不需要运行时信息。
-  // [3,3,2,2,2] → [{cost:3, count:2}, {cost:2, count:3}]
-  // count=1 的池 = 普通单步；count>1 的池尝试多选。
-  interface Pool { cost: number; count: number; }
-  const pools: Pool[] = [];
-  for (let i = 0; i < costTargets.length; i++) {
-    pools.push({ cost: costTargets[i], count: 1 });
-  }
-
+  // ── 单步执行 ──
+  // 说明：历史版本包含"连续同 cost 步骤在同一快照下互选"的池化多选分支，
+  // 但池构造始终为 count=1（从未实际分组），该分支不可达。为避免注释与
+  // 实现不一致，池化多选分支已移除——当前算法是每步独立快照的标准贪心。
   let currentStep = 0;
   let aborted = false;
 
-  // ── 统一池执行: count=1 = 单步, count>1 = 池化多选 ──
-  function executePool(target: number, count: number): void {
-    const startStep = currentStep + 1;
+  function executeStep(target: number): void {
+    const stepNum = currentStep + 1;
 
     // 1) 收集当前快照下全部候选
     const allCandidates: CandidateInfo[] = [];
@@ -115,107 +109,62 @@ export function runReverseGen(input: ReverseGenInput): ReverseGenOutput {
 
     // 2) 候选耗光 → 抢救
     if (allCandidates.length === 0) {
-      logger.warn(`[ReverseGen] 第${startStep}步无可用candidate，从黑名单抢救剩余${freeTiles.length - usedIds.size}张牌`);
-      for (let i = 0; i < count; i++) {
-        if (aborted) return;
-        const rescueResult = rescueFromBlacklist(usedIds, collectedIds, banSet, banList, banStepMap);
-        if (!rescueResult) { logger.warn('[ReverseGen] 抢救失败，中止'); aborted = true; return; }
+      logger.warn(`[ReverseGen] 第${stepNum}步无可用candidate，从黑名单抢救剩余${freeTiles.length - usedIds.size}张牌`);
+      const rescueResult = rescueFromBlacklist(usedIds, collectedIds, banSet, banList, banStepMap);
+      if (!rescueResult) { logger.warn('[ReverseGen] 抢救失败，中止'); aborted = true; return; }
 
-        const stepNum = ++currentStep;
-        const { triple, cost, key, bannedAtStep } = rescueResult;
-        banSet.delete(key);
-        const chosenColor = selectSafeColor(triple.tileIds, tileToBanTriples, tileColorMap, colorCount);
+      const { triple, cost, key, bannedAtStep } = rescueResult;
+      banSet.delete(key);
+      const chosenColor = selectSafeColor(triple.tileIds, tileToBanTriples, tileColorMap, colorCount);
 
-        logger.info(`[ReverseGen] 第${stepNum}/${steps}步 ID=[${triple.tileIds.join(',')}] cost=${cost} 候选=0 封杀=0 色=${chosenColor} ⚠抢救(第${bannedAtStep}步拉黑)`);
+      logger.info(`[ReverseGen] 第${stepNum}/${steps}步 ID=[${triple.tileIds.join(',')}] cost=${cost} 候选=0 封杀=0 色=${chosenColor} ⚠抢救(第${bannedAtStep}步拉黑)`);
 
-        stepLog.push({ step: stepNum, tileIds: triple.tileIds, cost, target, candidateCount: 0, bannedCount: 0, colorIndex: chosenColor, rescued: true, bannedAtStep, simCost: 0 });
-        schedule.push({ tileIds: triple.tileIds, colorIndex: chosenColor });
-        for (const id of triple.tileIds) { usedIds.add(id); tileColorMap.set(id, chosenColor); }
-        for (const id of triple.depSet) collectedIds.add(id);
-      }
+      stepLog.push({ step: stepNum, tileIds: triple.tileIds, cost, target, candidateCount: 0, bannedCount: 0, colorIndex: chosenColor, rescued: true, bannedAtStep, simCost: 0 });
+      schedule.push({ tileIds: triple.tileIds, colorIndex: chosenColor });
+      for (const id of triple.tileIds) { usedIds.add(id); tileColorMap.set(id, chosenColor); }
+      for (const id of triple.depSet) collectedIds.add(id);
+
+      currentStep++;
       return;
     }
 
-    // 3) 选择
-    // count=1 → 标准贪心选 1 个
-    // count>1 → 尝试池化多选（从 cost==target 候选中挑互不占牌的）
-    const selected: CandidateInfo[] = [];
-    // 池化条件: cost 1-3 且连续 ≥2 步。cost≥4 时依赖集大，互不占牌概率低，单步执行更合理
-    const tryPool = target >= 1 && target <= 3 && count >= 2;
+    // 3) 标准贪心: 按 cost 排序，选第一个 cost ≥ target 的候选
+    allCandidates.sort((a, b) => a.cost - b.cost);
+    const idx = allCandidates.findIndex(c => c.cost >= target);
+    const selected: CandidateInfo = idx >= 0
+      ? allCandidates[idx]
+      : allCandidates[allCandidates.length - 1];
 
-    if (!tryPool) {
-      // 标准贪心: 按 cost 排序，选第一个 cost ≥ target 的候选
-      allCandidates.sort((a, b) => a.cost - b.cost);
-      const idx = allCandidates.findIndex(c => c.cost >= target);
-      selected.push(idx >= 0 ? allCandidates[idx] : allCandidates[allCandidates.length - 1]);
-    } else {
-      // 池化多选: 从 cost == target 的候选中贪心挑互不占牌的
-      const poolCandidates = allCandidates.filter(c => c.cost === target);
-      const selectedTiles = new Set<number>();
-
-      for (let pick = 0; pick < count; pick++) {
-        const available = poolCandidates.filter(c => !c.triple.tileIds.some(id => selectedTiles.has(id)));
-        if (available.length === 0) break;
-
-        const chosen = (pick === 0)
-          ? available.reduce((best, c) => c.triple.depSet.size > best.triple.depSet.size ? c : best)
-          : available.reduce((best, c) => {
-              const co = selected.reduce((s, sel) => s + intersectCount(sel.triple.depSet, c.triple.depSet), 0);
-              const bo = selected.reduce((s, sel) => s + intersectCount(sel.triple.depSet, best.triple.depSet), 0);
-              return bo >= co ? best : c;
-            });
-
-        selected.push(chosen);
-        for (const id of chosen.triple.tileIds) selectedTiles.add(id);
-      }
-
-      if (selected.length < count) {
-        logger.warn(`[ReverseGen] 池cost=${target} 仅选出${selected.length}/${count}，回退单步补齐${count - selected.length}步`);
-      }
-    }
-
-    // 4) 封杀
-    // 阈值: 单步 = 选中 triple 的实际 cost; 池 = target（即池内 triple 的 cost）
-    const banThreshold = tryPool ? target : (selected[0]?.cost ?? target);
+    // 4) 封杀: 阈值 = 选中 triple 的实际 cost
+    const banThreshold = selected.cost;
     let banCnt = 0;
     for (const { triple: t, cost, key } of allCandidates) {
-      if (cost <= banThreshold && !selected.some(s => s.key === key)) {
+      if (cost <= banThreshold && key !== selected.key) {
         banSet.add(key);
         banList.push(t);
-        banStepMap.set(key, startStep);
+        banStepMap.set(key, stepNum);
         addToBanIndex(tileToBanTriples, t.tileIds);
         banCnt++;
       }
     }
 
     // 5) 落色 + 记录
-    for (let i = 0; i < selected.length; i++) {
-      const { triple, cost } = selected[i];
-      const stepNum = startStep + i;
-      const chosenColor = selectSafeColor(triple.tileIds, tileToBanTriples, tileColorMap, colorCount);
+    const { triple, cost } = selected;
+    const chosenColor = selectSafeColor(triple.tileIds, tileToBanTriples, tileColorMap, colorCount);
 
-      const poolTag = count > 1 ? `池cost=${target} ` : '';
-      logger.info(`[ReverseGen] ${poolTag}第${stepNum}/${steps}步 ID=[${triple.tileIds.join(',')}] cost=${cost} 目标=${target} 候选=${allCandidates.length} 封杀=${banCnt} 色=${chosenColor}`);
+    logger.info(`[ReverseGen] 第${stepNum}/${steps}步 ID=[${triple.tileIds.join(',')}] cost=${cost} 目标=${target} 候选=${allCandidates.length} 封杀=${banCnt} 色=${chosenColor}`);
 
-      stepLog.push({ step: stepNum, tileIds: triple.tileIds, cost, target, candidateCount: allCandidates.length, bannedCount: banCnt, colorIndex: chosenColor, rescued: false, bannedAtStep: -1, simCost: 0 });
-      schedule.push({ tileIds: triple.tileIds, colorIndex: chosenColor });
-      for (const id of triple.tileIds) { usedIds.add(id); tileColorMap.set(id, chosenColor); }
-      for (const id of triple.depSet) collectedIds.add(id);
-    }
+    stepLog.push({ step: stepNum, tileIds: triple.tileIds, cost, target, candidateCount: allCandidates.length, bannedCount: banCnt, colorIndex: chosenColor, rescued: false, bannedAtStep: -1, simCost: 0 });
+    schedule.push({ tileIds: triple.tileIds, colorIndex: chosenColor });
+    for (const id of triple.tileIds) { usedIds.add(id); tileColorMap.set(id, chosenColor); }
+    for (const id of triple.depSet) collectedIds.add(id);
 
-    currentStep += selected.length;
-
-    // 补齐: 池内选不够的余量（再次尝试 rescue）
-    const remaining = count - selected.length;
-    for (let i = 0; i < remaining; i++) {
-      if (aborted) return;
-      executePool(target, 1); // count=1 → 走抢救路径
-    }
+    currentStep++;
   }
 
-  // ── 主循环: 逐池执行 ──
-  for (const { cost: target, count } of pools) {
-    executePool(target, count);
+  // ── 主循环: 逐目标执行 ──
+  for (const target of costTargets) {
+    executeStep(target);
     if (aborted) break;
   }
 
@@ -275,13 +224,6 @@ function rescueFromBlacklist(
     return { triple: t, cost: computeCost(t, collectedIds), key, bannedAtStep: banStepMap.get(key) ?? -1 };
   }
   return null;
-}
-
-function intersectCount(a: Set<number>, b: Set<number>): number {
-  let count = 0;
-  const [small, large] = a.size <= b.size ? [a, b] : [b, a];
-  for (const id of small) { if (large.has(id)) count++; }
-  return count;
 }
 
 function addToBanIndex(index: Map<number, TripleKey[]>, tileIds: [number, number, number]): void {

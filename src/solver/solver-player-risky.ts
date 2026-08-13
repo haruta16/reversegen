@@ -17,6 +17,7 @@ import { OfflineTile } from './types.js';
 import { mulberry32 } from '../random-utils.js';
 import {
   computeVisibleMatchGroups,
+  hasCompletableVisibleColor,
   pickClickableFromPath,
   pickMostRevealingTile,
   type PlayerSimResult,
@@ -37,7 +38,7 @@ function selectTile(
   game: OfflineGame,
   rng: () => number,
   riskThreshold: number,
-): OfflineTile | null {
+): { tile: OfflineTile | null; hadSafeGroup: boolean } {
   const visibleGroups = computeVisibleMatchGroups(game);
   const dockRemain = game.remainSlotCount;
 
@@ -51,14 +52,17 @@ function selectTile(
   if (safeGroups.length > 0) {
     const chosen = safeGroups[Math.floor(rng() * safeGroups.length)];
     const tile = pickClickableFromPath(chosen, game);
-    if (tile) return tile;
+    if (tile) return { tile, hadSafeGroup: true };
     for (const g of safeGroups) {
       const t = pickClickableFromPath(g, game);
-      if (t) return t;
+      if (t) return { tile: t, hadSafeGroup: true };
     }
   }
 
-  return pickMostRevealingTile(game, rng);
+  return {
+    tile: pickMostRevealingTile(game, rng),
+    hadSafeGroup: safeGroups.length > 0,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -85,6 +89,8 @@ export function solvePlayerRisky(
   const g = game.clone();
   const picks: number[] = [];
   const rng = mulberry32(seed);
+  let forcedRandomPickCount = 0;
+  let colorStarvationCount = 0;
 
   for (let step = 0; step < maxSteps; step++) {
     if (g.isWin) break;
@@ -95,10 +101,15 @@ export function solvePlayerRisky(
         picks,
         stepCount: picks.length,
         seed,
+        remainingTilesOnFail: g.deskTiles.length,
+        forcedRandomPickCount,
+        colorStarvationCount,
       };
     }
 
-    const tile = selectTile(g, rng, riskThreshold);
+    if (!hasCompletableVisibleColor(g)) colorStarvationCount++;
+
+    const { tile, hadSafeGroup } = selectTile(g, rng, riskThreshold);
     if (!tile) {
       return {
         win: false,
@@ -106,8 +117,13 @@ export function solvePlayerRisky(
         picks,
         stepCount: picks.length,
         seed,
+        remainingTilesOnFail: g.deskTiles.length,
+        forcedRandomPickCount,
+        colorStarvationCount,
       };
     }
+
+    if (!hadSafeGroup) forcedRandomPickCount++;
 
     g.collect(tile);
     picks.push(tile.id);
@@ -123,6 +139,9 @@ export function solvePlayerRisky(
     picks,
     stepCount: picks.length,
     seed,
+    remainingTilesOnFail: g.isWin ? 0 : g.deskTiles.length,
+    forcedRandomPickCount,
+    colorStarvationCount,
   };
 }
 
@@ -141,6 +160,10 @@ export function solvePlayerRiskyBatch(
   const results: PlayerSimResult[] = [];
   let totalWinSteps = 0;
   let totalLossSteps = 0;
+  let totalForcedOnWin = 0;
+  let totalStarveOnWin = 0;
+  let totalForcedOnLoss = 0;
+  let totalStarveOnLoss = 0;
 
   for (let i = 0; i < runs; i++) {
     const result = solvePlayerRisky(game, baseSeed + i, config);
@@ -148,9 +171,13 @@ export function solvePlayerRiskyBatch(
     if (result.win) {
       wins++;
       totalWinSteps += result.stepCount;
+      totalForcedOnWin += result.forcedRandomPickCount;
+      totalStarveOnWin += result.colorStarvationCount;
     } else {
       losses++;
       totalLossSteps += result.stepCount;
+      totalForcedOnLoss += result.forcedRandomPickCount;
+      totalStarveOnLoss += result.colorStarvationCount;
     }
   }
 
@@ -161,6 +188,11 @@ export function solvePlayerRiskyBatch(
     results,
     avgStepsOnWin: wins > 0 ? totalWinSteps / wins : 0,
     avgStepsOnLoss: losses > 0 ? totalLossSteps / losses : 0,
+    stepsOnLoss: losses > 0 ? totalLossSteps / losses : 0,
+    forcedPickOnWin: wins > 0 ? totalForcedOnWin / wins : 0,
+    starvationOnWin: wins > 0 ? totalStarveOnWin / wins : 0,
+    forcedPickOnLoss: losses > 0 ? totalForcedOnLoss / losses : 0,
+    starvationOnLoss: losses > 0 ? totalStarveOnLoss / losses : 0,
     elapsedMs: performance.now() - startTime,
   };
 }

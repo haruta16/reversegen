@@ -28,7 +28,7 @@ if (process.argv.includes('--worker')) {
     try {
       const { OfflineGame } = await import('../src/solver/offline-game.js');
       const { OfflineTile } = await import('../src/solver/types.js');
-      const { solvePlayerMistakeBatch } = await import('../src/solver/solver-player-mistake-new.js');
+      const { solvePlayerMistakeBatch } = await import('../src/solver/solver-player-mistake.js');
       const { decodeFromString, getCanonicalTileOrder } = await import('../src/replay-serializer.js');
       const { loadTerrainFromFile, getAllTiles, LogLevel, setLogLevel } = await import('../src/index.js');
       setLogLevel(LogLevel.Silent);

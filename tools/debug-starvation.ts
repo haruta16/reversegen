@@ -5,7 +5,7 @@ import { OfflineTile } from '../src/solver/types.js';
 import { decodeFromString, getCanonicalTileOrder } from '../src/replay-serializer.js';
 import { loadTerrainFromFile, getAllTiles, LogLevel, setLogLevel } from '../src/index.js';
 import { mulberry32 } from '../src/random-utils.js';
-import { computeVisibleMatchGroups } from '../src/solver/solver-player-new.js';
+import { computeVisibleMatchGroups } from '../src/solver/solver-player.js';
 
 setLogLevel(LogLevel.Silent);
 
@@ -44,7 +44,7 @@ for (let i = 0; i < ordered.length && i < replayData.instanceArray.length; i++) 
 const game = new OfflineGame(offlineTiles);
 const g = game.clone();
 const rng = mulberry32(200);
-const { pickClickableFromPath, pickMostRevealingTile } = await import('../src/solver/solver-player-new.js');
+const { pickClickableFromPath, pickMostRevealingTile } = await import('../src/solver/solver-player.js');
 
 let starve = 0, forced = 0;
 for (let step = 0; step < 200 && !g.isWin && !g.isDead; step++) {

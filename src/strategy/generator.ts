@@ -16,6 +16,7 @@ import type {
   ZenMatchGeneratorSpec,
 } from './types.js';
 import { deriveSeed, seededRandom } from './random.js';
+import { MAX_DOCK_SLOTS } from '../constants.js';
 
 function unifiedParameters(spec: LayerClosureGeneratorSpec): UnifiedParams {
   const parameters = spec.parameters;
@@ -66,7 +67,7 @@ export function generateCandidate(
     terrain,
     closeRates: params.closeRates,
     colorCount: params.colorCount,
-    dock: 7,
+    dock: MAX_DOCK_SLOTS,
     spreadParam: params.spreadParam,
     debtPersistenceWeight: params.debtPersistenceWeight,
     colorAllocationMode: params.colorAllocationMode,

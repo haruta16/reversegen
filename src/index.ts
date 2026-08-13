@@ -14,6 +14,7 @@
 
 import type { TerrainData, ReverseGenOutput, LayerClosureInput, LayerClosureOutput, DebtMetrics, ColorAllocationMode } from './types.js';
 import { getAllTiles, getConstTiles } from './terrain-loader.js';
+import { MAX_DOCK_SLOTS } from './constants.js';
 import { runReverseGen } from './reverse-gen.js';
 import { runLayerClosureGen } from './layer-closure-gen.js';
 import { runTileExplorerGen } from './tile-explorer/generator.js';
@@ -160,7 +161,7 @@ export function generateBoardLayerClosure(
     terrain,
     closeRates,
     colorCount,
-    dock = 7,
+    dock = MAX_DOCK_SLOTS,
     levelHash: hashOverride,
     spreadParam,
     debtPersistenceWeight,
@@ -352,6 +353,9 @@ export type {
 // 工具
 export { computeCRC16, computeCRC16Bitwise } from './crc16.js';
 export { logger, setLogLevel, LogLevel } from './logger.js';
+
+// 常量
+export { MAX_DOCK_SLOTS } from './constants.js';
 
 // Replay 候选收集与导出
 export {

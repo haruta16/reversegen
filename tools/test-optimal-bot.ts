@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { OfflineGame } from '../src/solver/offline-game.js';
 import { OfflineTile, TileFlag } from '../src/solver/types.js';
-import { computeVisibleMatchGroups, pickClickableFromPath, pickMostRevealingTile } from '../src/solver/solver-player-new.js';
+import { computeVisibleMatchGroups, pickClickableFromPath, pickMostRevealingTile } from '../src/solver/solver-player.js';
 import { decodeFromString, getCanonicalTileOrder } from '../src/replay-serializer.js';
 import { loadTerrainFromFile, getAllTiles, LogLevel, setLogLevel } from '../src/index.js';
 import { mulberry32 } from '../src/random-utils.js';

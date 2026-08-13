@@ -200,14 +200,22 @@ v4 格式二进制 → Raw Deflate(RFC 1951) → Base64。可直接用于 Unity 
 
 ### 辅助机制
 
-这四项是优化层——它们的存在让算法结果更好，但算法不依赖它们也能运行：
+这几项是优化层——它们的存在让算法结果更好，但算法不依赖它们也能运行：
 
 | 机制 | 作用 |
 |------|------|
-| **池化** | 连续同 cost 步骤在同一快照下互选，避免 collectedIds 膨胀导致"同伴互杀" |
+| **池化（历史机制，已移除）** | 早期版本含"连续同 cost 步骤在同一快照下互选"的多选分支，但池构造始终为 count=1 使其不可达；为避免文档与实现不一致，该分支已删除，当前为每步独立快照贪心 |
 | **抢救** | 候选耗光时从黑名单尾部找回最近被封的 triple |
 | **花色选择** | 选违规最少的花色，平局时优先选已分配较少的花色保持均衡 |
 | **排序稳定性** | 同等 cost 候选的相对顺序（C# 不稳定 / JS 稳定，跨平台已知差异） |
+
+### 已知局限
+
+CostLadder 建立在"贪心路径 = 最优解路径"的前提上。DFS 求解器验证表明
+该前提并不成立：贪心判定"无解"的关卡，真实最优路径往往可解。因此
+CostLadder 精确控制的是**贪心模拟**的 cost 链，而非真实玩家体验——
+可解性与难度验证应使用 `src/solver/` 的 DFS 与玩家模拟，详见
+[docs/project-journey.md](./docs/project-journey.md) 第四节。
 
 ---
 
@@ -217,23 +225,29 @@ v4 格式二进制 → Raw Deflate(RFC 1951) → Base64。可直接用于 Unity 
 reversegen/
 ├── src/                      # 核心库
 │   ├── reverse-gen.ts        # ★ CostLadder 生成算法
-│   ├── layer-closure-gen.ts  # ★ LayerClosure 生成算法
+│   ├── layer-closure-gen.ts  # ★ LayerClosure 编排入口（实现拆在 layer-closure/）
+│   ├── layer-closure/        #   LayerClosure 配额/矩阵/贴色/指标模块
 │   ├── tile-explorer/        # ★ Tile Explorer 策略、.NET RNG、view_layers
 │   ├── zen-match/            # ★ Zen Match 策略 4/5
+│   ├── types.ts              # 类型聚合入口（领域类型拆在 types/）
+│   ├── types/                #   地形 / Triple / 牌局 / LayerClosure 领域类型
+│   ├── constants.ts          # 全局常量（Dock 槽位等）
 │   ├── replay-serializer.ts  # ReplayCode 编解码
 │   ├── cost-generator.ts     # Cost 数组随机生成器
 │   ├── dependency-graph.ts   # BFS 传递依赖闭包
 │   ├── triple-builder.ts     # 三牌组合枚举
 │   ├── greedy-sim.ts         # 贪心模拟验证
 │   ├── terrain-loader.ts     # 地形加载
-│   ├── solver/               # 游戏引擎 + DFS/贪心/随机求解器
+│   ├── strategy/             # 批量生产策略 v2 流水线
+│   ├── solver/               # 游戏引擎 + 统一玩家引擎 + DFS/贪心/随机求解器
 │   └── ...
 ├── tools/                    # 分析工具
 │   ├── dag/                  # DAG 分析（色组/增强/Triple）
 │   └── planning/             # 消除规划
 ├── cli/generate.ts           # CLI 工具
 ├── gui/
-│   ├── server.ts             # HTTP 服务器
+│   ├── server.ts             # HTTP 服务骨架（路由分发）
+│   ├── lib/                  #   按域拆分的 API 模块（生成/分析/模拟/分档/批量/策略）
 │   ├── index.html            # 牌局生成器页面
 │   └── analysis.html         # DAG 分析页面（4 种图）
 ├── test/                     # 29 个测试

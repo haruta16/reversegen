@@ -8,16 +8,17 @@
  *
  * mistakeRate 作为入参，范围 0.0 ~ 1.0。
  *
- * 共享 MatchGroup 分析、可见性判断、路径计算等核心逻辑（复用 solver-player.ts）。
+ * 共享 MatchGroup 分析、可见性判断、路径计算、随机选牌与指标统计
+ * 核心逻辑（复用 solver-player.ts 唯一基础引擎）。
  */
 
 import { OfflineGame } from './offline-game.js';
-import { OfflineTile } from './types.js';
 import { mulberry32 } from '../random-utils.js';
 import {
+  chooseStrategicTile,
   computeVisibleMatchGroups,
-  pickClickableFromPath,
-  pickMostRevealingTile,
+  hasCompletableVisibleColor,
+  pickRandomClickable,
   type PlayerSimResult,
   type PlayerSimBatchResult,
 } from './solver-player.js';
@@ -25,36 +26,6 @@ import {
 // ═══════════════════════════════════════════════════════════
 //  失误策略
 // ═══════════════════════════════════════════════════════════
-
-/**
- * 在可点击牌中随机选一张（失误时的行为）。
- */
-function pickRandomClickable(game: OfflineGame, rng: () => number): OfflineTile | null {
-  const clickable = game.deskTiles.filter(t => t.isClickable);
-  if (clickable.length === 0) return null;
-  return clickable[Math.floor(rng() * clickable.length)];
-}
-
-/**
- * 标准玩家策略（与 solver-player.ts 的 selectTile 逻辑一致）。
- */
-function selectTileStrategic(game: OfflineGame, rng: () => number): OfflineTile | null {
-  const visibleGroups = computeVisibleMatchGroups(game);
-  const dockRemain = game.remainSlotCount;
-  const safeGroups = visibleGroups.filter(g => g.totalCost <= dockRemain);
-
-  if (safeGroups.length > 0) {
-    const chosen = safeGroups[Math.floor(rng() * safeGroups.length)];
-    const tile = pickClickableFromPath(chosen, game);
-    if (tile) return tile;
-    for (const g of safeGroups) {
-      const t = pickClickableFromPath(g, game);
-      if (t) return t;
-    }
-  }
-
-  return pickMostRevealingTile(game, rng);
-}
 
 /**
  * 带失误概率的选牌。
@@ -65,13 +36,15 @@ function selectTile(
   game: OfflineGame,
   rng: () => number,
   mistakeRate: number,
-): OfflineTile | null {
+): number | null {
   // ★ 失误判定：rng() < mistakeRate → 随机选
   if (rng() < mistakeRate) {
-    return pickRandomClickable(game, rng);
+    const tile = pickRandomClickable(game, rng);
+    return tile?.id ?? null;
   }
 
-  return selectTileStrategic(game, rng);
+  const { tile } = chooseStrategicTile(game, rng);
+  return tile?.id ?? null;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -92,6 +65,9 @@ interface MistakeRunSummary {
   failReason: string | null;
   stepCount: number;
   picks?: number[];
+  remainingTilesOnFail: number;
+  forcedRandomPickCount: number;
+  colorStarvationCount: number;
 }
 
 function runMistakeSimulation(
@@ -104,27 +80,62 @@ function runMistakeSimulation(
   const g = game.clone();
   const picks = collectTrace ? [] as number[] : undefined;
   const rng = mulberry32(seed);
+  let forcedRandomPickCount = 0;
+  let colorStarvationCount = 0;
 
   for (let step = 0; step < maxSteps; step++) {
     if (g.isWin) break;
-    if (g.isDead) return { win: false, failReason: `Dock full at step ${step}`, stepCount: step, picks };
+    if (g.isDead) {
+      return {
+        win: false,
+        failReason: `Dock full at step ${step}`,
+        stepCount: step,
+        picks,
+        remainingTilesOnFail: g.deskTiles.length,
+        forcedRandomPickCount,
+        colorStarvationCount,
+      };
+    }
 
-    const tile = selectTile(g, rng, config.mistakeRate);
-    if (!tile) return { win: false, failReason: `No clickable tiles at step ${step}`, stepCount: step, picks };
+    // color starvation: dock+clickable 中是否有颜色 ≥3 张
+    if (!hasCompletableVisibleColor(g)) colorStarvationCount++;
 
-    g.collect(tile);
-    picks?.push(tile.id);
+    // detect forced-random-pick: safeGroups=0 走 fallback
+    const visibleGroups = computeVisibleMatchGroups(g);
+    const dockRemain = g.remainSlotCount;
+    const safeGroups = visibleGroups.filter(mg => mg.totalCost <= dockRemain);
+
+    const tileId = selectTile(g, rng, config.mistakeRate);
+    if (tileId === null) {
+      return {
+        win: false,
+        failReason: `No clickable tiles at step ${step}`,
+        stepCount: step,
+        picks,
+        remainingTilesOnFail: g.deskTiles.length,
+        forcedRandomPickCount,
+        colorStarvationCount,
+      };
+    }
+
+    // forced pick: safeGroups=0（与失误是否触发无关）
+    if (safeGroups.length === 0) forcedRandomPickCount++;
+
+    g.collect(g.allTiles.get(tileId)!);
+    picks?.push(tileId);
   }
 
-  const stepCount = picks?.length ?? Math.min(maxSteps, game.deskTiles.length + game.dockTiles.length);
   // Without a trace, count completed actions from the remaining board rather
   // than allocating a picks array. Every action removes one desk tile.
-  const actions = collectTrace ? stepCount : Math.max(0, game.deskTiles.length - g.deskTiles.length);
+  const actions = collectTrace ? (picks?.length ?? 0) : Math.max(0, game.deskTiles.length - g.deskTiles.length);
   return {
     win: g.isWin,
     failReason: g.isWin ? null : (g.isDead ? 'Dock full' : `Max steps (${maxSteps}) reached`),
     stepCount: actions,
     picks,
+    remainingTilesOnFail: g.isWin ? 0 : g.deskTiles.length,
+    forcedRandomPickCount,
+    colorStarvationCount,
   };
 }
 
@@ -160,6 +171,10 @@ export function solvePlayerMistakeBatch(
   const results = collectTrace ? [] as PlayerSimResult[] : undefined;
   let totalWinSteps = 0;
   let totalLossSteps = 0;
+  let totalForcedOnWin = 0;
+  let totalStarveOnWin = 0;
+  let totalForcedOnLoss = 0;
+  let totalStarveOnLoss = 0;
 
   for (let i = 0; i < runs; i++) {
     const result = collectTrace
@@ -171,9 +186,13 @@ export function solvePlayerMistakeBatch(
     if (result.win) {
       wins++;
       totalWinSteps += result.stepCount;
+      totalForcedOnWin += result.forcedRandomPickCount;
+      totalStarveOnWin += result.colorStarvationCount;
     } else {
       losses++;
       totalLossSteps += result.stepCount;
+      totalForcedOnLoss += result.forcedRandomPickCount;
+      totalStarveOnLoss += result.colorStarvationCount;
     }
   }
 
@@ -184,6 +203,11 @@ export function solvePlayerMistakeBatch(
     results,
     avgStepsOnWin: wins > 0 ? totalWinSteps / wins : 0,
     avgStepsOnLoss: losses > 0 ? totalLossSteps / losses : 0,
+    stepsOnLoss: losses > 0 ? totalLossSteps / losses : 0,
+    forcedPickOnWin: wins > 0 ? totalForcedOnWin / wins : 0,
+    starvationOnWin: wins > 0 ? totalStarveOnWin / wins : 0,
+    forcedPickOnLoss: losses > 0 ? totalForcedOnLoss / losses : 0,
+    starvationOnLoss: losses > 0 ? totalStarveOnLoss / losses : 0,
     elapsedMs: performance.now() - startTime,
   };
 }

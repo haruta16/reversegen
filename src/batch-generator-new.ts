@@ -17,13 +17,14 @@ import {
   generateBoardLayerClosure,
   computeDependencyDepth,
 } from './index.js';
-import { solvePlayerMistakeBatch } from './solver/solver-player-mistake-new.js';
+import { solvePlayerMistakeBatch } from './solver/solver-player-mistake.js';
 import { OfflineTile } from './solver/types.js';
 import { OfflineGame } from './solver/offline-game.js';
 import { gradeStrategy2 } from './grader.js';
 import type { TerrainData, TerrainTile } from './types.js';
 import type { SimSnapshot } from './grader.js';
 import { mulberry32 } from './random-utils.js';
+import { MAX_DOCK_SLOTS } from './constants.js';
 
 // ═══════════════════════════════════════════════════════════
 // 类型
@@ -238,7 +239,7 @@ export function generateAndEvaluateOne(
   try {
     const result = generateBoardLayerClosure({
       terrain, closeRates: params.closeRates, colorCount: params.colorCount,
-      dock: 7, spreadParam: params.spreadParam, debtPersistenceWeight: params.debtPersistenceWeight,
+      dock: MAX_DOCK_SLOTS, spreadParam: params.spreadParam, debtPersistenceWeight: params.debtPersistenceWeight,
     });
     const m = result.metrics;
     const offlineTiles = buildOfflineTiles(terrain, result.assignments);
@@ -248,7 +249,7 @@ export function generateAndEvaluateOne(
       const g = new OfflineGame(offlineTiles, terrain.terrainStructures);
       const r = solvePlayerMistakeBatch(g, simRuns, seed + s, { mistakeRate: rate });
       const avgRemainingOnFail = r.losses > 0
-        ? r.results.filter(item => !item.win).reduce((sum, item) => sum + item.remainingTilesOnFail, 0) / r.losses
+        ? (r.results ?? []).filter(item => !item.win).reduce((sum, item) => sum + item.remainingTilesOnFail, 0) / r.losses
         : 0;
       const avgForcedPickCount = simRuns > 0
         ? (r.forcedPickOnWin * r.wins + r.forcedPickOnLoss * r.losses) / simRuns

@@ -8,6 +8,11 @@
  *      则点击能揭露最多被遮挡牌的可点击牌（最高 unlockGain）
  *
  * 跑 N 次（不同种子）统计模拟玩家胜率。
+ *
+ * 本文件是玩家策略模拟的唯一基础引擎。所有玩家画像变体
+ * （失误 / 激进水位线 / 成本上限 / 最短当前态）都复用这里的
+ * MatchGroup 分析、可见性判断、路径计算、随机选牌与指标统计
+ * 辅助函数；变体文件只保留各自的策略差异。
  */
 
 import { OfflineGame } from './offline-game.js';
@@ -35,6 +40,12 @@ export interface PlayerSimResult {
   picks: number[];
   stepCount: number;
   seed: number;
+  /** 失败时桌面剩余牌数（胜局=0） */
+  remainingTilesOnFail: number;
+  /** safeGroups=0 导致强制解锁点击的次数 */
+  forcedRandomPickCount: number;
+  /** dock+clickable 中没有任何颜色 ≥3 张的局面次数（花色饥饿） */
+  colorStarvationCount: number;
 }
 
 /** 批量模拟结果 */
@@ -47,8 +58,20 @@ export interface PlayerSimBatchResult {
    * retained when the caller explicitly asks for a trace.
    */
   results?: PlayerSimResult[];
+  /** 赢局：平均步数 */
   avgStepsOnWin: number;
+  /** 输局：平均步数（与 stepsOnLoss 同值，保留双命名兼容两代调用方） */
   avgStepsOnLoss: number;
+  /** 输局：平均步数 */
+  stepsOnLoss: number;
+  /** 赢局：平均 forced pick 次数 */
+  forcedPickOnWin: number;
+  /** 赢局：平均花色饥饿次数 */
+  starvationOnWin: number;
+  /** 输局：平均 forced pick 次数 */
+  forcedPickOnLoss: number;
+  /** 输局：平均花色饥饿次数 */
+  starvationOnLoss: number;
   elapsedMs: number;
 }
 
@@ -227,13 +250,49 @@ export function pickMostRevealingTile(
 // ═══════════════════════════════════════════════════════════
 
 /**
- * 玩家策略选牌。
+ * 在可点击牌中随机选一张（失误策略的随机行为）。
+ */
+export function pickRandomClickable(
+  game: OfflineGame,
+  rng: () => number,
+): OfflineTile | null {
+  const clickable = game.deskTiles.filter(t => t.isClickable);
+  if (clickable.length === 0) return null;
+  return clickable[Math.floor(rng() * clickable.length)];
+}
+
+/**
+ * 检查 dock + 可点击桌面牌中是否存在 ≥3 张的同花色（凑得齐一组）。
+ * 用于花色饥饿（starvation）指标统计。
+ */
+export function hasCompletableVisibleColor(game: OfflineGame): boolean {
+  const counts = new Map<number, number>();
+  for (const [color, n] of game.getDockCounts()) counts.set(color, n);
+  for (const tile of game.deskTiles) {
+    if (tile.isClickable && tile.elementValue > 0) {
+      counts.set(tile.elementValue, (counts.get(tile.elementValue) ?? 0) + 1);
+    }
+  }
+  for (const n of counts.values()) {
+    if (n >= 3) return true;
+  }
+  return false;
+}
+
+/**
+ * 标准玩家策略选牌。
  *
  * 1. 找所有可见三连组，过滤 cost ≤ dockRemain 的安全组
  * 2. 有安全组 → 随机选一个 → 在它的路径中取一张可点击的牌
  * 3. 无安全组 → 选解锁收益最高的可点击牌
+ *
+ * 返回 hadSafeGroup 供 forced-pick 指标统计（与 safeGroups 是否为空
+ * 严格对应，不额外重算可见组）。
  */
-function selectTile(game: OfflineGame, rng: () => number): OfflineTile | null {
+export function chooseStrategicTile(
+  game: OfflineGame,
+  rng: () => number,
+): { tile: OfflineTile | null; hadSafeGroup: boolean } {
   const visibleGroups = computeVisibleMatchGroups(game);
   const dockRemain = game.remainSlotCount;
 
@@ -244,17 +303,20 @@ function selectTile(game: OfflineGame, rng: () => number): OfflineTile | null {
     // 从安全组中随机选一个
     const chosen = safeGroups[Math.floor(rng() * safeGroups.length)];
     const tile = pickClickableFromPath(chosen, game);
-    if (tile) return tile;
+    if (tile) return { tile, hadSafeGroup: true };
     // fallback: 如果路径里没找到 clickable（理论上不应发生），
     // 尝试从所有安全组找
     for (const g of safeGroups) {
       const t = pickClickableFromPath(g, game);
-      if (t) return t;
+      if (t) return { tile: t, hadSafeGroup: true };
     }
   }
 
   // 决策点：没有安全组，选最能揭露的
-  return pickMostRevealingTile(game, rng);
+  return {
+    tile: pickMostRevealingTile(game, rng),
+    hadSafeGroup: safeGroups.length > 0,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -276,6 +338,8 @@ export function solvePlayer(
   const g = game.clone();
   const picks: number[] = [];
   const rng = mulberry32(seed);
+  let forcedRandomPickCount = 0;
+  let colorStarvationCount = 0;
 
   for (let step = 0; step < maxSteps; step++) {
     if (g.isWin) break;
@@ -286,10 +350,16 @@ export function solvePlayer(
         picks,
         stepCount: picks.length,
         seed,
+        remainingTilesOnFail: g.deskTiles.length,
+        forcedRandomPickCount,
+        colorStarvationCount,
       };
     }
 
-    const tile = selectTile(g, rng);
+    // color starvation: dock+clickable 中是否有颜色 ≥3 张
+    if (!hasCompletableVisibleColor(g)) colorStarvationCount++;
+
+    const { tile, hadSafeGroup } = chooseStrategicTile(g, rng);
     if (!tile) {
       return {
         win: false,
@@ -297,8 +367,14 @@ export function solvePlayer(
         picks,
         stepCount: picks.length,
         seed,
+        remainingTilesOnFail: g.deskTiles.length,
+        forcedRandomPickCount,
+        colorStarvationCount,
       };
     }
+
+    // forced pick: safeGroups=0 走 fallback
+    if (!hadSafeGroup) forcedRandomPickCount++;
 
     g.collect(tile);
     picks.push(tile.id);
@@ -314,6 +390,9 @@ export function solvePlayer(
     picks,
     stepCount: picks.length,
     seed,
+    remainingTilesOnFail: g.isWin ? 0 : g.deskTiles.length,
+    forcedRandomPickCount,
+    colorStarvationCount,
   };
 }
 
@@ -337,6 +416,10 @@ export function solvePlayerBatch(
   const results: PlayerSimResult[] = [];
   let totalWinSteps = 0;
   let totalLossSteps = 0;
+  let totalForcedOnWin = 0;
+  let totalStarveOnWin = 0;
+  let totalForcedOnLoss = 0;
+  let totalStarveOnLoss = 0;
 
   for (let i = 0; i < runs; i++) {
     const result = solvePlayer(game, baseSeed + i, maxSteps);
@@ -344,9 +427,13 @@ export function solvePlayerBatch(
     if (result.win) {
       wins++;
       totalWinSteps += result.stepCount;
+      totalForcedOnWin += result.forcedRandomPickCount;
+      totalStarveOnWin += result.colorStarvationCount;
     } else {
       losses++;
       totalLossSteps += result.stepCount;
+      totalForcedOnLoss += result.forcedRandomPickCount;
+      totalStarveOnLoss += result.colorStarvationCount;
     }
   }
 
@@ -357,6 +444,11 @@ export function solvePlayerBatch(
     results,
     avgStepsOnWin: wins > 0 ? totalWinSteps / wins : 0,
     avgStepsOnLoss: losses > 0 ? totalLossSteps / losses : 0,
+    stepsOnLoss: losses > 0 ? totalLossSteps / losses : 0,
+    forcedPickOnWin: wins > 0 ? totalForcedOnWin / wins : 0,
+    starvationOnWin: wins > 0 ? totalStarveOnWin / wins : 0,
+    forcedPickOnLoss: losses > 0 ? totalForcedOnLoss / losses : 0,
+    starvationOnLoss: losses > 0 ? totalStarveOnLoss / losses : 0,
     elapsedMs: performance.now() - startTime,
   };
 }

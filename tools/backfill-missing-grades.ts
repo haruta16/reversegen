@@ -1302,22 +1302,21 @@ function generateRandomColorCandidate(
       allTiles.filter(tile => depthMap.get(tile.id) === index + 1));
     const tileDepSets = computeTileDepSets(allTiles, tileMap);
     const actualCloseRates = computeCloseRatesFromAssignments(assignments, depthLayers);
-    const metrics = computeMetrics(
+    const metrics = computeMetrics({
       assignments,
-      allTiles,
+      tiles: allTiles,
       depthLayers,
       depthMap,
       tileMap,
       tileDepSets,
-      7,
-      actualColorCount,
+      dock: 7,
+      colorCount: actualColorCount,
       actualCloseRates,
-      0,
-      [],
+      debtPersistenceWeight: 0,
       colorAllocationMode,
       heavyColor,
-      colorTotals,
-    );
+      colorTotalTiles: colorTotals,
+    });
     const replayCode = generateReplayCode(
       getCanonicalTileOrder(allTiles),
       elementValues,

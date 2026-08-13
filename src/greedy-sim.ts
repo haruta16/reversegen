@@ -9,6 +9,7 @@
 
 import type { TerrainTile, Triple } from './types.js';
 import { buildTriples, overlaps, computeCost } from './triple-builder.js';
+import { MAX_DOCK_SLOTS } from './constants.js';
 
 /**
  * 执行纯贪心模拟。
@@ -54,7 +55,7 @@ export function runPureGreedySimulation(
   for (let s = 0; s < steps; s++) {
     // Dock 占用 = 已释放依赖但尚未匹配的牌
     const dockUsed = collectedIds.size - usedIds.size;
-    const remainSlots = dockUsed >= 7 ? 0 : 7 - dockUsed;
+    const remainSlots = dockUsed >= MAX_DOCK_SLOTS ? 0 : MAX_DOCK_SLOTS - dockUsed;
 
     let best: Triple | null = null;
     let bestCost = Infinity;
