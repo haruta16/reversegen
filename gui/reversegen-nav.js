@@ -3,7 +3,7 @@
  *
  * 设计：
  *  - 链接以本脚本位置（gui/）为基准拼绝对 URL，子路径部署（APP_BASE_PATH）下同样可用
- *  - 插入到 nav.topbar 的 .spacer 之前（右侧排列），主题选择器仍在其右侧
+ *  - 插入到 nav.topbar 的 .spacer 之后（右侧排列），与历史布局一致
  *  - 各页面只需保留 <nav class="topbar"> 中的品牌与页内专属控件，不再手写链接
  */
 (function(){
@@ -39,7 +39,7 @@
       box.appendChild(a);
     });
     var spacer=nav.querySelector('.spacer');
-    if(spacer)nav.insertBefore(box,spacer);
+    if(spacer)spacer.insertAdjacentElement('afterend',box);
     else nav.appendChild(box);
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);
