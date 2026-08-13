@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ReverseGen · 牌局生成器</title>
 <script src="reversegen-theme.js"></script>
+<script src="reversegen-nav.js"></script>
 <link rel="stylesheet" href="reversegen-theme.css">
 <style>
 /* ═══════════════════════════════════════════════
@@ -305,6 +306,7 @@ kbd{
   background:var(--ink);border:1px solid var(--line);border-radius:3px;color:var(--dim);
 }
 .generator-surface .topbar>a{display:none}
+.generator-surface .topnav-links{display:none}
 </style>
 </head>
 <body>
@@ -326,10 +328,7 @@ kbd{
   </div>
   <span class="level-quick" id="levelBadge"></span>
   <div class="spacer"></div>
-  <a href="challenge-expectation">挑战期望</a>
-  <a href="analysis.html">Triple 分析</a>
-  <a href="batch-generate.html">批量产关</a>
-  <a href="generation-strategies.html">产出策略</a>
+  <!-- 导航由 reversegen-nav.js 统一注入 -->
 </nav>
 
 <div id="toast"></div>
@@ -362,7 +361,7 @@ kbd{
       <!-- 特殊机制（所有算法通用，可空） -->
       <div style="margin-top:8px">
         <label>特殊机制 <button type="button" class="param-help" data-param-help="mechanics" aria-label="解释特殊机制">?</button></label>
-        <input type="text" id="mechanics" placeholder="如 31:3,39:2（可空）" oninput="validateParams()">
+        <input type="text" id="mechanics" placeholder="如 31:3,39:2（可空）" oninput="validateMechanicsInput()">
         <div class="msg" id="mechanicsNote"></div>
       </div>
 
@@ -718,7 +717,19 @@ var S={
   sims:[],
   algo:'closure',
   selectionPassrate:0,
+  mechanicCatalog:null,
 };
+
+// ── 请求竞态控制：新请求开始时中止旧请求（切换算法/重新生成不会旧响应覆盖新结果） ──
+var _activeAbort=null;
+function beginRequest(){
+  if(_activeAbort)_activeAbort.abort();
+  var c=new AbortController();
+  _activeAbort=c;
+  return c;
+}
+function endRequest(c){if(_activeAbort===c)_activeAbort=null}
+var SIM_HISTORY_CAP=20;
 
 // ═══════════════════════════════════
 //  Palette
@@ -841,6 +852,11 @@ window.addEventListener('scroll',closeParamHelp,true);
 //  Toast
 // ═══════════════════════════════════
 var _toastId;
+function setMsg(el,text,kind){
+  if(!el)return;
+  el.textContent=text||'';
+  el.className='msg'+(kind?' msg-'+kind:'');
+}
 function toast(m,t){
   var el=document.getElementById('toast');
   el.textContent=m;el.className=t||'';
@@ -1035,6 +1051,8 @@ async function loadLevel(source){
     if(d.depthCount)updateCloseRateSliders(d);
     updateClosurePresets(d);
     validateParams();
+    validateMechanicsInput();
+    saveParams();
     toast('地形加载完成 · '+d.freeTiles+'自由牌 · '+d.steps+'步');
     return true;
   }catch(e){toast(e.message,'err');return false}
@@ -1296,27 +1314,43 @@ function decodeBase64Url(text){
   return new TextDecoder().decode(bytes);
 }
 
+// ── 机制参数段（M=31x3,39x2，单段无冒号歧义；往返不丢机制配置） ──
+function mechanicsToParamSegment(text){
+  var t=String(text||'').trim();
+  return t?('M='+t.replace(/：/g,':').replace(/:/g,'x')):'';
+}
+function mechanicsFromParamSegment(seg){
+  var t=String(seg||'').trim();
+  if(t.indexOf('M=')!==0)return null;
+  var v=t.slice(2).replace(/x/g,':');
+  return v||'';
+}
+function appendMechanicsSegment(base,params){
+  var seg=mechanicsToParamSegment(params.mechanics);
+  return seg?(base+':'+seg):base;
+}
+
 function encodeGenerationParamString(params){
   function pct(value){
     var n=parseFloat(value);
     return Number.isFinite(n)?String(parseFloat((n*100).toFixed(2))):'';
   }
   if(params.algorithm==='cost-ladder'){
-    return[
+    return appendMechanicsSegment([
       String(params.costArray||''),
       String(params.colorCount||''),
       String(params.targetStd||''),
       String(params.levelId||''),
-    ].join(':');
+    ].join(':'),params);
   }
   if(params.algorithm==='zen-match'){
-    return[
+    return appendMechanicsSegment([
       'Zen',
       String(params.colorCount||''),
       String(params.zenStrategy||''),
       String(params.seed||''),
       String(params.levelId||''),
-    ].join(':');
+    ].join(':'),params);
   }
   if(params.algorithm==='tile-explorer'){
     var bytes=new TextEncoder().encode(JSON.stringify(params)),binary='';
@@ -1325,7 +1359,7 @@ function encodeGenerationParamString(params){
   }
   var closeRates=readParamCloseRates(params.closeRates).map(pct);
   if(!closeRates.length||Number(closeRates[closeRates.length-1])!==100)closeRates.push('100');
-  return[
+  return appendMechanicsSegment([
     closeRates.join(','),
     String(params.colorCount||''),
     String(params.dock||''),
@@ -1334,12 +1368,16 @@ function encodeGenerationParamString(params){
     params.colorAllocationMode==='single-heavy'?'1':'0',
     pct(params.colorAllocationMaxRatio),
     String(params.levelId||''),
-  ].join(':');
+  ].join(':'),params);
 }
 
 function decodePositionalGenerationParamString(raw){
   var current=collectGenerationParams();
   var parts=raw.replace(/：/g,':').split(':').map(function(part){return part.trim()});
+  // 剥离尾部机制段（M=31x3,39x2），其余段数与旧格式保持一致
+  var mechanicsText=null;
+  var last=parts[parts.length-1];
+  if(last&&last.indexOf('M=')===0){mechanicsText=mechanicsFromParamSegment(last);parts.pop()}
   if(parts.length===9&&parts[8]==='')parts.pop();
   var params;
   if(parts.length===5&&/^zen(?:match)?$/i.test(parts[0])){
@@ -1362,6 +1400,8 @@ function decodePositionalGenerationParamString(raw){
       costArray:parts[0],targetStd:parts[2],
     };
   }else throw new Error('参数数量无效：闭合算法需要 8 段，Cost 算法需要 4 段，Zen 算法格式为 Zen:花色:策略:seed:关卡');
+  // 参数串是唯一真相源：无机制段 = 明确清空机制配置
+  params.mechanics=mechanicsText||'';
   if(current.levelsDir)params.levelsDir=current.levelsDir;
   return params;
 }
@@ -1389,6 +1429,7 @@ function decodeReadableGenerationParamString(raw){
     colorCount:Object.prototype.hasOwnProperty.call(fields,'花色')?fields['花色']:current.colorCount,
   };
   if(current.levelsDir)params.levelsDir=current.levelsDir;
+  params.mechanics=Object.prototype.hasOwnProperty.call(fields,'机制')?String(fields['机制']).replace(/x/g,':'):'';
   if(isCost){
     params.costArray=fields.Cost;
     params.targetStd=Object.prototype.hasOwnProperty.call(fields,'σ')?fields['σ']:(current.targetStd||'1.0');
@@ -1501,18 +1542,60 @@ async function copyGenerationParams(){
   if(await copyTextWithFallback(text,field)==='copied')copied();
 }
 
-var GENERATION_PARAM_INPUTS='#levelId,#levelsDir,#dock,#colorCount,#colorAllocation,#heavyColorMaxRatio,#spreadParam,#debtPersistence,#targetStd,#costArray,#closeRateSliders .slider,#panelTileExplorer input,#panelTileExplorer select,#panelTileExplorer textarea,#panelZenMatch input,#panelZenMatch select';
+var GENERATION_PARAM_INPUTS='#levelId,#levelsDir,#dock,#colorCount,#colorAllocation,#heavyColorMaxRatio,#spreadParam,#debtPersistence,#targetStd,#costArray,#closeRateSliders .slider,#panelTileExplorer input,#panelTileExplorer select,#panelTileExplorer textarea,#panelZenMatch input,#panelZenMatch select,#mechanics';
 document.addEventListener('input',function(event){
-  if(event.target&&event.target.matches&&event.target.matches(GENERATION_PARAM_INPUTS))updateGenerationParamSummary();
+  if(event.target&&event.target.matches&&event.target.matches(GENERATION_PARAM_INPUTS)){updateGenerationParamSummary();saveParamsDebounced()}
 });
 document.addEventListener('change',function(event){
-  if(event.target&&event.target.matches&&event.target.matches(GENERATION_PARAM_INPUTS))updateGenerationParamSummary();
+  if(event.target&&event.target.matches&&event.target.matches(GENERATION_PARAM_INPUTS)){updateGenerationParamSummary();saveParamsDebounced()}
 });
+
+// ═══════════════════════════════════════
+//  参数持久化（localStorage）：刷新不丢参数/算法/地形
+// ═══════════════════════════════════════
+var PARAM_STORAGE_KEY='reversegen-params-v1';
+var PARAM_PERSIST_INPUTS=GENERATION_PARAM_INPUTS;
+var _saveTimer=null;
+function saveParamsDebounced(){
+  clearTimeout(_saveTimer);
+  _saveTimer=setTimeout(saveParams,250);
+}
+function saveParams(){
+  try{
+    var values={};
+    PARAM_PERSIST_INPUTS.split(',').forEach(function(sel){
+      var el=document.querySelector(sel);
+      if(el)values[sel]=el.value;
+    });
+    localStorage.setItem(PARAM_STORAGE_KEY,JSON.stringify({
+      algo:S.algo,
+      values:values,
+      terrainPath:S.terrainPath||'',
+    }));
+  }catch(e){}
+}
+function restoreParams(){
+  try{
+    var raw=localStorage.getItem(PARAM_STORAGE_KEY);
+    if(!raw)return;
+    var data=JSON.parse(raw);
+    if(!data||typeof data!=='object'||!data.values)return;
+    Object.keys(data.values).forEach(function(sel){
+      var el=document.querySelector(sel);
+      if(el)el.value=data.values[sel];
+    });
+    if(data.algo)switchAlgo(data.algo);
+    if(data.terrainPath){
+      loadLevel({terrainPath:data.terrainPath});
+    }
+  }catch(e){}
+}
 
 // ═══════════════════════════════════
 //  Algorithm switch
 // ═══════════════════════════════════
 function switchAlgo(algo){
+  if(_activeAbort)_activeAbort.abort();
   S.algo=algo;
   document.querySelectorAll('#algoTabs .tab').forEach(function(t){t.classList.toggle('active',t.dataset.algo===algo)});
   document.getElementById('panelCost').style.display=algo==='cost-ladder'?'':'none';
@@ -1521,6 +1604,7 @@ function switchAlgo(algo){
   document.getElementById('panelZenMatch').style.display=algo==='zen-match'?'':'none';
   validateParams();
   updateGenerationParamSummary();
+  saveParamsDebounced();
 }
 
 // ═══════════════════════════════════
@@ -1538,6 +1622,43 @@ function validateParams(){
 }
 document.getElementById('costArray').addEventListener('input',validateParams);
 
+// ═══════════════════════════════════════
+//  特殊机制输入校验（枚举来自 /api/mechanics 注册表，联动地形摆放提示）
+// ═══════════════════════════════════════
+function findMechanic(key){
+  if(!S.mechanicCatalog)return null;
+  return S.mechanicCatalog.find(function(m){return String(m.value)===key||m.name===key||m.label===key})||null;
+}
+function validateMechanicsInput(){
+  var el=document.getElementById('mechanicsNote');
+  var text=document.getElementById('mechanics').value.trim();
+  if(!text){setMsg(el,'');return}
+  var errors=[],counts={};
+  text.split(',').forEach(function(piece){
+    var item=piece.trim();if(!item)return;
+    var sep=item.lastIndexOf(':');
+    if(sep<=0){errors.push('"'+item+'" 缺少数量（应为 枚举:数量）');return}
+    var key=item.slice(0,sep).trim(),val=item.slice(sep+1).trim();
+    if(!/^\d+$/.test(val)){errors.push('"'+item+'" 数量需为整数');return}
+    var m=findMechanic(key);
+    if(!m)errors.push('未知机制 "'+key+'"');
+    else counts[m.value]=(counts[m.value]||0)+Number(val);
+  });
+  if(errors.length){setMsg(el,errors.join('；'),'err');return}
+  var hints=[];
+  var terrainCounts={};
+  ((S.level&&S.level.extras)||[]).forEach(function(e){terrainCounts[e.extraEnum]=e.count});
+  Object.keys(counts).forEach(function(v){
+    var m=findMechanic(v);
+    if(!m)return;
+    if(m.countMeaning==='tile-count'&&terrainCounts[v]!==undefined&&terrainCounts[v]!==counts[v]){
+      hints.push(m.label+' 地形摆放 '+terrainCounts[v]+' 个');
+    }
+  });
+  if(hints.length)setMsg(el,hints.join('；')+'（注入数量需与地形一致）','warn');
+  else setMsg(el,'✓ '+Object.keys(counts).length+' 种机制','ok');
+}
+
 // ═══════════════════════════════════
 //  Generate
 // ═══════════════════════════════════
@@ -1547,18 +1668,18 @@ async function generate(){
   var body=collectGenerationParams();
   var compatibility=inspectTerrainCompatibility(body,S.level);
   if(compatibility.error){
-    document.getElementById('genErr').textContent=compatibility.error;
-    document.getElementById('genErr').className='msg msg-err';
+    setMsg(document.getElementById('genErr'),compatibility.error,'err');
     toast('地形无法满足参数','err');
     return;
   }
-  document.getElementById('genErr').textContent='';document.getElementById('genErr').className='msg';
+  setMsg(document.getElementById('genErr'),'');
 
   btn.innerHTML='<span class="spinner"></span> 生成中...';btn.disabled=true;
+  var ctrl=beginRequest();
   try{
-    var r=await appFetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var r=await appFetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:ctrl.signal});
     var d=await r.json();
-    if(!d.ok){document.getElementById('genErr').textContent=d.error;return}
+    if(!d.ok){setMsg(document.getElementById('genErr'),d.error,'err');return}
     S.result=d;S.sims=[];
     resetReplaySelection();
     document.getElementById('simHistory').innerHTML='';
@@ -1567,8 +1688,8 @@ async function generate(){
     showResult(d);showVerify(d);
     toast('牌局生成成功','ok');
     document.getElementById('resultCard').scrollIntoView({behavior:'smooth',block:'start'});
-  }catch(e){document.getElementById('genErr').textContent=e.message}
-  finally{btn.innerHTML='⚡ 生成牌局 <kbd>⌘↵</kbd>';btn.disabled=false}
+  }catch(e){if(e.name!=='AbortError')setMsg(document.getElementById('genErr'),e.message,'err')}
+  finally{endRequest(ctrl);btn.innerHTML='⚡ 生成牌局 <kbd>⌘↵</kbd>';btn.disabled=false}
 }
 
 // ═══════════════════════════════════
@@ -1838,15 +1959,15 @@ function showVerify(d){
 async function decodeCode(){
   var code=document.getElementById('decodeInput').value.trim();
   var out=document.getElementById('decodeOut');
-  if(!code){out.textContent='';return}
-  out.textContent='解码中...';out.className='msg';
+  if(!code){setMsg(out,'');return}
+  setMsg(out,'解码中...');
   try{
     // 1. 解码 replay code
     var r=await appFetch('/api/decode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({replayCode:code})});
     var d=await r.json();
-    if(!d.ok){out.textContent=d.error;out.className='msg msg-err';return}
+    if(!d.ok){setMsg(out,d.error,'err');return}
 
-    out.textContent='v'+d.version+' · '+d.tileCount+'张 · '+d.elementCount+'花色 · Dock×'+d.dockEntries.length;out.className='msg msg-ok';
+    setMsg(out,'v'+d.version+' · '+d.tileCount+'张 · '+d.elementCount+'花色 · Dock×'+d.dockEntries.length,'ok');
 
     // 2. 拉取闭合率指标（完整 DebtMetrics，与生成时 showClosure 所需字段一致）
     var m=null;
@@ -2042,7 +2163,8 @@ async function applyGenerationParamString(code,out){
     document.getElementById('costArray').value=String(params.costArray||'').trim();
   }
   switchAlgo(params.algorithm);
-  validateParams();updateGenerationParamSummary();
+  if(Object.prototype.hasOwnProperty.call(params,'mechanics'))document.getElementById('mechanics').value=String(params.mechanics||'');
+  validateParams();validateMechanicsInput();updateGenerationParamSummary();
   out.textContent='已进入生成参数 · 关卡#'+requestedLevelId+(useCurrentTerrain?' · 使用当前地形':'');out.className='msg msg-ok';
   toast('参数串解析完成','ok');
   return true;
@@ -2162,32 +2284,34 @@ function drawDecodeClosureChart(m){
 async function verifyDFS(){
   var d=S.result;if(!d){toast('请先生成或导入牌局','err');return}
   var btn=document.getElementById('btnDFS'),out=document.getElementById('dfsResult');
-  btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;out.textContent='';out.className='msg';
+  btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;setMsg(out,'');
+  var ctrl=beginRequest();
   try{
     var timeout=parseInt(document.getElementById('dfsTimeout').value)||90;
     var r=await appFetch('/api/dfs-verify',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({replayCode:d.replayCode,levelId:document.getElementById('levelId').value,terrainPath:S.terrainPath,timeout:timeout})});
+      body:JSON.stringify({replayCode:d.replayCode,levelId:document.getElementById('levelId').value,terrainPath:S.terrainPath,timeout:timeout}),signal:ctrl.signal});
     var v=await r.json();
-    if(!v.ok){out.textContent=v.error;out.className='msg msg-err';return}
+    if(!v.ok){setMsg(out,v.error,'err');return}
     var cls=v.solvable?'msg-ok':'msg-err',txt=v.solvable?'✓ 有解':'✗ 无解';
     if(!v.solvable&&v.failReason)txt+=' ('+v.failReason+')';
     out.innerHTML='<span><b>'+txt+'</b></span> · '+v.statesVisited+'状态 · '+(v.elapsedMs/1000).toFixed(1)+'s';
     out.className='msg '+cls;
     toast(v.solvable?'DFS 验证通过':'该牌局无解！',v.solvable?'ok':'err');
-  }catch(e){out.textContent=e.message;out.className='msg msg-err'}
-  finally{btn.innerHTML='DFS 精确求解';btn.disabled=false}
+  }catch(e){if(e.name!=='AbortError')setMsg(out,e.message,'err')}
+  finally{endRequest(ctrl);btn.innerHTML='DFS 精确求解';btn.disabled=false}
 }
 
 async function verifyRevive(){
   var d=S.result;if(!d){toast('请先生成或导入牌局','err');return}
   var btn=document.getElementById('btnRevive'),out=document.getElementById('reviveResult');
-  btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;out.textContent='';out.className='msg';
+  btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;setMsg(out,'');
+  var ctrl=beginRequest();
   try{
     var timeout=parseInt(document.getElementById('dfsTimeout2').value)||90;
     var r=await appFetch('/api/dfs-verify',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({replayCode:d.replayCode,levelId:document.getElementById('levelId').value,terrainPath:S.terrainPath,timeout:timeout,mode:'revive',maxReviveSearch:20})});
     var v=await r.json();
-    if(!v.ok){out.textContent=v.error;out.className='msg msg-err';return}
+    if(!v.ok){setMsg(out,v.error,'err');return}
     if(v.solvable){
       var cls=v.minRevives===0?'msg-ok':'msg-warn',txt=v.minRevives===0?'✓ 无需复活':'最少需 <b>'+v.minRevives+'</b> 次复活';
       var html='<span><b>'+txt+'</b></span>';
@@ -2199,8 +2323,8 @@ async function verifyRevive(){
       html+=' · '+v.stepCount+'步 · '+v.statesVisited+'状态 · '+(v.elapsedMs/1000).toFixed(1)+'s';
       out.innerHTML=html;out.className='msg '+cls;
     }else{out.innerHTML='<b>✗ 无解</b> ('+v.failReason+') · '+v.statesVisited+'状态 · '+(v.elapsedMs/1000).toFixed(1)+'s';out.className='msg msg-err'}
-  }catch(e){out.textContent=e.message;out.className='msg msg-err'}
-  finally{btn.innerHTML='死亡卡点分析';btn.disabled=false}
+  }catch(e){if(e.name!=='AbortError')setMsg(out,e.message,'err')}
+  finally{endRequest(ctrl);btn.innerHTML='死亡卡点分析';btn.disabled=false}
 }
 
 // ═══════════════════════════════════
@@ -2228,11 +2352,12 @@ async function runSim(){
   else if(strategy==='mistake'){endpoint='/api/player-sim-mistake';body.mistakeRate=parseFloat(document.getElementById('simMistakeRate').value);if(isNaN(body.mistakeRate)||body.mistakeRate<0||body.mistakeRate>1){out.innerHTML='<span style="color:var(--bad)">失误率 0~1</span>';return}params.mistakeRate=body.mistakeRate}
   else{endpoint='/api/player-sim'}
 
-  btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;out.textContent='';out.className='msg';
+  btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;setMsg(out,'');
+  var ctrl=beginRequest();
   try{
-    var r=await appFetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var r=await appFetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:ctrl.signal});
     var v=await r.json();
-    if(!v.ok){out.textContent=v.error;out.className='msg msg-err';return}
+    if(!v.ok){setMsg(out,v.error,'err');return}
     var pct=(v.winRate*100).toFixed(1);
     var cls=pct>=80?'msg-ok':pct>=40?'msg-warn':'msg-err';
     var html='<b style="font-size:14px;font-family:var(--mono)">'+pct+'%</b> 胜率';
@@ -2265,11 +2390,13 @@ async function runSim(){
     out.innerHTML=html;out.className='msg '+cls;
 
     params.winRate=v.winRate;params.wins=v.wins;params.losses=v.runs-v.wins;params.avgSteps=v.avgStepsOnWin;params.elapsedMs=v.elapsedMs;
-    S.sims.unshift(params);renderSimHistory();
+    S.sims.unshift(params);
+    if(S.sims.length>SIM_HISTORY_CAP)S.sims.length=SIM_HISTORY_CAP;
+    renderSimHistory();
     var lm={normal:'普通',shortest:'短视最优',risky:'激进',costcap:'成本上限',mistake:'失误'};
     toast(lm[strategy]+'模拟完成: '+pct+'%','ok');
-  }catch(e){out.textContent=e.message;out.className='msg msg-err'}
-  finally{btn.innerHTML='▶ 运行';btn.disabled=false}
+  }catch(e){if(e.name!=='AbortError')setMsg(out,e.message,'err')}
+  finally{endRequest(ctrl);btn.innerHTML='▶ 运行';btn.disabled=false}
 }
 
 // ═══════════════════════════════════
@@ -2298,14 +2425,15 @@ async function runGrade(){
   var body={replayCode:d.replayCode,levelId:document.getElementById('levelId').value,terrainPath:S.terrainPath,runs:runs,strategy:strategy};
   if(target>=0)body.targetGrade=target;
 
-  btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;out.textContent='';out.className='msg';
+  btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;setMsg(out,'');
+  var ctrl=beginRequest();
   try{
-    var r=await appFetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    var r=await appFetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:ctrl.signal});
     var v=await r.json();
-    if(!v.ok){out.textContent=v.error;out.className='msg msg-err';return}
+    if(!v.ok){setMsg(out,v.error,'err');return}
     renderGradeResult(v,out);
-  }catch(e){out.textContent=e.message;out.className='msg msg-err'}
-  finally{btn.innerHTML='▶ 一键分档';btn.disabled=false}
+  }catch(e){if(e.name!=='AbortError')setMsg(out,e.message,'err')}
+  finally{endRequest(ctrl);btn.innerHTML='▶ 一键分档';btn.disabled=false}
 }
 
 function renderGradeResult(v,out){
@@ -2646,9 +2774,14 @@ document.addEventListener('keydown',function(e){
 // ═══════════════════════════════════
 //  Init
 // ═══════════════════════════════════
+appFetch('/api/mechanics')
+  .then(function(response){return response.json()})
+  .then(function(v){if(v&&v.ok)S.mechanicCatalog=v.mechanics})
+  .catch(function(){});
 switchSimStrategy();
 updateTeStrategy();
 updateGenerationParamSummary();
+restoreParams();
 initDefaultLevelsDir();
 </script>
 </body>

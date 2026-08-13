@@ -373,6 +373,7 @@ export {
   GIFTBOX_EFFECT_WEIGHTS,
   REVEAL_EXTRAS,
   DECAY_EXTRAS,
+  MECHANIC_SEED_SALTS,
 } from './mechanics/registry.js';
 export type { MechanicInfo, MechanicKind, MechanicParamSchema, MechanicBehavior } from './mechanics/registry.js';
 export {

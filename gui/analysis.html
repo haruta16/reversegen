@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Triple 关系分析器 · ReverseGen</title>
 <script src="/reversegen-theme.js"></script>
+<script src="/reversegen-nav.js"></script>
 <link rel="stylesheet" href="/reversegen-theme.css">
 <style>
   /* ═══════════════════════════════════════════════
@@ -154,11 +155,7 @@
   <div class="brand"><span>◈</span>ReverseGen</div>
   <div class="sep"></div>
   <div class="spacer"></div>
-  <a href="/">主页</a>
-  <a href="/challenge-expectation">挑战期望</a>
-  <a href="/analysis.html" class="active">Triple 分析</a>
-  <a href="/batch-generate.html">批量产关</a>
-  <a href="/generation-strategies.html">产出策略</a>
+  <!-- 导航由 reversegen-nav.js 统一注入 -->
 </nav>
 
 <!-- ═══ Header: 三模块 (分析专属) ═══ -->
@@ -305,7 +302,7 @@
 <!-- ═══ Tooltip ═══ -->
 <div id="tooltip"></div>
 
-<script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="/vendor/d3.v7.min.js"></script>
 <script>
 // Helper: read a CSS variable hex and return "r,g,b" string for rgba()
 var _cs=null;

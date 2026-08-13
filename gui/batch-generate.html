@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>批量产关 · ReverseGen</title>
 <script src="/reversegen-theme.js"></script>
+<script src="/reversegen-nav.js"></script>
 <link rel="stylesheet" href="/reversegen-theme.css">
 <style>
 /* ═══════════════════════════════════════════════
@@ -165,11 +166,7 @@ select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%
   <div class="brand"><span>◈</span>ReverseGen</div>
   <div class="sep"></div>
   <div class="spacer"></div>
-  <a href="/">主页</a>
-  <a href="/challenge-expectation">挑战期望</a>
-  <a href="/analysis.html">Triple 分析</a>
-  <a href="/batch-generate.html" class="active">批量产关</a>
-  <a href="/generation-strategies.html">产出策略</a>
+  <!-- 导航由 reversegen-nav.js 统一注入 -->
 </nav>
 <div id="toast"></div>
 
@@ -471,6 +468,7 @@ async function startBatch(){
       toast(d.error,'err');resetUI();return;
     }
     S.jobId=d.jobId;
+    try{sessionStorage.setItem('reversegen-batch-job',S.jobId)}catch(e){}
     document.getElementById('actionMsg').textContent='任务 '+d.jobId+' · '+S.terrains.length+' 个地形';
     document.getElementById('actionMsg').className='msg msg-ok';
     document.getElementById('progressBody').innerHTML='<span style="color:var(--faint)">开始轮询...</span>';
@@ -489,6 +487,7 @@ async function stopBatch(){
     }catch(e){}
   }
   if(S.pollTimer)clearInterval(S.pollTimer);
+  try{sessionStorage.removeItem('reversegen-batch-job')}catch(e){}
   S.running=false;resetUI();
   document.getElementById('progressSpinner').style.display='none';
   document.getElementById('actionMsg').textContent='已停止';
@@ -502,8 +501,15 @@ function resetUI(){
 }
 
 function startPolling(){
+  S.pollSlow=false;S.pollIdleRounds=0;
   S.pollTimer=setInterval(pollProgress,1500);
   pollProgress();
+}
+function rearmPolling(slow){
+  if(S.pollSlow===slow)return;
+  S.pollSlow=slow;
+  if(S.pollTimer)clearInterval(S.pollTimer);
+  S.pollTimer=setInterval(pollProgress,slow?6000:1500);
 }
 
 async function pollProgress(){
@@ -522,8 +528,16 @@ async function pollProgress(){
       document.getElementById('actionMsg').className='msg';
       renderResults(S.allRows);
     }
+    // 轮询退避：连续 4 次无新行 → 6s 慢轮询；有新行 → 恢复 1.5s
+    if(d.totalRows!==S.lastTotalRows){
+      S.lastTotalRows=d.totalRows;S.pollIdleRounds=0;rearmPolling(false);
+    }else{
+      S.pollIdleRounds++;
+      if(S.pollIdleRounds>=4)rearmPolling(true);
+    }
     if(d.status==='done'||d.status==='error'||d.status==='aborted'){
       clearInterval(S.pollTimer);S.pollTimer=null;
+      try{sessionStorage.removeItem('reversegen-batch-job')}catch(e){}
       S.running=false;resetUI();
       document.getElementById('progressSpinner').style.display='none';
       document.getElementById('btnDownload').disabled=false;
@@ -623,6 +637,24 @@ async function downloadCSV(){
 document.addEventListener('keydown',function(e){
   if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();if(!S.running)startBatch()}
 });
+
+// ═══════ 刷新恢复：sessionStorage 中的任务继续轮询 ═══════
+try{
+  var savedJob=sessionStorage.getItem('reversegen-batch-job');
+  if(savedJob){
+    S.jobId=savedJob;S.running=true;S.lastTotalRows=0;
+    document.getElementById('btnStart').disabled=true;
+    document.getElementById('btnStart').innerHTML='<span class="spinner"></span> 运行中...';
+    document.getElementById('btnStop').style.display='';
+    document.getElementById('progressPanel').style.display='';
+    document.getElementById('progressSpinner').style.display='';
+    document.getElementById('resultsPanel').style.display='';
+    document.getElementById('actionMsg').textContent='已恢复任务 '+savedJob;
+    document.getElementById('actionMsg').className='msg';
+    document.getElementById('progressBody').innerHTML='<span style="color:var(--faint)">恢复轮询...</span>';
+    startPolling();
+  }
+}catch(e){}
 </script>
 </body>
 </html>

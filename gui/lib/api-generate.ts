@@ -25,6 +25,8 @@ import {
   parseMechanicCounts,
   countTerrainExtras,
   validateMechanicCounts,
+  MECHANICS,
+  MECHANIC_SEED_SALTS,
 } from '../../src/index.js';
 import type { TerrainTile } from '../../src/index.js';
 import { generateReplayFromExternalInput } from '../../src/external-generation.js';
@@ -38,6 +40,17 @@ import {
   json,
   parseBody,
 } from './runtime.js';
+
+/** 机制注册表（前端校验/帮助文案用）。 */
+export async function handleMechanics(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
+  if (url.pathname !== '/api/mechanics' || req.method !== 'GET') return false;
+  json(res, {
+    ok: true,
+    mechanics: Object.values(MECHANICS),
+    salts: MECHANIC_SEED_SALTS,
+  });
+  return true;
+}
 
 export async function handleExternalGenerateReplay(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
   if (url.pathname !== '/api/v1/generate-replay' || req.method !== 'POST') return false;

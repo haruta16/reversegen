@@ -36,6 +36,7 @@ import {
 } from './lib/runtime.js';
 import {
   handleExternalGenerateReplay,
+  handleMechanics,
   handleLevels,
   handleTerrainUpload,
   handleTerrainInfo,
@@ -165,6 +166,9 @@ const server = createServer(async (req, res) => {
 
   // ── 外部生成接口 ──
   if (await handleExternalGenerateReplay(req, res, url)) return;
+
+  // ── 机制注册表 ──
+  if (await handleMechanics(req, res, url)) return;
 
   // ── 生成策略管理 ──
   if (await handleStrategyMeta(req, res, url)) return;
