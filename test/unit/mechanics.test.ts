@@ -10,10 +10,10 @@ import {
   serializeMechanicCounts,
   countTerrainExtras,
   validateMechanicCounts,
+  splitMechanicConfig,
   formatBoardSpec,
   parseBoardSpec,
 } from '../../src/index.js';
-import type { TerrainTile } from '../../src/index.js';
 
 test('registry 与 Unity ssExtraEnum 数值对齐', () => {
   // 关键机制数值（对应 ssExtraEnum.cs）
@@ -99,20 +99,26 @@ test('地形 extras 解析与汇总（来源 1：tile 里写着的）', () => {
   assert.equal(counts.has(-1), false);
 });
 
-test('两来源一致性校验', () => {
-  const terrainTile = (extraEnum?: number): TerrainTile => ({
-    id: 1, layer: 0, dependencies: [], isConst: true, constElementValue: 1301,
-    posX: 0, posY: 0, extraEnum,
-  });
-  // tile-count 机制：注入与地形摆放一致 → 通过
-  const ok = validateMechanicCounts(parseMechanicCounts('31:3'), countTerrainExtras([terrainTile(31), terrainTile(31), terrainTile(31)]));
-  assert.deepEqual(ok, []);
-  // 不一致 → 报错
-  const mismatch = validateMechanicCounts(parseMechanicCounts('31:5'), countTerrainExtras([terrainTile(31)]));
-  assert.equal(mismatch[0]?.kind, 'count-mismatch');
-  // 泡泡是行为参数，不参与 tile 数量校验
-  const bubbleOk = validateMechanicCounts(parseMechanicCounts('39:0'), new Map());
-  assert.deepEqual(bubbleOk, []);
+test('机制配置校验（对齐 Unity：extraConfig 是分配请求，只校验未知枚举）', () => {
+  // 未知枚举（parse 层已拦文本，这里覆盖直接构造 Map 的路径）→ 错误
+  const bad = validateMechanicCounts(new Map([[999, 1]]));
+  assert.equal(bad.length, 1);
+  assert.equal(bad[0]?.kind, 'unknown-enum');
+  // 数量语义交由分配器解释：负数量/与地形不一致不再报错（202/207 自动数量，其余自然选不到）
+  assert.deepEqual(validateMechanicCounts(parseMechanicCounts('31:3,39:2')), []);
+  assert.deepEqual(validateMechanicCounts(new Map([[31, -1]])), []);
+  assert.deepEqual(validateMechanicCounts(new Map([[31, 5]])), []);
+  assert.deepEqual(validateMechanicCounts(new Map([[39, 0]])), []);
+});
+
+test('机制配置拆分（对齐 Unity LoadLevel：泡泡/大型地形拆出）', () => {
+  const split = splitMechanicConfig(parseMechanicCounts('31:3,39:2,52:1'));
+  assert.deepEqual([...split.assignable.entries()], [[31, 3]]);
+  assert.deepEqual([...split.bubble.entries()], [[39, 2]]);
+  assert.deepEqual([...split.boardSpecial.entries()], [[52, 1]]);
+  // 空配置：全空
+  const empty = splitMechanicConfig(new Map());
+  assert.equal(empty.assignable.size + empty.bubble.size + empty.boardSpecial.size, 0);
 });
 
 test('一关组合表示：ReplayCode@机制（格式不变，机制并列）', () => {

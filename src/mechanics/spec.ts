@@ -11,13 +11,13 @@
  */
 
 import type { TerrainTile } from '../types/terrain.js';
-import { mechanicInfo, isKnownMechanic, MECHANICS } from './registry.js';
+import { isKnownMechanic, MECHANICS } from './registry.js';
 
 /** 机制枚举 → 数量/参数 映射（与 Unity extraConfig 同构）。 */
 export type MechanicCounts = Map<number, number>;
 
 export interface MechanicSpecError {
-  kind: 'unknown-enum' | 'negative-count' | 'count-mismatch' | 'format';
+  kind: 'unknown-enum';
   message: string;
 }
 
@@ -80,37 +80,40 @@ export function countTerrainExtras(tiles: TerrainTile[]): MechanicCounts {
 }
 
 /**
- * 校验注入机制配置与地形摆放的一致性。
- * - 未知枚举 / 负数量 → 错误
- * - tile-count 语义的机制：注入数量与地形摆放数量不一致 → 错误
- *   （泡泡 39 为 behavior-config 语义，不参与此校验）
+ * 校验注入机制配置（对齐 Unity：extraConfig 是"分配请求"，数量语义交由分配器解释）。
+ * 仅校验未知枚举；负数量/与地形摆放不一致不再报错——202/207 支持自动数量（0/负数），
+ * 其余机制数量 <= 0 时自然选不到任何 tile（与 Unity ParseConfig 行为一致）。
  */
-export function validateMechanicCounts(
-  injected: MechanicCounts,
-  terrainCounts?: MechanicCounts,
-): MechanicSpecError[] {
+export function validateMechanicCounts(injected: MechanicCounts): MechanicSpecError[] {
   const errors: MechanicSpecError[] = [];
-  for (const [value, count] of injected) {
+  for (const [value] of injected) {
     if (!isKnownMechanic(value)) {
       errors.push({ kind: 'unknown-enum', message: `未知机制枚举: ${value}` });
-      continue;
-    }
-    if (!Number.isInteger(count) || count < 0) {
-      errors.push({ kind: 'negative-count', message: `机制 ${value} 数量必须是非负整数: ${count}` });
-      continue;
-    }
-    const info = mechanicInfo(value)!;
-    if (info.countMeaning === 'tile-count' && terrainCounts) {
-      const placed = terrainCounts.get(value) ?? 0;
-      if (placed !== count) {
-        errors.push({
-          kind: 'count-mismatch',
-          message: `机制 ${info.label}(${value}) 注入数量 ${count} 与地形摆放 ${placed} 不一致`,
-        });
-      }
     }
   }
   return errors;
+}
+
+/**
+ * 拆分机制配置（对齐 Unity LoadLevel 的拆出逻辑）：
+ * - bubble(39)：行为参数（每轮收集数），交给 MechanicEngine，不走分配器
+ * - boardSpecial(51-53)：大型地形，棋盘级注入，reversegen 未接入
+ * - assignable：其余 tile-count 机制，作为分配请求交给机制分配器
+ */
+export function splitMechanicConfig(config: MechanicCounts): {
+  bubble: MechanicCounts;
+  assignable: MechanicCounts;
+  boardSpecial: MechanicCounts;
+} {
+  const bubble = new Map<number, number>();
+  const assignable = new Map<number, number>();
+  const boardSpecial = new Map<number, number>();
+  for (const [value, count] of config) {
+    if (value === 39) bubble.set(value, count);
+    else if (value === 51 || value === 52 || value === 53) boardSpecial.set(value, count);
+    else assignable.set(value, count);
+  }
+  return { bubble, assignable, boardSpecial };
 }
 
 /** 一关的完整表示：ReplayCode + 机制枚举组合（两者并列，ReplayCode 格式不变）。 */

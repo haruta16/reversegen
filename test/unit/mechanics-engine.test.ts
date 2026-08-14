@@ -2,12 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { OfflineGame, OfflineTile } from '../../src/solver/index.js';
 import {
-  magicBottleShuffleSeed,
   selectMagicBottleTargets,
   magicBottleOnMatch,
   selectBubbleAssignTargets,
   dockMagicPlan,
 } from '../../src/mechanics/engine.js';
+import { magicBottleShuffleSeed } from '../../src/mechanics/seed.js';
 
 function mk(id: number, color: number, extras: { extraEnum: number; extraParam: string }[] = []) {
   return new OfflineTile({ id, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0, extras }, color);
@@ -15,9 +15,9 @@ function mk(id: number, color: number, extras: { extraEnum: number; extraParam: 
 
 test('魔药洗牌种子：int32 unchecked 语义 golden', () => {
   // 手算基线：5*397=1985; 1985^100=1957; (1957*397)^1^... 全链 int32 截断
-  assert.equal(magicBottleShuffleSeed(5, 100, 0, [1, 2, 3]), -1686884123);
+  assert.equal(magicBottleShuffleSeed(100, 0, [1, 2, 3]), 1568749412);
   // 确定性
-  assert.equal(magicBottleShuffleSeed(5, 100, 0, [1, 2, 3]), magicBottleShuffleSeed(5, 100, 0, [1, 2, 3]));
+  assert.equal(magicBottleShuffleSeed(100, 0, [1, 2, 3]), magicBottleShuffleSeed(100, 0, [1, 2, 3]));
 });
 
 test('魔药索敌：交错取组 golden（对齐 GetTiles2Clear）', () => {
@@ -31,11 +31,11 @@ test('魔药索敌：交错取组 golden（对齐 GetTiles2Clear）', () => {
     mk(6, 3), mk(7, 3), mk(8, 3),
     mk(9, 4), mk(10, 4), mk(11, 4),
   ];
-  const game = new OfflineGame(tiles, [], { levelId: 5, levelResId: 100 });
+  const game = new OfflineGame(tiles, [], { levelResId: 100 });
   for (const id of [99, 1, 2]) game.collect(game.allTiles.get(id)!);
   assert.deepEqual(game.mechanicLog, [{
     type: 'magic-bottle-clear',
-    tileIds: [9, 10, 11, 6, 7, 8, 3, 4, 5],
+    tileIds: [3, 4, 5, 9, 10, 11, 6, 7, 8],
     stepIndex: 3,
   }]);
   assert.equal(game.isWin, true, '魔药清场后应胜利');
@@ -47,7 +47,7 @@ test('魔药触发语义：仅 matchedTiles[0] 携带魔药才触发', () => {
     mk(4, 2), mk(5, 2), mk(6, 2),
     mk(7, 3), mk(8, 3), mk(9, 3),
   ];
-  const game = new OfflineGame(tiles, [], { levelId: 1, levelResId: 2 });
+  const game = new OfflineGame(tiles, [], { levelResId: 2 });
   // 魔药在第 2 张：collect 顺序 1,2,3 → matched[0] 是 tile1（无魔药）→ 不触发
   for (const id of [1, 2, 3]) game.collect(game.allTiles.get(id)!);
   assert.equal(game.mechanicLog.length, 0, '非首张魔药不触发');
@@ -60,7 +60,7 @@ test('泡泡全流程：指派→吸取→Dock魔法→下一批（golden 级联
   //  batch2 指派 [19,11,12] → 吸取 → 魔法清 [11,14,17,12,15,18,19,22,25]
   //  batch3 因 CanAssign 边界（3+1 < 9/3）终止，剩 9 张。
   const tiles = Array.from({ length: 30 }, (_, i) => mk(i + 1, (i % 3) + 1));
-  const game = new OfflineGame(tiles, [], { levelId: 7, levelResId: 200, mechanicConfig: new Map([[39, 3]]) });
+  const game = new OfflineGame(tiles, [], { levelResId: 200, mechanicConfig: new Map([[39, 3]]) });
   for (const id of [1, 4, 7]) game.collect(game.allTiles.get(id)!);
   assert.deepEqual(game.mechanicLog, [
     { type: 'bubble-assign', tileIds: [10, 2, 3], stepIndex: 4 },
@@ -78,7 +78,7 @@ test('泡泡全流程：指派→吸取→Dock魔法→下一批（golden 级联
 test('泡泡确定性：随机收集数模式（39:0）同状态同结果', () => {
   const run = () => {
     const tiles = Array.from({ length: 30 }, (_, i) => mk(i + 1, (i % 3) + 1));
-    const game = new OfflineGame(tiles, [], { levelId: 7, levelResId: 200, mechanicConfig: new Map([[39, 0]]) });
+    const game = new OfflineGame(tiles, [], { levelResId: 200, mechanicConfig: new Map([[39, 0]]) });
     for (const id of [1, 4, 7]) game.collect(game.allTiles.get(id)!);
     return JSON.stringify(game.mechanicLog);
   };
@@ -116,7 +116,7 @@ test('泡泡指派选择器：重复花色优先，每色只取首张', () => {
 
 test('clone 保留机制状态，状态键包含机制指纹', () => {
   const tiles = Array.from({ length: 30 }, (_, i) => mk(i + 1, (i % 3) + 1));
-  const game = new OfflineGame(tiles, [], { levelId: 7, levelResId: 200, mechanicConfig: new Map([[39, 3]]) });
+  const game = new OfflineGame(tiles, [], { levelResId: 200, mechanicConfig: new Map([[39, 3]]) });
   for (const id of [1, 4, 7]) game.collect(game.allTiles.get(id)!);
   const copy = game.clone();
   assert.equal(copy.mechanics.bubble.completedCollectRounds, game.mechanics.bubble.completedCollectRounds);

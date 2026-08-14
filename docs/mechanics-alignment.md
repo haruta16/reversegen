@@ -18,9 +18,12 @@
 **一关 = 现有 ReplayCode + 机制枚举组合**（ReplayCode 格式不变，机制信息并列传递）：
 `formatBoardSpec` 组合为 `code@31:3,39:2`（无机制时就是 code 本身）。
 
-**计数语义差异（重要）：** 大部分挂件的 extraConfig 数值是"挂该机制的 tile 数"；
-但**泡泡(39) 的数值是行为参数**——每轮收集数（0 = 随机 2-3），不是 tile 数。
-`validateMechanicCounts` 按 `countMeaning` 区分二者做一致性校验。
+**计数语义（对齐 Unity）：** extraConfig 的数值是**分配请求**——装载时由机制分配器
+（`TileExtraAssigner` 移植，见第五节）按策略/白名单把挂件落到非 const 牌上，不是校验对象：
+- tile-count 类机制：数值 = 请求分配的挂件数（固定花色挂件自动向下取 3 的倍数）
+- **泡泡(39)**：数值是行为参数——每轮收集数（0 = 随机 2-3），不走分配器，由 `MechanicEngine` 读取
+- **202/207**：忽略数值（0/负数 = 自动数量），由分配策略自行决定
+- **51-53 大型地形**：棋盘级注入，未接入；`splitMechanicConfig` 负责拆出 39/51-53
 
 ## 二、确定性随机契约
 
@@ -31,7 +34,7 @@
 ### 2.2 种子公式（共享战场派生种子）
 
 ```
-seed = levelId * 397 ^ levelResID
+seed = levelResID（地形资源身份）
 seed = seed  * 397 ^ Dock 当前牌数
 seed = seed  * 397 ^ Desk 当前牌数
 seed = seed  * 397 ^ 已应用步骤数
@@ -39,10 +42,12 @@ seed = seed  * 397 ^ 盐值
 ```
 
 - 全部在 unchecked int32 语义下运算（C# `unchecked` 块 / JS `| 0` 截断）
+- **基座 = 地形资源 ID（levelResID），不使用关卡实例 levelId**——同资源多关卡不区分，
+  满足"同地形 + replay + 机制 → 同结果"的纯函数要求（已从两侧删除 levelId 项）
 - 397 是 Unity 既有惯例（`MagicBottleExtra.CreateShuffleRandomSeed` 同款混合常数）
 - 已应用步骤数：Unity = `StepMgr.Steps.Count`；reversegen = `actionCount`（点击/复活/机制步骤）
 - 两侧实现：Unity `ExtraDeterministicRandom.CreateSeed(battle, salt)`；
-  reversegen `extraActionSeed(game, salt)`
+  reversegen `extraActionSeed(game, salt)`（统一收敛到 `src/mechanics/seed.ts`）
 
 ### 2.3 盐值表（同一局面下区分不同调用点）
 
@@ -55,7 +60,7 @@ seed = seed  * 397 ^ 盐值
 | `GIFTBOX_APPLY_FLIP` | 3702 | 礼盒施加翻转的随机选牌 |
 | `GIFTBOX_APPLY_MAGIC_BOTTLE` | 3703 | 礼盒转化魔药的随机组数 |
 
-两侧常量同名同值（Unity `ExtraDeterministicRandom.cs` 注释 / reversegen `MECHANIC_SEED_SALTS`）。
+两侧常量同名同值（Unity `ExtraDeterministicRandom.Salts` / reversegen `MECHANIC_SEED_SALTS`）。
 
 ### 2.4 洗牌专用种子（棋盘状态派生）
 
@@ -131,3 +136,54 @@ reversegen 缺三层能力：
   见提交信息"…（與 ReverseGen 跑關對齊）"
 - 新增 `ExtraDeterministicRandom.cs` 未带 `.meta`：Unity 下次打开工程自动生成 GUID，不影响功能
 - 帧级表现（动画/音效/TA 埋点）全部不在 reversegen 建模范围内，只对齐逻辑
+
+## 五、机制分配器对齐（TileExtraAssigner 移植）
+
+reversegen `src/mechanics/assigner.ts` 是 Unity `_InnerTileMatchAlgo/RuleBasedAlgo/TileExtraAssigner.cs`
+的确定性移植（`AssignExtrasWithColorConstraints`），由 `createGame` 在装载期调用
+（对齐 Unity `FixedReplayCodeAlgorithm.ApplyExtraConfig`：先花色后挂件、只分非 const 牌、
+Dock/消除状态在分配之后装载）。
+
+### 5.1 管线
+
+```
+replayCode + 地形 + extraConfig + seed
+  → createGame（elementValues 花色 → assignTileExtras 分配挂件 → 应用 Dock/消除 → OfflineGame）
+  → 跑关器/求解器
+```
+
+- 泡泡(39) 与大型地形(51-53) 由 `splitMechanicConfig` 在调用方拆出（对齐 Unity LoadLevel）
+- `validateMechanicCounts` 只校验未知枚举：数量是分配请求，不再要求与地形摆放一致
+
+### 5.2 确定性随机
+
+- `AssignerRandom` = **Xorshift128+**（SplitMix64 种子扩展），逐位对齐 Unity `DeterministicRandom.cs`
+  （与机制引擎用的 .NET System.Random 语义 DotNetRandom 是两套独立随机流，各对齐各的）
+- 缺省种子：`seed = hash(replayCode + 机制文本) & 0x7fffffff`（`deriveAssignSeed`，FNV-1a），
+  零协调；显式 `mechanicSeed` 仅作调试覆盖
+- 随机消费顺序 = 输入 tile 列表顺序（LINQ/数组枚举顺序逐位一致）；与 Unity 对齐时
+  输入 tile 需以 `getCanonicalTileOrder` 顺序
+
+### 5.3 分配规则（对齐 Unity ExtraConfig/WhitelistConfig）
+
+| 枚举 | 策略 | order | 可让位 |
+|------|------|-------|--------|
+| 4 黄金 / 8 复活节 | LeastFrequentFirst | 0 | ✗ |
+| 31 魔药 | MostFrequentFirst | 1 | ✗ |
+| 36 蒲公英 | FifthLowestCostGroup（第 5 低成本三消组，不足 5 组取最高） | 1 | ✗ |
+| 5 金币 | LeastFrequentFirst | 2 | ✗ |
+| 37 礼盒 | MostFrequentFirst | 3 | ✗ |
+| 2 问号 / 202 问号(间隔) | Random / EachLayerTwoBottomFirst（每层≤2，从底层起，自动数量） | 4 | ✓ |
+| 7 翻转 / 207 翻转(层) | RandomNonClickable / RandomLayerLessTile（≥2 层随机 10% 层整层挂，自动数量，排除 Tower） | 5 | ✓ |
+
+- 固定花色挂件：数量向下取 3 的倍数并改写 tile 花色（黄金 1101 / 复活节 1103 / 金币 1201 /
+  魔药 1301 / 蒲公英 1402 / 礼盒 1601），与 `registry.fixedElementValue` 一致
+- 白名单双向互斥：黄金/复活节只挂空牌；金币/魔药/蒲公英可搭问号/翻转；问号/翻转可搭金币
+- 预置可让位挂件（问号/翻转）先驱逐腾位、后按白名单恢复，被排挤则丢弃（`evictedPreplaced`）
+- 其余 tile-count 机制（冰封/锁链/兑换/怪物/岩石/翻转罐/订单/小精灵等）：默认 MostFrequentFirst、order 最大
+- 校验为日志级（对齐 Unity ValidateFinalDistribution），不抛错
+
+### 5.4 对齐验证
+
+`test/unit/assigner.test.ts`：确定性（同种子同输入 → 逐位相同）、固定花色取整、
+白名单互斥、驱逐/恢复、202/207 自动数量、蒲公英第五低成本组、createGame 装载集成。

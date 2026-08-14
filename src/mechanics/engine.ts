@@ -6,7 +6,7 @@
  *  - 泡泡（39）：轮次指派 → Dock 空时吸取 → Dock 魔法补齐清除（TileMatchBubbleCollectMgr）
  *
  * 确定性约定：
- *  - 魔药索敌洗牌种子 = CreateShuffleRandomSeed（levelId*397^levelResID^dock数^桌面花色，unchecked int32）
+ *  - 魔药索敌洗牌种子 = CreateShuffleRandomSeed（levelResID^dock数^桌面花色，unchecked int32）
  *  - 泡泡每轮收集数：extraConfig[39]=0 时为随机 2-3（Unity 原用 Random.Range(2,4)，
  *    已改为战场派生种子的 System.Random，两侧同公式）
  *  - 帧级冷却（0.5s 等）映射为步进时钟：每次动作（collect/机制步）视为一次 tick，
@@ -18,7 +18,6 @@ import type { OfflineGame } from '../solver/offline-game.js';
 import { OfflineTile, PileType, TileFlag } from '../solver/types.js';
 import { computeVisibleMatchGroups } from '../solver/solver-player.js';
 import {
-  extraActionSeed,
   selectDandelionTargets,
   isDandelionMatch,
   isUnrevealedUnknownTile,
@@ -28,6 +27,7 @@ import {
   selectRandomTiles,
   selectGiftBoxMagicBottleGroups,
 } from './extras.js';
+import { extraActionSeed, magicBottleShuffleSeed, mul397 } from './seed.js';
 import {
   BUBBLE_CONSTANTS,
   GIFTBOX_CONSTANTS,
@@ -41,26 +41,6 @@ import type { MechanicStep, TileExtra } from './types.js';
 // ═══════════════════════════════════════════════════════════
 //  公共辅助：int32 与派生种子（对齐 C# unchecked 语义）
 // ═══════════════════════════════════════════════════════════
-
-/** C# unchecked 的 int32 乘法（JS 数值乘法后截断）。 */
-function mul397(value: number): number {
-  return (value * 397) | 0;
-}
-
-/** 对齐 MagicBottleExtra.CreateShuffleRandomSeed。 */
-export function magicBottleShuffleSeed(
-  levelId: number,
-  levelResId: number,
-  dockSlotCount: number,
-  deskOnlyElementValues: number[],
-): number {
-  let seed = mul397(levelId) ^ levelResId;
-  seed = mul397(seed) ^ dockSlotCount;
-  for (const elementValue of deskOnlyElementValues) {
-    seed = mul397(seed) ^ elementValue;
-  }
-  return seed | 0;
-}
 
 /** 对齐 C# ShuffleInPlace（System.Random 种子洗牌）。 */
 function shuffleInPlace(values: number[], seed: number): void {
@@ -133,8 +113,7 @@ function magicBottleElementOrder(
       deskOnly.push(tile.elementValue);
     }
   }
-  shuffleInPlace(deskOnly, magicBottleShuffleSeed(
-    game.levelId, game.levelResId, game.dockTiles.length, deskOnly));
+  shuffleInPlace(deskOnly, magicBottleShuffleSeed(game.levelResId, game.dockTiles.length, deskOnly));
   ordered.push(...deskOnly);
   return ordered;
 }

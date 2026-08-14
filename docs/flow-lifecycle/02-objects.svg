@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1560" height="1300" viewBox="0 0 1560 1300" font-family='"Segoe UI","Microsoft YaHei",sans-serif'>
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/></marker></defs>
+<text x="30" y="46" font-size="19" font-weight="800" fill="#0f172a">图2 · 运行期对象图</text><rect x="34" y="54" width="120" height="4" rx="2" fill="#c026d3"/><text x="164" y="50" font-size="12.5" fill="#64748b">OfflineGame 为核心：牌对象、机制引擎、步骤应用表、求解器与确定性随机</text><rect x="40" y="90" width="480" height="110" rx="10" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.6"/>
+<text x="280" y="116" text-anchor="middle" font-size="15" font-weight="700" fill="#0284c7">createGame(input)</text>
+<text x="280" y="138" text-anchor="middle" font-size="12.5" fill="#334155">terrainTiles · elementValues</text>
+<text x="280" y="156" text-anchor="middle" font-size="12.5" fill="#334155">initialDock · eliminatedTileIds</text>
+<text x="280" y="174" text-anchor="middle" font-size="12.5" fill="#334155">mechanicConfig（泡泡参数）</text><rect x="40" y="240" width="480" height="250" rx="10" fill="#e0e7ff" stroke="#4f46e5" stroke-width="1.6"/>
+<text x="280" y="266" text-anchor="middle" font-size="15" font-weight="700" fill="#4f46e5">OfflineGame 对局对象</text>
+<text x="280" y="288" text-anchor="middle" font-size="12.5" fill="#334155">allTiles: Map&lt;id, OfflineTile&gt;</text>
+<text x="280" y="306" text-anchor="middle" font-size="12.5" fill="#334155">deskTiles[] · dockTiles[] · discardTiles[]</text>
+<text x="280" y="324" text-anchor="middle" font-size="12.5" fill="#334155">terrainStructures[]（传送带 / 掉落）</text>
+<text x="280" y="342" text-anchor="middle" font-size="12.5" fill="#334155">mechanicLog[] · actionCount · dockSlotBonus</text>
+<text x="280" y="360" text-anchor="middle" font-size="12.5" fill="#334155">levelId · levelResId（派生种子）</text><rect x="40" y="530" width="480" height="170" rx="10" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.6"/>
+<text x="280" y="556" text-anchor="middle" font-size="15" font-weight="700" fill="#0284c7">OfflineTile 牌对象</text>
+<text x="280" y="578" text-anchor="middle" font-size="12.5" fill="#334155">id · layer · dependencies[]</text>
+<text x="280" y="596" text-anchor="middle" font-size="12.5" fill="#334155">elementValue(花色) · isConst</text>
+<text x="280" y="614" text-anchor="middle" font-size="12.5" fill="#334155">pileType: Desk | Dock | Discard</text>
+<text x="280" y="632" text-anchor="middle" font-size="12.5" fill="#334155">flags: Clickable | Destroyed</text>
+<text x="280" y="650" text-anchor="middle" font-size="12.5" fill="#334155">extras: TileExtra[]</text><rect x="40" y="740" width="480" height="130" rx="10" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.6"/>
+<text x="280" y="766" text-anchor="middle" font-size="15" font-weight="700" fill="#0284c7">TileExtra 挂件</text>
+<text x="280" y="788" text-anchor="middle" font-size="12.5" fill="#334155">extraEnum · extraParam</text>
+<text x="280" y="806" text-anchor="middle" font-size="12.5" fill="#334155">isDone · state（衰减/揭示）</text>
+<text x="280" y="824" text-anchor="middle" font-size="12.5" fill="#334155">从地形 extraEnum 构造（tileExtrasFromTerrain）</text><rect x="40" y="920" width="480" height="150" rx="10" fill="#ccfbf1" stroke="#0d9488" stroke-width="1.6"/>
+<text x="280" y="946" text-anchor="middle" font-size="15" font-weight="700" fill="#0d9488">求解器 / 玩家模拟</text>
+<text x="280" y="968" text-anchor="middle" font-size="12.5" fill="#334155">computeVisibleMatchGroups</text>
+<text x="280" y="986" text-anchor="middle" font-size="12.5" fill="#334155">DFS · Mistake · Risky · CostCap</text>
+<text x="280" y="1004" text-anchor="middle" font-size="12.5" fill="#334155">clone() 分支 · mechanics.copyFrom()</text><rect x="40" y="1110" width="480" height="120" rx="10" fill="#ccfbf1" stroke="#0d9488" stroke-width="1.6"/>
+<text x="280" y="1136" text-anchor="middle" font-size="15" font-weight="700" fill="#0d9488">跑关输出</text>
+<text x="280" y="1158" text-anchor="middle" font-size="12.5" fill="#334155">过关 / 卡死</text>
+<text x="280" y="1176" text-anchor="middle" font-size="12.5" fill="#334155">mechanicLog 机制步骤日志</text>
+<text x="280" y="1194" text-anchor="middle" font-size="12.5" fill="#334155">fingerprint 并入 DFS 状态键</text><rect x="640" y="90" width="760" height="200" rx="10" fill="#fae8ff" stroke="#c026d3" stroke-width="1.6"/>
+<text x="1020" y="116" text-anchor="middle" font-size="15" font-weight="700" fill="#c026d3">MechanicEngine 机制引擎</text>
+<text x="1020" y="138" text-anchor="middle" font-size="12.5" fill="#334155">bubble: BubbleState（enabled · collectCount · 活跃泡泡ID</text>
+<text x="1020" y="156" text-anchor="middle" font-size="12.5" fill="#334155">· completedRounds · cooldownTicks）</text>
+<text x="1020" y="174" text-anchor="middle" font-size="12.5" fill="#334155">onMatch() → MATCH_BEHAVIORS 策略表分发</text>
+<text x="1020" y="192" text-anchor="middle" font-size="12.5" fill="#334155">tick() 泡泡轮次循环至静止</text><rect x="640" y="330" width="760" height="110" rx="10" fill="#fae8ff" stroke="#c026d3" stroke-width="1.6"/>
+<text x="1020" y="356" text-anchor="middle" font-size="15" font-weight="700" fill="#c026d3">MATCH_BEHAVIORS 策略表</text>
+<text x="1020" y="378" text-anchor="middle" font-size="12.5" fill="#334155">31 魔药 · 36 蒲公英 · 37 礼盒</text>
+<text x="1020" y="396" text-anchor="middle" font-size="12.5" fill="#334155">三消触发；新机制在此登记一行</text><rect x="640" y="480" width="760" height="150" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/>
+<text x="1020" y="506" text-anchor="middle" font-size="15" font-weight="700" fill="#16a34a">STEP_APPLIERS 步骤应用表</text>
+<text x="1020" y="528" text-anchor="middle" font-size="12.5" fill="#334155">magic-bottle-clear · bubble-assign</text>
+<text x="1020" y="546" text-anchor="middle" font-size="12.5" fill="#334155">bubble-collect · dandelion-spread</text>
+<text x="1020" y="564" text-anchor="middle" font-size="12.5" fill="#334155">giftbox-* · dock-magic-clear · …</text><rect x="640" y="670" width="760" height="130" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/>
+<text x="1020" y="696" text-anchor="middle" font-size="15" font-weight="700" fill="#16a34a">extras.ts 机制辅助</text>
+<text x="1020" y="718" text-anchor="middle" font-size="12.5" fill="#334155">initExtraState · shuffleBoard</text>
+<text x="1020" y="736" text-anchor="middle" font-size="12.5" fill="#334155">selectDandelionTargets · rollGiftBoxEffect</text>
+<text x="1020" y="754" text-anchor="middle" font-size="12.5" fill="#334155">selectRandomTiles · dockDirectedMagicPlan</text><rect x="640" y="840" width="760" height="150" rx="10" fill="#ffedd5" stroke="#ea580c" stroke-width="1.6"/>
+<text x="1020" y="866" text-anchor="middle" font-size="15" font-weight="700" fill="#ea580c">确定性随机</text>
+<text x="1020" y="888" text-anchor="middle" font-size="12.5" fill="#334155">extraActionSeed(game, salt) 派生种子</text>
+<text x="1020" y="906" text-anchor="middle" font-size="12.5" fill="#334155">DotNetRandom（.NET System.Random 语义）</text>
+<text x="1020" y="924" text-anchor="middle" font-size="12.5" fill="#334155">MECHANIC_SEED_SALTS 盐值表 · 洗牌种子 0x5A5A5A5A</text><path d="M 280 200 L 280 240" fill="none" stroke="#0284c7" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="260" y="209" width="40" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="280" y="224" text-anchor="middle" font-size="11.5" fill="#475569">输入</text><path d="M 280 490 L 280 530" fill="none" stroke="#0284c7" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="201.5" y="499" width="157" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="280" y="514" text-anchor="middle" font-size="11.5" fill="#475569">聚合 allTiles</text><path d="M 280 700 L 280 740" fill="none" stroke="#0284c7" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="260" y="709" width="40" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="280" y="724" text-anchor="middle" font-size="11.5" fill="#475569">持有</text><path d="M 280 1070 L 280 1110" fill="none" stroke="#0d9488" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="260" y="1079" width="40" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="280" y="1094" text-anchor="middle" font-size="11.5" fill="#475569">产出</text><path d="M 520 440 L 600 440 L 600 995 L 520 995" fill="none" stroke="#0d9488" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="488" y="709" width="144" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="560" y="724" text-anchor="middle" font-size="11.5" fill="#475569">操作 / clone</text><path d="M 520 330 L 580 330 L 580 190 L 640 190" fill="none" stroke="#c026d3" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="540" y="249" width="40" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="560" y="264" text-anchor="middle" font-size="11.5" fill="#475569">持有</text><path d="M 1020 290 L 1020 330" fill="none" stroke="#c026d3" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="987" y="299" width="66" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="1020" y="314" text-anchor="middle" font-size="11.5" fill="#475569">三消分发</text><path d="M 1020 440 L 1020 480" fill="none" stroke="#16a34a" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="987" y="449" width="66" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="1020" y="464" text-anchor="middle" font-size="11.5" fill="#475569">生成步骤</text><path d="M 1020 630 L 1020 670" fill="none" stroke="#16a34a" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="987" y="639" width="66" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="1020" y="654" text-anchor="middle" font-size="11.5" fill="#475569">使用辅助</text><path d="M 1020 800 L 1020 840" fill="none" stroke="#ea580c" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="987" y="809" width="66" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="1020" y="824" text-anchor="middle" font-size="11.5" fill="#475569">使用随机</text><path d="M 640 160 L 560 160 L 560 915 L 640 915" fill="none" stroke="#ea580c" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="567" y="529" width="66" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="600" y="544" text-anchor="middle" font-size="11.5" fill="#475569">共用种子</text></svg>

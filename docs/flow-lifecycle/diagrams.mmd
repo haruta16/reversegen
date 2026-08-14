@@ -1,0 +1,53 @@
+# ReverseGen 生命周期与对象运行流程图（Mermaid 源码）
+# 渲染：GitHub / Typora / VS Code / mermaid.live
+
+## 图1 · 一关的完整生命周期
+```mermaid
+flowchart TD
+  A["地形 JSON（Unity Level）<br/>tile: extraEnum / extraParam"] --> B["terrain-loader.ts<br/>normalizeTerrain → TerrainData"]
+  B --> C["getAllTiles / getConstTiles"]
+  C --> D["生成算法（花色分配，与机制无关）<br/>runReverseGen · runLayerClosureGen<br/>runTileExplorerGen · runZenMatchGen"]
+  D --> E["assignments: Map<tileId → 花色>"]
+  E --> F["buildReplay → generateReplayCode<br/>v4 ReplayCode"]
+  C --> G["countTerrainExtras(tiles)<br/>地形摆放汇总（来源1）"]
+  H["特殊机制输入「31:3,39:2」<br/>外部注入（来源2）"] --> I["parseMechanicCounts<br/>→ Map{31→3, 39→2}"]
+  I --> J["validateMechanicCounts<br/>tile-count: 注入=摆放才通过<br/>泡泡39: behavior-config 豁免"]
+  G --> J
+  J -->|"不一致"| K["❌ 400 拒绝"]
+  J -->|"一致"| L["✓ 进入一关组合表示"]
+  F --> M["formatBoardSpec<br/>ReplayCode + 机制 → code@31:3,39:2"]
+  L --> M
+  M --> N["parseBoardSpec<br/>反解回 replayCode + mechanics"]
+  N --> O["decodeFromString + createGame<br/>terrain + 花色 + 初始Dock + 机制配置<br/>→ OfflineGame"]
+  O --> P["玩家点击序列 / 求解器<br/>clone 分支 · mechanics.copyFrom"]
+  P --> Q["OfflineGame.collect 逐动作推进<br/>机制步骤同步应用"]
+  Q --> R["MechanicEngine<br/>onMatch · tick · STEP_APPLIERS"]
+  R --> S["结果：过关 / 卡死<br/>mechanicLog · 与 Unity 逐位对齐"]
+```
+
+## 图2 · 运行期对象图
+```mermaid
+flowchart LR
+  IN["createGame(input)<br/>terrainTiles · elementValues<br/>initialDock · mechanicConfig"] --> OG["OfflineGame 对局对象<br/>allTiles: Map<id, OfflineTile><br/>deskTiles · dockTiles · discardTiles<br/>terrainStructures · mechanicLog<br/>actionCount · levelId · levelResId"]
+  OG --> OT["OfflineTile 牌对象<br/>id · layer · dependencies[]<br/>elementValue · isConst<br/>pileType: Desk|Dock|Discard<br/>flags · extras: TileExtra[]"]
+  OT --> TE["TileExtra 挂件<br/>extraEnum · extraParam<br/>isDone · state"]
+  OG --> ME["MechanicEngine 机制引擎<br/>bubble: BubbleState<br/>onMatch() · tick()"]
+  ME --> MB["MATCH_BEHAVIORS 策略表<br/>31魔药 · 36蒲公英 · 37礼盒"]
+  ME --> SA["STEP_APPLIERS 步骤应用表<br/>magic-bottle-clear · bubble-assign<br/>bubble-collect · dandelion-spread<br/>giftbox-* · dock-magic-clear"]
+  SA --> EX["extras.ts 机制辅助<br/>initExtraState · shuffleBoard<br/>selectDandelionTargets · rollGiftBoxEffect"]
+  EX --> DR["确定性随机<br/>extraActionSeed(game, salt)<br/>DotNetRandom · MECHANIC_SEED_SALTS"]
+  OG --> SV["求解器 / 玩家模拟<br/>computeVisibleMatchGroups<br/>DFS · Mistake · Risky · CostCap<br/>clone() · mechanics.copyFrom()"]
+  SV --> OUT["跑关输出<br/>过关/卡死 · mechanicLog<br/>fingerprint 并入 DFS 状态键"]
+```
+
+## 图3 · 单次点击的动作时序
+```mermaid
+flowchart TD
+  S1["① collect(tileId) 点击收集<br/>桌面移除 → 进 Dock → sortDockTiles"] --> S2["② onTileCollected(tile)<br/>揭示 isDone · 衰减有效收集 · 订单 consumed"]
+  S2 --> S3["③ checkDockMatch()<br/>Dock 同色 ≥3 → 移入 Discard（Destroyed）"]
+  S3 --> S4["④ mechanics.onMatch(matched)<br/>按 leader.extras 查 MATCH_BEHAVIORS<br/>魔药31 · 蒲公英36 · 礼盒37"]
+  S4 --> S5["⑤ applyMechanicStep(step)<br/>actionCount++ · mechanicLog 记录<br/>STEP_APPLIERS[step.type] 应用 · applyDecayStep"]
+  S5 --> S6["⑥ updateTilesState()<br/>依赖重算 → Clickable 更新"]
+  S6 --> S7["⑦ applyDecayStep(collect)<br/>黄金4 · 日历6 · 复活节8 每步衰减"]
+  S7 --> S8["⑧ runMechanicTicks()<br/>泡泡 tick 循环至静止（guard 64）"]
+```

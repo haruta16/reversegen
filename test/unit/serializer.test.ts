@@ -21,6 +21,8 @@ import {
   getCanonicalTileOrder,
   computeCRC16,
   computeCRC16Bitwise,
+  buildReplayElementMap,
+  mapReplayElementValue,
   loadTerrainFromFile,
   getAllTiles,
   setLogLevel,
@@ -269,5 +271,43 @@ describe('Round-trip', () => {
 
     assert.ok(decoded !== null);
     assert.equal(decoded!.elementCount, 64);
+  });
+});
+
+describe('Replay element map（归一化 → 真实花色，对齐 Unity BuildReplayElementMap）', () => {
+  const freeTiles = (n: number): TerrainTile[] => {
+    const tiles: TerrainTile[] = [];
+    for (let i = 0; i < n; i++) {
+      tiles.push({ id: i, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: i, posY: 0 });
+    }
+    return tiles;
+  };
+
+  it('const 牌钉回固定花色，自由牌保持 1..K', () => {
+    const tiles: TerrainTile[] = [
+      ...freeTiles(3),
+      { id: 3, layer: 0, dependencies: [], isConst: true, constElementValue: 1301, posX: 3, posY: 0 },
+    ];
+    const elementValues = new Map<number, number>([[0, 1], [1, 2], [2, 3], [3, 1301]]);
+    const code = generateReplayCode(tiles, elementValues, '');
+    const data = decodeFromString(code)!;
+    // 1301 是最大值 → 归一化索引 3（norm 4）；自由牌 1/2/3 → norm 1/2/3
+    const elementMap = buildReplayElementMap(tiles, data.instanceArray, data.elementCount);
+
+    const constNorm = (data.instanceArray[3] & 0x3f) + 1;
+    assert.equal(mapReplayElementValue(constNorm, elementMap), 1301, 'const 牌映射回 1301');
+
+    const freeColors = [0, 1, 2].map(i => mapReplayElementValue((data.instanceArray[i] & 0x3f) + 1, elementMap));
+    assert.deepEqual([...freeColors].sort((a, b) => a - b), [1, 2, 3], '自由牌映射回 1..K');
+  });
+
+  it('无 const 牌时恒等映射（向后兼容）', () => {
+    const tiles = freeTiles(6);
+    const elementValues = new Map<number, number>();
+    for (let i = 0; i < 6; i++) elementValues.set(i, (i % 3) + 1);
+    const code = generateReplayCode(tiles, elementValues, '');
+    const data = decodeFromString(code)!;
+    const elementMap = buildReplayElementMap(tiles, data.instanceArray, data.elementCount);
+    assert.deepEqual(elementMap, [0, 1, 2, 3], 'index 1..3 恒等');
   });
 });

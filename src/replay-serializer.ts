@@ -373,3 +373,76 @@ function decodeAndDecompress(base64: string): Uint8Array {
   );
   return new Uint8Array(decompressed);
 }
+
+// ── 花色反归一化（对齐 Unity FixedReplayCodeAlgorithm.BuildReplayElementMap） ──
+
+/**
+ * 重建"归一化花色 → 真实花色"映射（index 1..elementCount，0 = 未映射）。
+ * - const 牌（isConst 且 constElementValue > 0）把其归一化组钉到固定花色，固定值非法抛错
+ * - 无 const 约束时走恒等映射
+ * - 有 const 约束时，剩余归一化组按 availableColors 顺序填充，冲突抛错（对齐 Unity 冲突检测）
+ * availableColors 缺省 = 1..colorCount（自由花色数 = elementCount - 去重 const 值数）。
+ */
+export function buildReplayElementMap(
+  orderedTiles: TerrainTile[],
+  instanceArray: Uint8Array,
+  elementCount: number,
+  availableColors?: number[],
+): number[] {
+  const result = new Array<number>(elementCount + 1).fill(0);
+  const realToNorm = new Map<number, number>();
+
+  // Pass 1：const 牌把归一化组钉到固定花色（含冲突检测）
+  for (let i = 0; i < orderedTiles.length; i++) {
+    const tile = orderedTiles[i];
+    if (!tile.isConst) continue;
+    const normValue = (instanceArray[i] & 0x3f) + 1;
+    const constValue = tile.constElementValue;
+    if (constValue <= 0) {
+      throw new Error(`ConstTile ${tile.id} 的固定花色无效: ${constValue}`);
+    }
+    if (result[normValue] !== 0 && result[normValue] !== constValue) {
+      throw new Error(`ReplayCode 与 IsConst 冲突: 归一化花色${normValue} 同时要求固定为 ${result[normValue]} 和 ${constValue}`);
+    }
+    const mappedNorm = realToNorm.get(constValue);
+    if (mappedNorm !== undefined && mappedNorm !== normValue) {
+      throw new Error(`ReplayCode 与 IsConst 冲突: 固定花色${constValue} 同时对应归一化 ${mappedNorm} 和 ${normValue}`);
+    }
+    result[normValue] = constValue;
+    realToNorm.set(constValue, normValue);
+  }
+
+  // 自由花色数 = elementCount - 去重 const 值数（const 值通常落在 1..colorCount 之外）
+  const freeColorCount = elementCount - realToNorm.size;
+  const colors = availableColors ?? Array.from({ length: freeColorCount }, (_, i) => i + 1);
+
+  if (realToNorm.size === 0) {
+    // 无 const 约束：沿用旧映射规则（恒等），不改变普通 ReplayCode 的兼容行为
+    for (let i = 0; i < Math.min(elementCount, colors.length); i++) result[i + 1] = colors[i];
+    return result;
+  }
+
+  // Pass 2：剩余归一化组 → 剩余 availableColors（按序，跳过已被 const 占用的真实花色）
+  let nextNorm = 1;
+  for (const color of colors) {
+    if (color <= 0 || realToNorm.has(color)) continue;
+    while (nextNorm <= elementCount && result[nextNorm] > 0) nextNorm++;
+    if (nextNorm > elementCount) break;
+    result[nextNorm] = color;
+    nextNorm++;
+  }
+
+  for (let normValue = 1; normValue <= elementCount; normValue++) {
+    if (result[normValue] <= 0) {
+      throw new Error(`无法为归一化花色${normValue}分配真实花色：ReplayCode 需要 ${elementCount} 种花色，可用花色不足或存在重复配置`);
+    }
+  }
+  return result;
+}
+
+/** 归一化花色 → 真实花色（对齐 Unity MapReplayElementValue；未映射/越界时回退原值）。 */
+export function mapReplayElementValue(normValue: number, elementMap: number[] | undefined): number {
+  if (normValue <= 0) return normValue;
+  if (!elementMap || normValue >= elementMap.length || elementMap[normValue] <= 0) return normValue;
+  return elementMap[normValue];
+}

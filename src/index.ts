@@ -299,6 +299,8 @@ export {
   parseLevelHash,
   formatHash,
   FORMAT_VERSION,
+  buildReplayElementMap,
+  mapReplayElementValue,
 } from './replay-serializer.js';
 
 // 地形
@@ -381,16 +383,23 @@ export {
   serializeMechanicCounts,
   countTerrainExtras,
   validateMechanicCounts,
+  splitMechanicConfig,
   formatBoardSpec,
   parseBoardSpec,
 } from './mechanics/spec.js';
 export type { MechanicCounts, MechanicSpecError, BoardSpec } from './mechanics/spec.js';
 
+// 机制分配器（对齐 Unity TileExtraAssigner）
+export { assignTileExtras, AssignerRandom, deriveAssignSeed, EXTRA_ASSIGN_CONFIG } from './mechanics/assigner.js';
+export type { AssignExtrasSummary, AssignerStrategy } from './mechanics/assigner.js';
+
+// 机制派生种子（统一实现：mul397 / 战场基座 / 共享种子 / 魔药洗牌 / 洗牌）
+export { mul397, battleBaseSeed, extraActionSeed, magicBottleShuffleSeed, shuffleBoardSeed } from './mechanics/seed.js';
+
 // 机制引擎（确定性移植）
 export {
   MechanicEngine,
   MATCH_BEHAVIORS,
-  magicBottleShuffleSeed,
   isPotionTargetAllowed,
   selectMagicBottleTargets,
   magicBottleOnMatch,
@@ -403,7 +412,6 @@ export {
 
 // 其余挂件行为（衰减/揭示/订单/蒲公英/礼盒/魔法棒/洗牌）
 export {
-  extraActionSeed,
   initExtraState,
   isExtraConsumed,
   isUnrevealedUnknownTile,
@@ -419,7 +427,6 @@ export {
   selectRandomTiles,
   giftBoxConvertibleGroups,
   selectGiftBoxMagicBottleGroups,
-  shuffleBoardSeed,
   shuffleBoard,
 } from './mechanics/extras.js';
 export type { BubbleState } from './mechanics/engine.js';

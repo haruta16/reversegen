@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1560" height="1450" viewBox="0 0 1560 1450" font-family='"Segoe UI","Microsoft YaHei",sans-serif'>
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/></marker></defs>
+<text x="30" y="46" font-size="19" font-weight="800" fill="#0f172a">图1 · 一关的完整生命周期</text><rect x="34" y="54" width="120" height="4" rx="2" fill="#4f46e5"/><text x="164" y="50" font-size="12.5" fill="#64748b">两个来源（地形摆放 + 外部注入）→ 一致性校验 → 组合表示 → 跑关/求解</text><rect x="40" y="84" width="360" height="84" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.6"/>
+<text x="220" y="110" text-anchor="middle" font-size="15" font-weight="700" fill="#d97706">地形 JSON（Unity Level）</text>
+<text x="220" y="132" text-anchor="middle" font-size="12.5" fill="#334155">levelResId · LevelHash · layers/tiles</text>
+<text x="220" y="150" text-anchor="middle" font-size="12.5" fill="#334155">tile: extraEnum / extraParam</text><rect x="440" y="84" width="320" height="84" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.6"/>
+<text x="600" y="110" text-anchor="middle" font-size="15" font-weight="700" fill="#d97706">GUI / CLI / 代码 API 参数</text>
+<text x="600" y="132" text-anchor="middle" font-size="12.5" fill="#334155">算法选择 · costArray / closeRates</text>
+<text x="600" y="150" text-anchor="middle" font-size="12.5" fill="#334155">colorCount · seed</text><rect x="820" y="84" width="360" height="84" rx="10" fill="#fae8ff" stroke="#c026d3" stroke-width="1.6"/>
+<text x="1000" y="110" text-anchor="middle" font-size="15" font-weight="700" fill="#c026d3">特殊机制输入「31:3,39:2」</text>
+<text x="1000" y="132" text-anchor="middle" font-size="12.5" fill="#334155">外部注入（来源2）</text>
+<text x="1000" y="150" text-anchor="middle" font-size="12.5" fill="#334155">与 Unity extraConfig 同构</text><rect x="40" y="216" width="360" height="72" rx="10" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.6"/>
+<text x="220" y="242" text-anchor="middle" font-size="15" font-weight="700" fill="#0284c7">terrain-loader.ts</text>
+<text x="220" y="264" text-anchor="middle" font-size="12.5" fill="#334155">normalizeTerrain → TerrainData</text><rect x="440" y="216" width="320" height="72" rx="10" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.6"/>
+<text x="600" y="242" text-anchor="middle" font-size="15" font-weight="700" fill="#0284c7">getAllTiles / getConstTiles</text>
+<text x="600" y="264" text-anchor="middle" font-size="12.5" fill="#334155">自由牌 · 固定花色牌</text><rect x="820" y="216" width="360" height="72" rx="10" fill="#fae8ff" stroke="#c026d3" stroke-width="1.6"/>
+<text x="1000" y="242" text-anchor="middle" font-size="15" font-weight="700" fill="#c026d3">parseMechanicCounts</text>
+<text x="1000" y="264" text-anchor="middle" font-size="12.5" fill="#334155">「31:3,39:2」→ Map{31→3, 39→2}</text><rect x="440" y="336" width="320" height="84" rx="10" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.6"/>
+<text x="600" y="362" text-anchor="middle" font-size="15" font-weight="700" fill="#0284c7">countTerrainExtras(tiles)</text>
+<text x="600" y="384" text-anchor="middle" font-size="12.5" fill="#334155">地形摆放汇总（来源1）</text>
+<text x="600" y="402" text-anchor="middle" font-size="12.5" fill="#334155">tile 上写着的挂件数</text><rect x="820" y="336" width="360" height="104" rx="10" fill="#fae8ff" stroke="#c026d3" stroke-width="1.6"/>
+<text x="1000" y="362" text-anchor="middle" font-size="15" font-weight="700" fill="#c026d3">validateMechanicCounts</text>
+<text x="1000" y="384" text-anchor="middle" font-size="12.5" fill="#334155">tile-count: 注入 = 摆放才通过</text>
+<text x="1000" y="402" text-anchor="middle" font-size="12.5" fill="#334155">泡泡39: behavior-config 豁免</text>
+<text x="1000" y="420" text-anchor="middle" font-size="12.5" fill="#334155">引擎只认地形 tile，注入只是汇总</text><rect x="40" y="484" width="360" height="60" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/>
+<text x="220" y="510" text-anchor="middle" font-size="15" font-weight="700" fill="#16a34a">生成算法（花色分配，与机制无关）</text><rect x="40" y="588" width="170" height="60" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/>
+<text x="125" y="614" text-anchor="middle" font-size="15" font-weight="700" fill="#16a34a">runReverseGen</text>
+<text x="125" y="636" text-anchor="middle" font-size="12.5" fill="#334155">CostLadder 成本阶梯</text><rect x="230" y="588" width="170" height="60" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/>
+<text x="315" y="614" text-anchor="middle" font-size="15" font-weight="700" fill="#16a34a">runLayerClosureGen</text>
+<text x="315" y="636" text-anchor="middle" font-size="12.5" fill="#334155">闭合率分层</text><rect x="40" y="668" width="170" height="60" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/>
+<text x="125" y="694" text-anchor="middle" font-size="15" font-weight="700" fill="#16a34a">runTileExplorerGen</text>
+<text x="125" y="716" text-anchor="middle" font-size="12.5" fill="#334155">Tile Explorer</text><rect x="230" y="668" width="170" height="60" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/>
+<text x="315" y="694" text-anchor="middle" font-size="15" font-weight="700" fill="#16a34a">runZenMatchGen</text>
+<text x="315" y="716" text-anchor="middle" font-size="12.5" fill="#334155">Zen Match 4/5</text><rect x="40" y="772" width="360" height="60" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/>
+<text x="220" y="798" text-anchor="middle" font-size="15" font-weight="700" fill="#16a34a">assignments: Map&lt;tileId → 花色&gt;</text><rect x="40" y="872" width="360" height="84" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/>
+<text x="220" y="898" text-anchor="middle" font-size="15" font-weight="700" fill="#16a34a">buildReplay</text>
+<text x="220" y="920" text-anchor="middle" font-size="12.5" fill="#334155">constTiles + assignments 合并</text>
+<text x="220" y="938" text-anchor="middle" font-size="12.5" fill="#334155">generateReplayCode → v4 ReplayCode</text><rect x="820" y="484" width="360" height="60" rx="10" fill="#fee2e2" stroke="#dc2626" stroke-width="1.6"/>
+<text x="1000" y="510" text-anchor="middle" font-size="15" font-weight="700" fill="#dc2626">❌ 400 拒绝</text>
+<text x="1000" y="532" text-anchor="middle" font-size="12.5" fill="#334155">注入与地形摆放矛盾</text><rect x="820" y="588" width="360" height="60" rx="10" fill="#ccfbf1" stroke="#0d9488" stroke-width="1.6"/>
+<text x="1000" y="614" text-anchor="middle" font-size="15" font-weight="700" fill="#0d9488">✓ 一致</text>
+<text x="1000" y="636" text-anchor="middle" font-size="12.5" fill="#334155">进入一关组合表示</text><rect x="400" y="972" width="400" height="104" rx="10" fill="#e0e7ff" stroke="#4f46e5" stroke-width="1.6"/>
+<text x="600" y="998" text-anchor="middle" font-size="15" font-weight="700" fill="#4f46e5">formatBoardSpec</text>
+<text x="600" y="1020" text-anchor="middle" font-size="12.5" fill="#334155">ReplayCode + 机制</text>
+<text x="600" y="1038" text-anchor="middle" font-size="12.5" fill="#334155">→「code@31:3,39:2」</text>
+<text x="600" y="1056" text-anchor="middle" font-size="12.5" fill="#334155">（一关组合表示，ReplayCode 不变）</text><rect x="400" y="1084" width="400" height="76" rx="10" fill="#e0e7ff" stroke="#4f46e5" stroke-width="1.6"/>
+<text x="600" y="1110" text-anchor="middle" font-size="15" font-weight="700" fill="#4f46e5">parseBoardSpec</text>
+<text x="600" y="1132" text-anchor="middle" font-size="12.5" fill="#334155">反解回 replayCode + mechanics</text><rect x="40" y="1196" width="300" height="84" rx="10" fill="#ffedd5" stroke="#ea580c" stroke-width="1.6"/>
+<text x="190" y="1222" text-anchor="middle" font-size="15" font-weight="700" fill="#ea580c">decodeFromString + createGame</text>
+<text x="190" y="1244" text-anchor="middle" font-size="12.5" fill="#334155">terrain + 花色 + 初始Dock</text>
+<text x="190" y="1262" text-anchor="middle" font-size="12.5" fill="#334155">+ 机制配置 → OfflineGame</text><rect x="380" y="1196" width="300" height="84" rx="10" fill="#ffedd5" stroke="#ea580c" stroke-width="1.6"/>
+<text x="530" y="1222" text-anchor="middle" font-size="15" font-weight="700" fill="#ea580c">玩家点击序列 / 求解器</text>
+<text x="530" y="1244" text-anchor="middle" font-size="12.5" fill="#334155">clone 分支</text>
+<text x="530" y="1262" text-anchor="middle" font-size="12.5" fill="#334155">mechanics.copyFrom</text><rect x="720" y="1196" width="300" height="84" rx="10" fill="#ffedd5" stroke="#ea580c" stroke-width="1.6"/>
+<text x="870" y="1222" text-anchor="middle" font-size="15" font-weight="700" fill="#ea580c">OfflineGame.collect</text>
+<text x="870" y="1244" text-anchor="middle" font-size="12.5" fill="#334155">逐动作推进</text>
+<text x="870" y="1262" text-anchor="middle" font-size="12.5" fill="#334155">机制步骤同步应用</text><rect x="1060" y="1196" width="300" height="84" rx="10" fill="#fae8ff" stroke="#c026d3" stroke-width="1.6"/>
+<text x="1210" y="1222" text-anchor="middle" font-size="15" font-weight="700" fill="#c026d3">MechanicEngine</text>
+<text x="1210" y="1244" text-anchor="middle" font-size="12.5" fill="#334155">onMatch · tick</text>
+<text x="1210" y="1262" text-anchor="middle" font-size="12.5" fill="#334155">STEP_APPLIERS 分发</text><rect x="40" y="1320" width="1020" height="64" rx="10" fill="#ccfbf1" stroke="#0d9488" stroke-width="1.6"/>
+<text x="550" y="1350" text-anchor="middle" font-size="12.5" fill="#334155">结果：过关 / 卡死 · mechanicLog 步骤日志 · 与 Unity 逐位对齐（重放验证 / golden）</text><path d="M 220 168 L 220 216" fill="none" stroke="#0284c7" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 600 168 L 600 216" fill="none" stroke="#0284c7" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 1000 168 L 1000 216" fill="none" stroke="#c026d3" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 400 252 L 440 252" fill="none" stroke="#0284c7" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 600 288 L 600 336" fill="none" stroke="#0284c7" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 760 378 L 820 378" fill="none" stroke="#0284c7" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="737.5" y="361" width="105" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="790" y="376" text-anchor="middle" font-size="11.5" fill="#475569">tile 汇总</text><path d="M 1000 288 L 1000 336" fill="none" stroke="#c026d3" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 980 440 L 980 484" fill="none" stroke="#dc2626" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="953.5" y="451" width="53" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="980" y="466" text-anchor="middle" font-size="11.5" fill="#475569">不一致</text><path d="M 1020 440 L 1020 588" fill="none" stroke="#0d9488" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="1000" y="503" width="40" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="1020" y="518" text-anchor="middle" font-size="11.5" fill="#475569">一致</text><path d="M 600 168 L 600 430 L 400 430 L 400 484" fill="none" stroke="#16a34a" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="480" y="413" width="40" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="500" y="428" text-anchor="middle" font-size="11.5" fill="#475569">参数</text><path d="M 440 252 L 300 252 L 300 484" fill="none" stroke="#16a34a" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 220 544 L 125 588" fill="none" stroke="#16a34a" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 220 544 L 315 588" fill="none" stroke="#16a34a" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 220 544 L 125 668" fill="none" stroke="#16a34a" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 220 544 L 315 668" fill="none" stroke="#16a34a" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 125 648 L 125 772" fill="none" stroke="#16a34a" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 315 648 L 315 772" fill="none" stroke="#16a34a" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 125 728 L 125 772" fill="none" stroke="#16a34a" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 315 728 L 315 772" fill="none" stroke="#16a34a" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 220 832 L 220 872" fill="none" stroke="#16a34a" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 400 914 L 520 914 L 520 972" fill="none" stroke="#4f46e5" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="388" y="897" width="144" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="460" y="912" text-anchor="middle" font-size="11.5" fill="#475569">ReplayCode</text><path d="M 1180 618 L 1180 900 L 600 900 L 600 972" fill="none" stroke="#4f46e5" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="857" y="883" width="66" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="890" y="898" text-anchor="middle" font-size="11.5" fill="#475569">机制配置</text><path d="M 600 1076 L 600 1084" fill="none" stroke="#4f46e5" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 560 1160 L 560 1175 L 190 1175 L 190 1196" fill="none" stroke="#ea580c" stroke-width="1.8" marker-end="url(#arr)"/>
+<rect x="342" y="1158" width="66" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.8"/>
+<text x="375" y="1173" text-anchor="middle" font-size="11.5" fill="#475569">完整关卡</text><path d="M 340 1238 L 380 1238" fill="none" stroke="#ea580c" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 680 1238 L 720 1238" fill="none" stroke="#ea580c" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 1020 1238 L 1060 1238" fill="none" stroke="#ea580c" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 190 1280 L 190 1320" fill="none" stroke="#0d9488" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 530 1280 L 530 1320" fill="none" stroke="#0d9488" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 870 1280 L 870 1320" fill="none" stroke="#0d9488" stroke-width="1.8" marker-end="url(#arr)"/><path d="M 1210 1280 L 1210 1320" fill="none" stroke="#0d9488" stroke-width="1.8" marker-end="url(#arr)"/></svg>

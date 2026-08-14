@@ -14,7 +14,7 @@ import {
   decodeFromString,
   computeAllDependencies,
 } from '../../src/index.js';
-import { OfflineGame, solveDFS, solveDeathCheckpoint, OfflineTile } from '../../src/solver/index.js';
+import { solveDFS, solveDeathCheckpoint } from '../../src/solver/index.js';
 import { analyzeTriples, filterGraphData, getTripleDetail } from '../../tools/dag/triple-analyzer.js';
 import { buildEliminationPlan } from '../../tools/planning/elimination-plan.js';
 import {
@@ -24,6 +24,7 @@ import {
   defaultLevelsDir,
   findTerrainByLevelHash,
   resolveTerrainPath,
+  buildGameFromReplay,
   json,
   parseBody,
 } from './runtime.js';
@@ -318,50 +319,14 @@ export async function handleDfsVerify(req: IncomingMessage, res: ServerResponse,
   if (url.pathname !== '/api/dfs-verify' || req.method !== 'POST') return false;
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, terrainPath, timeout, mode, maxReviveSearch: _maxReviveSearch } = body as {
+      const { replayCode, levelId, levelsDir, terrainPath, timeout, mode, maxReviveSearch: _maxReviveSearch, mechanics, mechanicSeed } = body as {
         replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string;
-        timeout?: number; mode?: string; maxReviveSearch?: number;
+        timeout?: number; mode?: string; maxReviveSearch?: number; mechanics?: string; mechanicSeed?: number;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
 
-      // 解析 ReplayCode → 获取花色分配
-      const replayData = decodeFromString(replayCode);
-      if (!replayData) throw new Error('ReplayCode 解码失败');
-
-      // 加载地形
-      let path: string | null = null;
-      if (replayData.levelHash !== 0n) {
-        const hashStr = replayData.levelHash.toString(16).padStart(16, '0');
-        path = findTerrainByLevelHash(hashStr, levelsDir || defaultLevelsDir);
-      }
-      if (!path && (terrainPath || levelId)) {
-        path = resolveTerrainPath(levelId, levelsDir, terrainPath);
-      }
-      if (!path) throw new Error('无法解析地形（需要 levelId 或有效的 ReplayCode）');
-
-      const terrain = loadTerrainFromFile(path);
-      const allTiles = getAllTiles(terrain);
-      const ordered = getCanonicalTileOrder(allTiles);
-
-      // 构建 OfflineTile 列表
-      const offlineTiles: OfflineTile[] = [];
-      for (let i = 0; i < ordered.length && i < replayData.instanceArray.length; i++) {
-        const tile = ordered[i];
-        const b = replayData.instanceArray[i];
-        const elemValue = (b & 0x3F) + 1;
-        const ot = new OfflineTile({
-          id: tile.id,
-          layer: tile.layer,
-          dependencies: tile.dependencies,
-          isConst: tile.isConst,
-          constElementValue: tile.constElementValue,
-          posX: tile.posX,
-          posY: tile.posY,
-        }, elemValue);
-        offlineTiles.push(ot);
-      }
-
-      const game = new OfflineGame(offlineTiles, terrain.terrainStructures);
+      // 构建完整对局（花色来自 code，挂件来自地形/机制分配；复用模拟侧装载器）
+      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath, mechanics, mechanicSeed);
       const tMs = (timeout || 10) * 1000;
 
       if (mode === 'revive') {

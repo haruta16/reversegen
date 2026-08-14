@@ -15,7 +15,10 @@ import { MechanicEngine, tileExtrasFromTerrain } from '../mechanics/engine.js';
 import { STEP_APPLIERS } from '../mechanics/step-appliers.js';
 import { applyDecayStep, onTileCollected } from '../mechanics/extras.js';
 import type { MechanicStep, MechanicStepRecord } from '../mechanics/types.js';
+import { serializeMechanicCounts, splitMechanicConfig } from '../mechanics/spec.js';
+import { assignTileExtras, deriveAssignSeed } from '../mechanics/assigner.js';
 import { MAX_DOCK_SLOTS } from '../constants.js';
+import { logger } from '../logger.js';
 
 // ═══════════════════════════════════════════════════
 //  Game constants
@@ -29,9 +32,7 @@ const TILE_SIZE = 10; // tile is 10×10 units, centered at (posX, posY)
 
 /** OfflineGame 构造选项（机制等可选上下文）。 */
 export interface OfflineGameOptions {
-  /** 关卡 ID（泡泡/魔药的派生种子使用，对齐 Unity battle.levelId） */
-  levelId?: number;
-  /** 关卡资源 ID（对齐 Unity battle.levelResID） */
+  /** 地形资源 ID（机制派生种子基座，对齐 Unity battle.levelResID） */
   levelResId?: number;
   /** 机制配置（extraEnum → 数量/参数，与 Unity extraConfig 同构） */
   mechanicConfig?: Map<number, number>;
@@ -48,9 +49,7 @@ export class OfflineGame {
   discardTiles: OfflineTile[];
   /** Special terrain runtime rules shared by every solver clone. */
   readonly terrainStructures: TerrainStructure[];
-  /** 关卡 ID（派生种子用） */
-  readonly levelId: number;
-  /** 关卡资源 ID（派生种子用） */
+  /** 地形资源 ID（派生种子基座） */
   readonly levelResId: number;
   /** 机制引擎（魔药/泡泡），clone 时深拷贝 */
   readonly mechanics: MechanicEngine;
@@ -75,7 +74,6 @@ export class OfflineGame {
       ...structure,
       tileIds: [...structure.tileIds],
     }));
-    this.levelId = options.levelId ?? 0;
     this.levelResId = options.levelResId ?? 0;
 
     for (const tile of tiles) {
@@ -167,7 +165,6 @@ export class OfflineGame {
         return c;
       });
     const copy = new OfflineGame(tiles, this.terrainStructures, {
-      levelId: this.levelId,
       levelResId: this.levelResId,
     });
     copy.mechanics.copyFrom(this.mechanics);
@@ -614,17 +611,24 @@ export interface GameFactoryInput {
   initialDock?: { tileId: number; element: number }[];
   /** Already-eliminated tile IDs (from replay code instanceArray) */
   eliminatedTileIds?: Set<number>;
-  /** 关卡资源 ID（机制派生种子用，对齐 Unity battle.levelResID） */
+  /** 地形资源 ID（机制派生种子基座，对齐 Unity battle.levelResID） */
   levelResId?: number;
+  /** ReplayCode 字符串（用于派生分配种子；缺省时为纯机制哈希） */
+  replayCode?: string;
   /** 机制配置（extraEnum → 数量/参数，与 Unity extraConfig 同构） */
   mechanicConfig?: Map<number, number>;
+  /**
+   * 机制分配种子（调试显式覆盖）。缺省 = deriveAssignSeed(replayCode, mechanicConfig)，
+   * 即「地形+replay+机制」的纯函数，零协调。
+   */
+  mechanicSeed?: number;
 }
 
 /**
  * Create an OfflineGame from terrain + assigned colors + replay data.
  */
 export function createGame(input: GameFactoryInput): OfflineGame {
-  const { terrainTiles, terrainStructures, elementValues, initialDock, eliminatedTileIds, levelResId, mechanicConfig } = input;
+  const { terrainTiles, terrainStructures, elementValues, initialDock, eliminatedTileIds, levelResId, replayCode, mechanicConfig, mechanicSeed } = input;
 
   const tiles: OfflineTile[] = terrainTiles.map(tt => {
     const config: TileConfig = {
@@ -637,25 +641,42 @@ export function createGame(input: GameFactoryInput): OfflineGame {
       posY: tt.posY,
       extras: tileExtrasFromTerrain(tt.extraEnum, tt.extraParam),
     };
-    const ev = elementValues.get(tt.id) ?? 1;
-    const tile = new OfflineTile(config, ev);
-
-    // Apply initial pile type
-    if (initialDock) {
-      const dockEntry = initialDock.find(d => d.tileId === tt.id);
-      if (dockEntry) {
-        tile.pileType = PileType.Dock;
-        tile.elementValue = dockEntry.element;
-      }
-    }
-    if (eliminatedTileIds?.has(tt.id)) {
-      tile.pileType = PileType.Discard;
-    }
-
-    return tile;
+    return new OfflineTile(config, elementValues.get(tt.id) ?? 1);
   });
 
-  return new OfflineGame(tiles, terrainStructures, { levelId: levelResId ?? 0, levelResId, mechanicConfig });
+  // ── 装载期机制分配（对齐 Unity LoadLevel/ApplyExtraConfig：先花色后挂件、只分非 const 牌） ──
+  // 分配在 Dock/消除状态应用之前进行，全部 tile 为 Desk——与 Unity FixedReplayCode
+  // （SetElementValue → ApplyExtraConfig → dockEntries/Eliminated）的装载顺序一致。
+  // 泡泡(39)=行为参数交给 MechanicEngine；大型地形(51-53)=棋盘级注入未接入；其余为分配请求。
+  let bubbleConfig: Map<number, number> | undefined;
+  if (mechanicConfig && mechanicConfig.size > 0) {
+    const { bubble, assignable, boardSpecial } = splitMechanicConfig(mechanicConfig);
+    bubbleConfig = bubble;
+    if (boardSpecial.size > 0) {
+      logger.warn(`大型地形注入(51-53)未接入，已忽略: ${serializeMechanicCounts(boardSpecial)}`);
+    }
+    if (assignable.size > 0) {
+      assignTileExtras(tiles, assignable, mechanicSeed ?? deriveAssignSeed(replayCode ?? '', mechanicConfig));
+    }
+  }
+
+  // Apply initial pile type（对齐 Unity：Dock/已消除状态在花色与挂件之后装载）
+  if (initialDock || eliminatedTileIds) {
+    for (const tile of tiles) {
+      if (initialDock) {
+        const dockEntry = initialDock.find(d => d.tileId === tile.id);
+        if (dockEntry) {
+          tile.pileType = PileType.Dock;
+          tile.elementValue = dockEntry.element;
+        }
+      }
+      if (eliminatedTileIds?.has(tile.id)) {
+        tile.pileType = PileType.Discard;
+      }
+    }
+  }
+
+  return new OfflineGame(tiles, terrainStructures, { levelResId, mechanicConfig: bubbleConfig });
 }
 
 // ═══════════════════════════════════════════════════════════════

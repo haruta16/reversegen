@@ -227,7 +227,7 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
       const mechanicsText = typeof mechanics === 'string' ? mechanics.trim() : '';
       const requestedMechanics = mechanicsText ? parseMechanicCounts(mechanicsText) : new Map<number, number>();
       const terrainExtras = countTerrainExtras(allTiles);
-      const mechanicsErrors = validateMechanicCounts(requestedMechanics, terrainExtras);
+      const mechanicsErrors = validateMechanicCounts(requestedMechanics);
       if (mechanicsErrors.length > 0) {
         json(res, { ok: false, error: `机制配置无效: ${mechanicsErrors.map(e => e.message).join('; ')}` }, 400);
         return true;

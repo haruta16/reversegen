@@ -10,6 +10,7 @@ import { DotNetRandom } from '../tile-explorer/random.js';
 import type { OfflineGame } from '../solver/offline-game.js';
 import { OfflineTile, PileType, TileFlag } from '../solver/types.js';
 import { computeVisibleMatchGroups } from '../solver/solver-player.js';
+import { mul397 } from './seed.js';
 import {
   DANDELION_CONSTANTS,
   DANDELION_SINGLE_GROUP_PROBABILITY,
@@ -20,24 +21,6 @@ import {
   mechanicInfo,
 } from './registry.js';
 import type { TileExtra } from './types.js';
-
-// ═══════════════════════════════════════════════════════════
-//  派生种子（ExtraDeterministicRandom 同公式，两侧一致）
-// ═══════════════════════════════════════════════════════════
-
-function mul397(value: number): number {
-  return (value * 397) | 0;
-}
-
-/** 战场派生种子：levelId*397^levelResID → ^dock数 → ^desk数 → ^步骤数 → ^盐。 */
-export function extraActionSeed(game: OfflineGame, salt: number): number {
-  let seed = mul397(game.levelId) ^ game.levelResId;
-  seed = mul397(seed) ^ game.dockTiles.length;
-  seed = mul397(seed) ^ game.deskTiles.length;
-  seed = mul397(seed) ^ game.actionCount;
-  seed = mul397(seed) ^ salt;
-  return seed | 0;
-}
 
 // ═══════════════════════════════════════════════════════════
 //  挂件运行时状态初始化与通用判定
@@ -392,20 +375,6 @@ export function selectGiftBoxMagicBottleGroups(game: OfflineGame, rngSeed: numbe
 export interface ShufflePacket {
   elementValue: number;
   valueExtras: TileExtra[];
-}
-
-/** 洗牌种子：Desk/Dock 状态派生（tile 按 ID 升序），与 Unity ShuffleAlgo.CreateShuffleSeed 一致。 */
-export function shuffleBoardSeed(game: OfflineGame): number {
-  let seed = 0x5a5a5a5a;
-  for (const tile of [...game.deskTiles].sort((a, b) => a.id - b.id)) {
-    seed = mul397(seed) ^ tile.id;
-    seed = mul397(seed) ^ tile.elementValue;
-  }
-  for (const tile of [...game.dockTiles].sort((a, b) => a.id - b.id)) {
-    seed = mul397(seed) ^ tile.id;
-    seed = mul397(seed) ^ tile.elementValue;
-  }
-  return seed | 0;
 }
 
 /** 依赖优先洗牌（策略2）：值挂件随花色包移动；泡泡等非值挂件留在原 tile。 */

@@ -13,9 +13,12 @@ import {
   getAllTiles,
   getCanonicalTileOrder,
   decodeFromString,
+  buildReplayElementMap,
+  mapReplayElementValue,
+  parseMechanicCounts,
 } from '../../src/index.js';
 import type { GradeConfig, GradeStrategy1Config } from '../../src/index.js';
-import { OfflineGame, OfflineTile } from '../../src/solver/index.js';
+import { OfflineGame, createGame } from '../../src/solver/index.js';
 import { analyzeTriples } from '../../tools/dag/triple-analyzer.js';
 
 const ANALYSIS_CACHE_MAX = 50;
@@ -212,12 +215,18 @@ export function listLevels(dir: string): Array<{ id: number; name: string; tiles
 }
 
 
-/** 从 ReplayCode + 关卡信息构建 OfflineGame 实例（玩家模拟类求解器共用）。 */
+/**
+ * 从 ReplayCode + 关卡信息构建 OfflineGame 实例（玩家模拟类求解器共用）。
+ * 即"结果"组装点：花色来自 code，挂件来自地形静态摆放 + 机制分配器
+ * （extraConfig 分配请求 + mechanicSeed，对齐 Unity FixedReplayCode 装载顺序）。
+ */
 export function buildGameFromReplay(
   replayCode: string,
   levelId?: string,
   levelsDir?: string,
   terrainPath?: string,
+  mechanicsText?: string,
+  mechanicSeed?: number,
 ): { game: OfflineGame; totalTiles: number } {
   const replayData = decodeFromString(replayCode);
   if (!replayData) throw new Error('ReplayCode 解码失败');
@@ -237,28 +246,27 @@ export function buildGameFromReplay(
   const allTiles = getAllTiles(terrain);
   const ordered = getCanonicalTileOrder(allTiles);
 
-  // 构建 OfflineTile 列表
-  const offlineTiles: OfflineTile[] = [];
+  // 花色来自 ReplayCode：归一化 → 真实花色（const 牌钉回固定值，对齐 Unity BuildReplayElementMap）
+  const elementMap = buildReplayElementMap(ordered, replayData.instanceArray, replayData.elementCount);
+  const elementValues = new Map<number, number>();
   for (let i = 0; i < ordered.length && i < replayData.instanceArray.length; i++) {
-    const tile = ordered[i];
-    const b = replayData.instanceArray[i];
-    const elemValue = (b & 0x3F) + 1;
-    const ot = new OfflineTile({
-      id: tile.id,
-      layer: tile.layer,
-      dependencies: tile.dependencies,
-      isConst: tile.isConst,
-      constElementValue: tile.constElementValue,
-      posX: tile.posX,
-      posY: tile.posY,
-    }, elemValue);
-    offlineTiles.push(ot);
+    const normValue = (replayData.instanceArray[i] & 0x3f) + 1;
+    elementValues.set(ordered[i].id, mapReplayElementValue(normValue, elementMap));
   }
+  const mechanics = mechanicsText && mechanicsText.trim()
+    ? parseMechanicCounts(mechanicsText)
+    : undefined;
 
-  return {
-    game: new OfflineGame(offlineTiles, terrain.terrainStructures),
-    totalTiles: offlineTiles.length,
-  };
+  const game = createGame({
+    terrainTiles: ordered,
+    terrainStructures: terrain.terrainStructures,
+    elementValues,
+    levelResId: terrain.levelResId,
+    replayCode,
+    mechanicConfig: mechanics,
+    mechanicSeed,
+  });
+  return { game, totalTiles: ordered.length };
 }
 
 // ── Grade Config ──

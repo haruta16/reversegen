@@ -58,12 +58,13 @@ export async function handleGradeCalculate(req: IncomingMessage, res: ServerResp
   if (url.pathname !== '/api/grade/calculate' || req.method !== 'POST') return false;
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, terrainPath, runs, strategy } = body as {
+      const { replayCode, levelId, levelsDir, terrainPath, runs, strategy, mechanics, mechanicSeed } = body as {
         replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string; runs?: number; strategy?: string;
+        mechanics?: string; mechanicSeed?: number;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
 
-      const { game: gam } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath);
+      const { game: gam } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath, mechanics, mechanicSeed);
       const useStrategy1 = strategy === 'strategy1';
       const useStrategy2 = strategy === 'strategy2';
       const cfg = (useStrategy1 || useStrategy2) ? getGradeStrategy1Config() : getGradeConfig();
@@ -131,8 +132,9 @@ export async function handleGradeValidate(req: IncomingMessage, res: ServerRespo
   if (url.pathname !== '/api/grade/validate' || req.method !== 'POST') return false;
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, terrainPath, runs, targetGrade, strategy } = body as {
+      const { replayCode, levelId, levelsDir, terrainPath, runs, targetGrade, strategy, mechanics, mechanicSeed } = body as {
         replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string; runs?: number; targetGrade?: number; strategy?: string;
+        mechanics?: string; mechanicSeed?: number;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
       const useStrategy1 = strategy === 'strategy1';
@@ -142,7 +144,7 @@ export async function handleGradeValidate(req: IncomingMessage, res: ServerRespo
         throw new Error(`targetGrade 需为 0-${maxGrade} 的整数`);
       }
 
-      const { game: gam } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath);
+      const { game: gam } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath, mechanics, mechanicSeed);
       const cfg = (useStrategy1 || useStrategy2) ? getGradeStrategy1Config() : getGradeConfig();
       const simRuns = runs ?? cfg.defaultRuns;
 

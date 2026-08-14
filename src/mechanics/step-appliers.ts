@@ -10,7 +10,8 @@
 import type { OfflineGame } from '../solver/offline-game.js';
 import { TileFlag } from '../solver/types.js';
 import type { MechanicStep } from './types.js';
-import { initExtraState, shuffleBoard, shuffleBoardSeed } from './extras.js';
+import { initExtraState, shuffleBoard } from './extras.js';
+import { shuffleBoardSeed } from './seed.js';
 
 export type StepApplier = (game: OfflineGame, step: MechanicStep) => void;
 

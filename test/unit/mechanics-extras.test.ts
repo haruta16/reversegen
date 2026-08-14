@@ -14,9 +14,8 @@ import {
   selectRandomTiles,
   giftBoxConvertibleGroups,
   shuffleBoard,
-  shuffleBoardSeed,
-  extraActionSeed,
 } from '../../src/mechanics/extras.js';
+import { shuffleBoardSeed, extraActionSeed } from '../../src/mechanics/seed.js';
 import { GIFTBOX_EFFECTS } from '../../src/index.js';
 
 function mk(id: number, color: number, extras: { extraEnum: number; extraParam: string }[] = []) {
@@ -27,7 +26,7 @@ function mk(id: number, color: number, extras: { extraEnum: number; extraParam: 
 
 test('衰减挂件：Init 参数解析与每步衰减（黄金不跳过魔药步）', () => {
   const tiles = [mk(1, 1, [{ extraEnum: 4, extraParam: '04' }]), mk(2, 1), mk(3, 1), mk(4, 2), mk(5, 2), mk(6, 2)];
-  const game = new OfflineGame(tiles, [], { levelId: 1, levelResId: 1 });
+  const game = new OfflineGame(tiles, [], { levelResId: 1 });
   const golden = game.allTiles.get(1)!.extras[0];
   assert.equal(golden.countdown, 4, 'param[1] = 4');
   assert.equal(golden.isValidCollect, false);
@@ -45,7 +44,7 @@ test('衰减挂件：日历/复活节跳过魔药清除步骤', () => {
     mk(2, 1, [{ extraEnum: 6, extraParam: '04' }]), // 日历
     mk(3, 1), mk(4, 2), mk(5, 2), mk(6, 2),
   ];
-  const game = new OfflineGame(tiles, [], { levelId: 1, levelResId: 1 });
+  const game = new OfflineGame(tiles, [], { levelResId: 1 });
   const easter = game.allTiles.get(1)!.extras[0];
   const calendar = game.allTiles.get(2)!.extras[0];
   applyDecayStep(game, 'magic-bottle-clear');
@@ -74,14 +73,14 @@ test('订单挂件：收集即 consumed', () => {
 
 test('蒲公英扩散目标：白名单 + 派生种子 golden', () => {
   const tiles = Array.from({ length: 18 }, (_, i) => mk(i + 1, (i % 3) + 1));
-  const game = new OfflineGame(tiles, [], { levelId: 9, levelResId: 300 });
+  const game = new OfflineGame(tiles, [], { levelResId: 300 });
   const targets = selectDandelionTargets(game, extraActionSeed(game, 36));
-  assert.deepEqual(targets.map(t => t.id), [1, 7, 10], 'golden 锁定（种子派生）');
+  assert.deepEqual(targets.map(t => t.id), [8, 11, 17], 'golden 锁定（种子派生）');
   // 白名单：带泡泡挂件的 tile 不可扩散（39 不在白名单）
   const g2 = new OfflineGame([
     mk(1, 1, [{ extraEnum: 39, extraParam: '' }]), mk(2, 1), mk(3, 1),
     mk(4, 2), mk(5, 2), mk(6, 2), mk(7, 3), mk(8, 3), mk(9, 3),
-  ], [], { levelId: 9, levelResId: 300 });
+  ], [], { levelResId: 300 });
   for (const target of selectDandelionTargets(g2, 123)) {
     assert.ok(!target.extras.some(e => e.extraEnum === 39), '泡泡牌不可扩散');
   }
@@ -95,15 +94,15 @@ test('蒲公英三消判定：至少 3 张蒲公英参与', () => {
 
 test('礼盒效果：可用性过滤与加权滚动 golden', () => {
   const tiles = Array.from({ length: 18 }, (_, i) => mk(i + 1, (i % 3) + 1));
-  const game = new OfflineGame(tiles, [], { levelId: 9, levelResId: 300 });
+  const game = new OfflineGame(tiles, [], { levelResId: 300 });
   // Dock 空：DockAllMagicWand 不可用；无问号：RevealUnknown 不可用；全可点击：ApplyFlip 不可用
   assert.deepEqual(giftBoxAvailableEffects(game), [
     GIFTBOX_EFFECTS.AddDockSlot, GIFTBOX_EFFECTS.Shuffle, GIFTBOX_EFFECTS.MagicWand,
     GIFTBOX_EFFECTS.ApplyMagicBottle, GIFTBOX_EFFECTS.ApplyUnknown,
   ]);
-  assert.equal(rollGiftBoxEffect(game, extraActionSeed(game, 3700)), GIFTBOX_EFFECTS.ApplyUnknown, 'golden 滚动');
+  assert.equal(rollGiftBoxEffect(game, extraActionSeed(game, 3700)), GIFTBOX_EFFECTS.AddDockSlot, 'golden 滚动');
   // 确定性
-  assert.equal(rollGiftBoxEffect(game, extraActionSeed(game, 3700)), GIFTBOX_EFFECTS.ApplyUnknown);
+  assert.equal(rollGiftBoxEffect(game, extraActionSeed(game, 3700)), GIFTBOX_EFFECTS.AddDockSlot);
 });
 
 test('魔法棒目标：Dock 最多花色定向收集 golden', () => {
@@ -117,7 +116,7 @@ test('魔法棒目标：Dock 最多花色定向收集 golden', () => {
 
 test('礼盒随机选牌：GetRandomCount + 稳定排序 golden 与确定性', () => {
   const tiles = Array.from({ length: 12 }, (_, i) => mk(i + 1, (i % 4) + 1));
-  const game = new OfflineGame(tiles, [], { levelId: 2, levelResId: 2 });
+  const game = new OfflineGame(tiles, [], { levelResId: 2 });
   const pick = selectRandomTiles(game.deskTiles, 3, 4, extraActionSeed(game, 3701));
   assert.equal(pick.length, 3);
   const pick2 = selectRandomTiles(game.deskTiles, 3, 4, extraActionSeed(game, 3701));
@@ -164,7 +163,7 @@ test('礼盒端到端：三消触发 → mechanicLog 含礼盒步骤（确定性
       mk(2, 1), mk(3, 1),
       ...Array.from({ length: 15 }, (_, i) => mk(4 + i, (i % 3) + 2)),
     ];
-    return new OfflineGame(tiles, [], { levelId: 3, levelResId: 3 });
+    return new OfflineGame(tiles, [], { levelResId: 3 });
   };
   const run = () => {
     const game = build();

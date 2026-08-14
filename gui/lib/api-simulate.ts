@@ -16,13 +16,13 @@ export async function handlePlayerSim(req: IncomingMessage, res: ServerResponse,
   if (url.pathname !== '/api/player-sim' || req.method !== 'POST') return false;
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, terrainPath, runs } = body as {
-        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string;
+      const { replayCode, levelId, levelsDir, terrainPath, runs, mechanics, mechanicSeed } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string; mechanics?: string; mechanicSeed?: number;
         runs?: number;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
 
-      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath);
+      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath, mechanics, mechanicSeed);
       const simRuns = runs ?? 100;
       const baseSeed = Date.now() & 0x7fffffff;
 
@@ -53,13 +53,13 @@ export async function handlePlayerSimShortest(req: IncomingMessage, res: ServerR
   if (url.pathname !== '/api/player-sim-shortest' || req.method !== 'POST') return false;
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, terrainPath, runs } = body as {
-        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string;
+      const { replayCode, levelId, levelsDir, terrainPath, runs, mechanics, mechanicSeed } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string; mechanics?: string; mechanicSeed?: number;
         runs?: number;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
 
-      const { game, totalTiles } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath);
+      const { game, totalTiles } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath, mechanics, mechanicSeed);
       const simRuns = runs ?? 100;
       const baseSeed = Date.now() & 0x7fffffff;
       const result = solvePlayerShortestBatch(game, simRuns, baseSeed);
@@ -120,13 +120,13 @@ export async function handlePlayerSimRisky(req: IncomingMessage, res: ServerResp
   if (url.pathname !== '/api/player-sim-risky' || req.method !== 'POST') return false;
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, terrainPath, runs, riskThreshold } = body as {
-        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string;
+      const { replayCode, levelId, levelsDir, terrainPath, runs, riskThreshold, mechanics, mechanicSeed } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string; mechanics?: string; mechanicSeed?: number;
         runs?: number; riskThreshold?: number;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
 
-      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath);
+      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath, mechanics, mechanicSeed);
       const simRuns = runs ?? 100;
       const baseSeed = Date.now() & 0x7fffffff;
 
@@ -158,14 +158,14 @@ export async function handlePlayerSimCostcap(req: IncomingMessage, res: ServerRe
   if (url.pathname !== '/api/player-sim-costcap' || req.method !== 'POST') return false;
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, terrainPath, runs, maxCost } = body as {
-        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string;
+      const { replayCode, levelId, levelsDir, terrainPath, runs, maxCost, mechanics, mechanicSeed } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string; mechanics?: string; mechanicSeed?: number;
         runs?: number; maxCost?: number;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
       if (maxCost == null || maxCost < 1) throw new Error('请提供有效的成本上限 (maxCost ≥ 1)');
 
-      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath);
+      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath, mechanics, mechanicSeed);
       const simRuns = runs ?? 100;
       const baseSeed = Date.now() & 0x7fffffff;
 
@@ -197,8 +197,8 @@ export async function handlePlayerSimMistake(req: IncomingMessage, res: ServerRe
   if (url.pathname !== '/api/player-sim-mistake' || req.method !== 'POST') return false;
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, terrainPath, runs, mistakeRate } = body as {
-        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string;
+      const { replayCode, levelId, levelsDir, terrainPath, runs, mistakeRate, mechanics, mechanicSeed } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string; mechanics?: string; mechanicSeed?: number;
         runs?: number; mistakeRate?: number;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
@@ -206,7 +206,7 @@ export async function handlePlayerSimMistake(req: IncomingMessage, res: ServerRe
         throw new Error('失误率需在 0.0 ~ 1.0 之间');
       }
 
-      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath);
+      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath, mechanics, mechanicSeed);
       const simRuns = runs ?? 100;
       const baseSeed = Date.now() & 0x7fffffff;
 
