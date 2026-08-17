@@ -24,13 +24,30 @@ export function battleBaseSeed(game: OfflineGame): number {
 }
 
 /** 共享战场派生种子：基座 → ^dock数 → ^desk数 → ^步骤数 → ^盐（对齐 ExtraDeterministicRandom.CreateSeed）。 */
-export function extraActionSeed(game: OfflineGame, salt: number): number {
-  let seed = battleBaseSeed(game);
-  seed = mul397(seed) ^ game.dockTiles.length;
-  seed = mul397(seed) ^ game.deskTiles.length;
-  seed = mul397(seed) ^ game.actionCount;
+export function extraActionSeedFromCounts(
+  levelResId: number,
+  dockCount: number,
+  deskCount: number,
+  actionCount: number,
+  salt: number,
+): number {
+  let seed = levelResId | 0;
+  seed = mul397(seed) ^ dockCount;
+  seed = mul397(seed) ^ deskCount;
+  seed = mul397(seed) ^ actionCount;
   seed = mul397(seed) ^ salt;
   return seed | 0;
+}
+
+/** 共享战场派生种子：从 OfflineGame 当前状态读取（对齐 ExtraDeterministicRandom.CreateSeed）。 */
+export function extraActionSeed(game: OfflineGame, salt: number): number {
+  return extraActionSeedFromCounts(
+    game.levelResId,
+    game.dockTiles.length,
+    game.deskTiles.length,
+    game.actionCount,
+    salt,
+  );
 }
 
 /** 魔药索敌洗牌种子（对齐 MagicBottleExtra.CreateShuffleRandomSeed，无步骤项）。 */

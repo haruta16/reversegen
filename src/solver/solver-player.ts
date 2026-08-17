@@ -17,6 +17,7 @@
 
 import { OfflineGame } from './offline-game.js';
 import { OfflineTile, PileType, TileFlag } from './types.js';
+import type { TileExtra } from '../mechanics/types.js';
 import { mulberry32 } from '../random-utils.js';
 
 // ── 内部类型 ──
@@ -31,6 +32,24 @@ export interface MatchGroup {
   totalCost: number;
   /** 依赖路径上的牌 ID 集合（含 match tiles 自身） */
   path: Set<number>;
+}
+
+/** 蒲公英使用的 AnalyzerMgr 旧快照：Tile 只读快照，避免后续 collect 修改原始对象。 */
+export interface AnalyzerTileSnapshot {
+  id: number;
+  elementValue: number;
+  pileType: PileType;
+  flags: number;
+  extras: TileExtra[];
+  runtimeDependencies: number[];
+}
+
+/** 蒲公英使用的 AnalyzerMgr 旧快照组。 */
+export interface AnalyzerGroupSnapshot {
+  color: number;
+  totalCost: number;
+  path: number[];
+  tiles: AnalyzerTileSnapshot[];
 }
 
 /** 单次模拟结果 */
@@ -183,6 +202,70 @@ export function computeVisibleMatchGroups(game: OfflineGame): MatchGroup[] {
   allGroups.sort((a, b) => a.totalCost - b.totalCost);
 
   return allGroups;
+}
+
+/**
+ * Unity TileMatchBattleAnalyzerMgr 等价实现：不要求“当前可见”，
+ * 而是枚举所有非销毁牌按深度取前 9 张后的全部三连组。
+ * 蒲公英 OnMatch 读取的是这个旧 Analyzer 结果，不是 computeVisibleMatchGroups。
+ */
+export function computeAnalyzerMatchGroups(game: OfflineGame): MatchGroup[] {
+  const byColor = new Map<number, OfflineTile[]>();
+  for (const tile of game.allTiles.values()) {
+    if ((tile.flags & TileFlag.Destroyed) !== 0) continue;
+    if (tile.pileType === PileType.Discard) continue;
+    if (tile.elementValue <= 0) continue;
+
+    const list = byColor.get(tile.elementValue);
+    if (list) list.push(tile);
+    else byColor.set(tile.elementValue, [tile]);
+  }
+
+  const allGroups: MatchGroup[] = [];
+
+  for (const [color, tiles] of byColor) {
+    if (tiles.length < 3) continue;
+
+    const sorted = tiles
+      .sort((a, b) => {
+        const aDock = a.pileType === PileType.Dock ? 0 : 1;
+        const bDock = b.pileType === PileType.Dock ? 0 : 1;
+        if (aDock !== bDock) return aDock - bDock;
+        return a.runtimeDependencies.size - b.runtimeDependencies.size;
+      })
+      .slice(0, 9);
+
+    for (let i = 0; i < sorted.length - 2; i++) {
+      for (let j = i + 1; j < sorted.length - 1; j++) {
+        for (let k = j + 1; k < sorted.length; k++) {
+          const matchTiles = [sorted[i], sorted[j], sorted[k]];
+          const { path, totalCost } = calculatePath(matchTiles, game);
+          allGroups.push({ color, tiles: matchTiles, totalCost, path });
+        }
+      }
+    }
+  }
+
+  // Unity Analyzer 最终在 Dandelion 里还会按 cost、首张 ID 再排一次，这里先按 cost 升序。
+  allGroups.sort((a, b) => a.totalCost - b.totalCost);
+  return allGroups;
+}
+
+/** 在 collect 前捕获 AnalyzerMgr 旧快照；返回只读快照，不受后续 collect 修改影响。 */
+export function captureAnalyzerGroups(game: OfflineGame): AnalyzerGroupSnapshot[] {
+  return computeAnalyzerMatchGroups(game).map(group => ({
+    color: group.color,
+    totalCost: group.totalCost,
+    path: [...group.path],
+    tiles: group.tiles.map(tile => ({
+      id: tile.id,
+      elementValue: tile.elementValue,
+      pileType: tile.pileType,
+      flags: tile.flags,
+      extras: tile.extras.map(extra => ({ ...extra })),
+      runtimeDependencies: [...tile.runtimeDependencies],
+    })),
+  }));
 }
 
 /**

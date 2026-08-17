@@ -394,7 +394,7 @@ export { assignTileExtras, AssignerRandom, deriveAssignSeed, EXTRA_ASSIGN_CONFIG
 export type { AssignExtrasSummary, AssignerStrategy } from './mechanics/assigner.js';
 
 // 机制派生种子（统一实现：mul397 / 战场基座 / 共享种子 / 魔药洗牌 / 洗牌）
-export { mul397, battleBaseSeed, extraActionSeed, magicBottleShuffleSeed, shuffleBoardSeed } from './mechanics/seed.js';
+export { mul397, battleBaseSeed, extraActionSeed, extraActionSeedFromCounts, magicBottleShuffleSeed, shuffleBoardSeed } from './mechanics/seed.js';
 
 // 机制引擎（确定性移植）
 export {

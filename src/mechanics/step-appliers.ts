@@ -108,8 +108,13 @@ function makeApplyExtraApplier(extraEnum: number, fixedElementValue: number | nu
 /** 魔法棒：定向收集进 Dock → 结算三消 → 链式 OnMatch。 */
 function applyMagicStep(game: OfflineGame, step: MechanicStep): void {
   if (step.type !== 'magic-step') return;
+  // 链式三消同样要先捕获蒲公英所需的旧 AnalyzerMgr 快照。
+  game.mechanics.capturePreMoveContext();
   game.mechanicMoveToDock(step.tileIds);
   const matched = game.mechanicResolveDockMatch();
+  // 与 Unity 礼盒一致：链式 OnMatch 前先刷新状态。
+  if (!matched) game.mechanics.clearPendingMatchContext();
+  game.updateTilesState();
   if (matched) {
     for (const chainStep of game.mechanics.onMatch(matched)) {
       game.applyMechanicStep(chainStep);

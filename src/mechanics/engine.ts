@@ -16,7 +16,7 @@
 import { DotNetRandom } from '../tile-explorer/random.js';
 import type { OfflineGame } from '../solver/offline-game.js';
 import { OfflineTile, PileType, TileFlag } from '../solver/types.js';
-import { computeVisibleMatchGroups } from '../solver/solver-player.js';
+import { captureAnalyzerGroups, computeAnalyzerMatchGroups, type AnalyzerGroupSnapshot } from '../solver/solver-player.js';
 import {
   selectDandelionTargets,
   isDandelionMatch,
@@ -27,7 +27,7 @@ import {
   selectRandomTiles,
   selectGiftBoxMagicBottleGroups,
 } from './extras.js';
-import { extraActionSeed, magicBottleShuffleSeed, mul397 } from './seed.js';
+import { extraActionSeed, extraActionSeedFromCounts, magicBottleShuffleSeed, mul397 } from './seed.js';
 import {
   BUBBLE_CONSTANTS,
   GIFTBOX_CONSTANTS,
@@ -193,7 +193,8 @@ export function isBubbleAssignCandidate(tile: OfflineTile): boolean {
 
 /** GetElementCost：该花色最佳三连组的 totalCost（无组则 int.MaxValue）。 */
 function bubbleElementCost(game: OfflineGame, elementValue: number): number {
-  const groups = computeVisibleMatchGroups(game).filter(g => g.color === elementValue);
+  // Unity DefaultBubbleTileSelector 每次都会 Analyze()，使用 AnalyzerMgr 的全量候选组。
+  const groups = computeAnalyzerMatchGroups(game).filter(g => g.color === elementValue);
   return groups.length > 0 ? groups[0].totalCost : Number.MAX_SAFE_INTEGER;
 }
 
@@ -274,25 +275,68 @@ export function dockMagicPlan(
 //  三消分发策略表（MATCH_BEHAVIORS）
 // ═══════════════════════════════════════════════════════════
 
-export type MatchBehavior = (game: OfflineGame, matchedTiles: OfflineTile[]) => MechanicStep[];
+/** 一次三消分发时，Unity 实际读取的“非当前最新状态”快照。 */
+export interface MechanicMatchContext {
+  /** collect 前 AnalyzerMgr.MatchGroups 对应的旧候选组快照。 */
+  preMoveGroups?: AnalyzerGroupSnapshot[];
+}
+
+export type MatchBehavior = (
+  game: OfflineGame,
+  matchedTiles: OfflineTile[],
+  context: MechanicMatchContext,
+) => MechanicStep[];
 
 /** 魔药：matchedTiles[0] 带魔药挂件时触发交错清除。 */
-function magicBottleMatchBehavior(game: OfflineGame, matchedTiles: OfflineTile[]): MechanicStep[] {
+function magicBottleMatchBehavior(
+  game: OfflineGame,
+  matchedTiles: OfflineTile[],
+  _context: MechanicMatchContext,
+): MechanicStep[] {
   const step = magicBottleOnMatch(game, matchedTiles);
   return step ? [step] : [];
 }
 
 /** 蒲公英：至少 3 张蒲公英参与本次三消时扩散转化。 */
-function dandelionMatchBehavior(game: OfflineGame, matchedTiles: OfflineTile[]): MechanicStep[] {
+function dandelionMatchBehavior(
+  game: OfflineGame,
+  matchedTiles: OfflineTile[],
+  context: MechanicMatchContext,
+): MechanicStep[] {
   if (!isDandelionMatch(matchedTiles)) return [];
-  const targets = selectDandelionTargets(game, extraActionSeed(game, MECHANIC_SEED_SALTS.DANDELION_TARGETS));
+  // Unity 在 matched 移出 Dock 前同步触发蒲公英：
+  // Dock 数要加回本次匹配的 3 张；步数仍是当前步提交前的 actionCount。
+  const dandelionDockCount = game.dockTiles.length + matchedTiles.length;
+  const rngSeed = extraActionSeedFromCounts(
+    game.levelResId,
+    dandelionDockCount,
+    game.deskTiles.length,
+    game.actionCount,
+    MECHANIC_SEED_SALTS.DANDELION_TARGETS,
+  );
+  const targets = selectDandelionTargets(game, rngSeed, context.preMoveGroups);
   if (targets.length === 0) return [];
   return [{ type: 'dandelion-spread', tileIds: targets.map(t => t.id) }];
 }
 
 /** 礼盒：加权随机效果 → 步骤列表。 */
-function giftBoxMatchBehavior(game: OfflineGame, matchedTiles: OfflineTile[]): MechanicStep[] {
-  const effect = rollGiftBoxEffect(game, extraActionSeed(game, MECHANIC_SEED_SALTS.GIFTBOX_EFFECT));
+function giftBoxMatchBehavior(
+  game: OfflineGame,
+  matchedTiles: OfflineTile[],
+  _context: MechanicMatchContext,
+): MechanicStep[] {
+  // Unity 礼盒在动画后、当前 step 已 Append 后才取随机，因此步数要 +1。
+  const giftboxActionCount = game.actionCount + 1;
+  const effect = rollGiftBoxEffect(
+    game,
+    extraActionSeedFromCounts(
+      game.levelResId,
+      game.dockTiles.length,
+      game.deskTiles.length,
+      giftboxActionCount,
+      MECHANIC_SEED_SALTS.GIFTBOX_EFFECT,
+    ),
+  );
   switch (effect) {
     case GIFTBOX_EFFECTS.AddDockSlot:
       return [{ type: 'giftbox-add-dock-slot' }];
@@ -323,7 +367,13 @@ function giftBoxMatchBehavior(game: OfflineGame, matchedTiles: OfflineTile[]): M
         game.deskTiles.filter(t => !t.hasFlag(TileFlag.Destroyed) && t.extras.length === 0),
         GIFTBOX_CONSTANTS.APPLY_UNKNOWN_MIN_COUNT,
         GIFTBOX_CONSTANTS.APPLY_UNKNOWN_MAX_COUNT,
-        extraActionSeed(game, MECHANIC_SEED_SALTS.GIFTBOX_APPLY_UNKNOWN),
+        extraActionSeedFromCounts(
+          game.levelResId,
+          game.dockTiles.length,
+          game.deskTiles.length,
+          giftboxActionCount,
+          MECHANIC_SEED_SALTS.GIFTBOX_APPLY_UNKNOWN,
+        ),
       );
       return tiles.length > 0 ? [{ type: 'giftbox-apply-unknown', tileIds: tiles.map(t => t.id) }] : [];
     }
@@ -332,12 +382,27 @@ function giftBoxMatchBehavior(game: OfflineGame, matchedTiles: OfflineTile[]): M
         game.deskTiles.filter(t => !t.hasFlag(TileFlag.Destroyed) && t.extras.length === 0 && !t.isClickable),
         GIFTBOX_CONSTANTS.APPLY_FLIP_MIN_COUNT,
         GIFTBOX_CONSTANTS.APPLY_FLIP_MAX_COUNT,
-        extraActionSeed(game, MECHANIC_SEED_SALTS.GIFTBOX_APPLY_FLIP),
+        extraActionSeedFromCounts(
+          game.levelResId,
+          game.dockTiles.length,
+          game.deskTiles.length,
+          giftboxActionCount,
+          MECHANIC_SEED_SALTS.GIFTBOX_APPLY_FLIP,
+        ),
       );
       return tiles.length > 0 ? [{ type: 'giftbox-apply-flip', tileIds: tiles.map(t => t.id) }] : [];
     }
     case GIFTBOX_EFFECTS.ApplyMagicBottle: {
-      const tiles = selectGiftBoxMagicBottleGroups(game, extraActionSeed(game, MECHANIC_SEED_SALTS.GIFTBOX_APPLY_MAGIC_BOTTLE));
+      const tiles = selectGiftBoxMagicBottleGroups(
+        game,
+        extraActionSeedFromCounts(
+          game.levelResId,
+          game.dockTiles.length,
+          game.deskTiles.length,
+          giftboxActionCount,
+          MECHANIC_SEED_SALTS.GIFTBOX_APPLY_MAGIC_BOTTLE,
+        ),
+      );
       return tiles.length > 0 ? [{ type: 'giftbox-apply-magic-bottle', tileIds: tiles.map(t => t.id) }] : [];
     }
     default:
@@ -357,6 +422,11 @@ export const MATCH_BEHAVIORS: Map<number, MatchBehavior> = new Map([
 // ═══════════════════════════════════════════════════════════
 
 export class MechanicEngine {
+  /** Unity 泡泡管理器在 Init 时创建一次并持续复用的 System.Random 的等价物。 */
+  private bubbleRandom: DotNetRandom | null = null;
+
+  /** 当前三消分发前捕获的 Unity 旧状态快照。 */
+  private pendingMatchContext?: MechanicMatchContext;
   readonly bubble: BubbleState;
 
   constructor(readonly game: OfflineGame, bubbleConfig?: Map<number, number>) {
@@ -372,6 +442,26 @@ export class MechanicEngine {
       activeRoundCounted: false,
       cooldownTicks: 0,
     };
+    if (this.bubble.useRandomCollectCount) {
+      this.bubbleRandom = new DotNetRandom(this.bubbleCollectCountSeed());
+    }
+  }
+
+
+  /** 未发生三消时清除暂存快照，避免脏上下文影响后续直接 onMatch。 */
+  clearPendingMatchContext(): void {
+    this.pendingMatchContext = undefined;
+  }
+  /** 在 collect / magic 状态变更前调用，捕获 Unity AnalyzerMgr 的旧快照。 */
+  capturePreMoveContext(): void {
+    const hasDandelion = [...this.game.allTiles.values()]
+      .some(tile => tile.extras.some(extra => extra.extraEnum === 36));
+    this.pendingMatchContext = {
+      // 快照是只读拷贝，不会引用后续会被 collect 修改的原始 Tile 对象。
+      preMoveGroups: hasDandelion
+        ? captureAnalyzerGroups(this.game)
+        : undefined,
+    };
   }
 
   /** 深拷贝机制状态到目标引擎（OfflineGame.clone 使用）。 */
@@ -383,16 +473,21 @@ export class MechanicEngine {
     this.bubble.activeBubbleTileIds = new Set(source.bubble.activeBubbleTileIds);
     this.bubble.activeRoundCounted = source.bubble.activeRoundCounted;
     this.bubble.cooldownTicks = source.bubble.cooldownTicks;
+    this.bubbleRandom = source.bubbleRandom
+      ? DotNetRandom.fromState(source.bubbleRandom.state())
+      : null;
   }
 
   /** 状态指纹（并入 DFS 状态键，保证记忆化不剪错枝）。 */
   fingerprint(): string {
     const b = this.bubble;
+    const rng = this.bubbleRandom ? JSON.stringify(this.bubbleRandom.state()) : '';
     return [
       b.enabled ? 1 : 0,
       b.completedCollectRounds,
       b.activeRoundCounted ? 1 : 0,
       [...b.activeBubbleTileIds].sort((a, c) => a - c).join('.'),
+      rng,
     ].join('|');
   }
 
@@ -403,12 +498,17 @@ export class MechanicEngine {
    */
   onMatch(matchedTiles: OfflineTile[]): MechanicStep[] {
     const steps: MechanicStep[] = [];
-    if (matchedTiles.length === 0) return steps;
+    const context = this.pendingMatchContext ?? {};
+    if (matchedTiles.length === 0) {
+      this.pendingMatchContext = undefined;
+      return steps;
+    }
     const leader = matchedTiles[0];
     for (const extra of leader.extras) {
       const behavior = MATCH_BEHAVIORS.get(extra.extraEnum);
-      if (behavior) steps.push(...behavior(this.game, matchedTiles));
+      if (behavior) steps.push(...behavior(this.game, matchedTiles, context));
     }
+    this.pendingMatchContext = undefined;
     return steps;
   }
 
@@ -462,7 +562,7 @@ export class MechanicEngine {
     const bubble = this.bubble;
     if (bubble.completedCollectRounds >= BUBBLE_CONSTANTS.MAX_COLLECT_ROUNDS) return [];
     const targetCount = bubble.useRandomCollectCount
-      ? new DotNetRandom(this.bubbleCollectCountSeed()).next(2) + 2 // Next(2,4) ≡ [2,3]
+      ? this.nextBubbleCollectCount() // Unity 复用同一个 _bubbleRandom 流
       : bubble.configuredCollectCount;
     // CanAssignForRemainingTileCount: targetCount + 1 < remaining / 3f
     const remaining = game.deskTiles.length;
@@ -477,6 +577,14 @@ export class MechanicEngine {
     let seed = extraActionSeed(this.game, MECHANIC_SEED_SALTS.BUBBLE_COLLECT_COUNT);
     seed = mul397(seed) ^ this.bubble.completedCollectRounds;
     return seed | 0;
+  }
+
+  /** 从持久 Random 流中取下一个收集数；每次 TryAssign 都会消费一次，与 Unity 一致。 */
+  private nextBubbleCollectCount(): number {
+    if (!this.bubbleRandom) {
+      this.bubbleRandom = new DotNetRandom(this.bubbleCollectCountSeed());
+    }
+    return this.bubbleRandom.next(2) + 2;
   }
 
   /** TryClearDockAfterBubbleTilesConsumed → Dock 魔法清除（对齐 GetDockDirectedMagicPlan + Execute）。 */

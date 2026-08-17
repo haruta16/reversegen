@@ -229,6 +229,8 @@ export class OfflineGame {
     if (tile.pileType !== PileType.Desk || !tile.isClickable) {
       throw new Error(`Tile ${tile.id} is not clickable, cannot collect`);
     }
+    // Unity 蒲公英读取的是本次 collect 之前的 AnalyzerMgr 旧快照，必须先捕获。
+    this.mechanics.capturePreMoveContext();
 
     // 1. Remove from Desk
     const deskIdx = this.deskTiles.indexOf(tile);
@@ -262,6 +264,11 @@ export class OfflineGame {
         this.discardTiles.push(m);
       }
     }
+    if (!matched || matched.length === 0) {
+      this.mechanics.clearPendingMatchContext();
+    }
+    // Unity 礼盒在动画后、UpdateTilesState 之后才取随机，因此机制分发前先刷新状态。
+    this.updateTilesState();
 
     // 3.5 机制分发：OnMatch（matched 已 Destroyed；魔药/蒲公英/礼盒按守卫各自触发）
     if (matched && matched.length > 0) {

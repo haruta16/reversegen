@@ -9,7 +9,7 @@
 import { DotNetRandom } from '../tile-explorer/random.js';
 import type { OfflineGame } from '../solver/offline-game.js';
 import { OfflineTile, PileType, TileFlag } from '../solver/types.js';
-import { computeVisibleMatchGroups } from '../solver/solver-player.js';
+import { captureAnalyzerGroups, type AnalyzerGroupSnapshot, type AnalyzerTileSnapshot } from '../solver/solver-player.js';
 import { mul397 } from './seed.js';
 import {
   DANDELION_CONSTANTS,
@@ -124,12 +124,42 @@ export function isDandelionTargetAllowed(tile: OfflineTile): boolean {
   return true;
 }
 
+/** AnalyzerTileSnapshot 版本的消费判定。 */
+function isExtraConsumedSnapshot(tile: AnalyzerTileSnapshot, extra: TileExtra): boolean {
+  const info = mechanicInfo(extra.extraEnum);
+  if (!info) return false;
+  switch (info.behavior) {
+    case 'reveal': return extra.isDone === true;
+    case 'decay': return extra.isValidCollect === true;
+    case 'order': return extra.isConsumed === true;
+    case 'magic-bottle':
+    case 'dandelion':
+    case 'giftbox': return (tile.flags & TileFlag.Destroyed) !== 0;
+    default: return false;
+  }
+}
+
+/** AnalyzerTileSnapshot 版本的 Dandelion 白名单判定。 */
+function isDandelionTargetAllowedSnapshot(tile: AnalyzerTileSnapshot): boolean {
+  for (const extra of tile.extras) {
+    if (isExtraConsumedSnapshot(tile, extra)) continue;
+    if (!DANDELION_TARGET_WHITELIST.includes(extra.extraEnum)) return false;
+  }
+  return true;
+}
+
 /** 扩散目标：最低 cost 组池取前 7，两段抽样（单组概率 0.8）。 */
-export function selectDandelionTargets(game: OfflineGame, rngSeed: number): OfflineTile[] {
-  const groups = computeVisibleMatchGroups(game).filter(group => {
+export function selectDandelionTargets(
+  game: OfflineGame,
+  rngSeed: number,
+  preMoveGroups?: AnalyzerGroupSnapshot[],
+): OfflineTile[] {
+  // Unity 的 DandelionExtra 在 OnMatch 同步读取的是“本次 collect 之前”的
+  // AnalyzerMgr.MatchGroups（旧快照），因此这里优先使用调用方传入的 preMoveGroups。
+  const groups = [...(preMoveGroups ?? captureAnalyzerGroups(game))].filter(group => {
     for (const tile of group.tiles) {
-      if (tile.hasFlag(TileFlag.Destroyed)) return false;
-      if (!isDandelionTargetAllowed(tile)) return false;
+      if ((tile.flags & TileFlag.Destroyed) !== 0) return false;
+      if (!isDandelionTargetAllowedSnapshot(tile)) return false;
     }
     return true;
   });
@@ -145,9 +175,9 @@ export function selectDandelionTargets(game: OfflineGame, rngSeed: number): Offl
   const singleGroup = selectedB === null || random.nextDouble() < DANDELION_SINGLE_GROUP_PROBABILITY;
   if (singleGroup) {
     const pickB = selectedB !== null && random.nextDouble() < 0.5;
-    return (pickB ? selectedB! : selectedA).tiles;
+    return (pickB ? selectedB! : selectedA).tiles.map(t => game.allTiles.get(t.id)!);
   }
-  return [...selectedA.tiles, ...selectedB!.tiles];
+  return [...selectedA.tiles, ...selectedB!.tiles].map(t => game.allTiles.get(t.id)!);
 }
 
 /** 蒲公英三消判定：matched 中至少 3 张蒲公英。 */
