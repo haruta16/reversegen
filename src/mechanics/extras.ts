@@ -328,16 +328,30 @@ export function selectRandomTiles(
   return keyed.slice(0, selectedCount).map(x => x.t);
 }
 
-/** Desk-only 组 cost（CalculateDeskOnlyGroupCost）：递归依赖并集 + 自身。 */
+/** Desk-only 组 cost（对齐 CalculateDeskOnlyGroupCost / CollectDeskOnlyDependencies）：
+ * 递归依赖并集 + 自身；棋盘特殊物（51-53）依赖穿透、障碍牌穿透不计数。 */
 function deskOnlyGroupCost(group: OfflineTile[], game: OfflineGame): number {
   const ids = new Set<number>();
   const visited = new Set<number>();
   const collect = (tile: OfflineTile) => {
+    for (const structure of game.getBoardSpecialStructuresCovering(tile.id)) {
+      for (const depId of structure.dependencies) {
+        if (visited.has(depId)) continue;
+        visited.add(depId);
+        const dep = game.allTiles.get(depId);
+        if (!dep || dep.pileType !== PileType.Desk) continue;
+        if (dep.elementValue <= 0) { collect(dep); continue; }
+        if (!dep.hasFlag(TileFlag.Destroyed)) { ids.add(depId); collect(dep); }
+      }
+    }
+    if (tile.runtimeDependencies.size === 0) return;
     for (const depId of tile.runtimeDependencies) {
       if (visited.has(depId)) continue;
       visited.add(depId);
       const dep = game.allTiles.get(depId);
-      if (dep && dep.pileType === PileType.Desk && !dep.hasFlag(TileFlag.Destroyed)) {
+      if (!dep) continue;
+      if (dep.elementValue <= 0) { collect(dep); continue; }
+      if (dep.pileType === PileType.Desk && !dep.hasFlag(TileFlag.Destroyed)) {
         ids.add(depId);
         collect(dep);
       }

@@ -8,11 +8,9 @@
 // Types
 export type {
   TileConfig,
-  GameStateKey,
   SolverResult,
   GreedyResult,
   RandomResult,
-  BoardAnalysis,
   DAGFeatures,
   ReviveStep,
 } from './types.js';

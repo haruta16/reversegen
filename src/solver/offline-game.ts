@@ -11,6 +11,8 @@
 
 import { OfflineTile, PileType, TileFlag, type TileConfig } from './types.js';
 import type { FallingTerrainStructure, TerrainStructure, TerrainTile } from '../types.js';
+import type { BoardSpecialStructure } from '../board-special/types.js';
+import { buildPlacementLayers, injectBoardSpecials, resolveBoardSpecialMode, resolveBoardSpecialSeed } from '../board-special/inject.js';
 import { MechanicEngine, tileExtrasFromTerrain } from '../mechanics/engine.js';
 import { DECAY_STEP_TYPES, STEP_APPLIERS } from '../mechanics/step-appliers.js';
 import { applyDecayStep, onTileCollected } from '../mechanics/extras.js';
@@ -38,6 +40,8 @@ export interface OfflineGameOptions {
   mechanicConfig?: Map<number, number>;
   /** 礼盒开放效果集（对齐 s3Kit.GiftBoxExtra.IsEffectOpen）；缺省 = 全部开放 */
   giftboxOpenEffects?: Set<number>;
+  /** 装载期注入的棋盘特殊物（51-53 大型地形结构） */
+  boardSpecialStructures?: BoardSpecialStructure[];
 }
 
 export class OfflineGame {
@@ -61,6 +65,10 @@ export class OfflineGame {
   actionCount = 0;
   /** Dock 槽位加成（礼盒 AddDockSlot 效果，上限 8） */
   dockSlotBonus = 0;
+  /** 棋盘特殊物（51-53 大型地形结构；非 Tile，只做遮挡与自动移除） */
+  readonly boardSpecialStructures: BoardSpecialStructure[];
+  /** coveredTileId → 覆盖它的活跃结构列表（对齐 BoardSpecialRuntimeSystem 覆盖索引） */
+  private readonly boardSpecialCoverage = new Map<number, BoardSpecialStructure[]>();
   private readonly transferTileIds = new Set<number>();
   private readonly fallingGroups: FallingTerrainStructure[] = [];
   private readonly fallingGroupByTileId = new Map<number, FallingTerrainStructure>();
@@ -77,6 +85,12 @@ export class OfflineGame {
       tileIds: [...structure.tileIds],
     }));
     this.levelResId = options.levelResId ?? 0;
+    this.boardSpecialStructures = (options.boardSpecialStructures ?? []).map(s => ({
+      ...s,
+      dependencies: [...s.dependencies],
+      coveredTileIds: [...s.coveredTileIds],
+    }));
+    this.rebuildBoardSpecialCoverage();
 
     for (const tile of tiles) {
       this.allTiles.set(tile.id, tile);
@@ -136,6 +150,54 @@ export class OfflineGame {
     }
   }
 
+  // ── Board special（51-53 大型地形） ──
+
+  /** 重建覆盖索引（对齐 RebuildCoverageIndex）。 */
+  private rebuildBoardSpecialCoverage(): void {
+    this.boardSpecialCoverage.clear();
+    for (const structure of this.boardSpecialStructures) {
+      for (const tileId of structure.coveredTileIds) {
+        const list = this.boardSpecialCoverage.get(tileId);
+        if (list) list.push(structure);
+        else this.boardSpecialCoverage.set(tileId, [structure]);
+      }
+    }
+  }
+
+  /** 覆盖指定牌且未移除的结构列表（对齐 GetStructuresCovering）。 */
+  getBoardSpecialStructuresCovering(tileId: number): BoardSpecialStructure[] {
+    const list = this.boardSpecialCoverage.get(tileId);
+    if (!list) return [];
+    return list.filter(s => !s.isRemoved);
+  }
+
+  /** 是否存在未移除结构覆盖该牌（对齐 HasActiveStructureCovering）。 */
+  hasActiveBoardSpecialCovering(tileId: number): boolean {
+    const list = this.boardSpecialCoverage.get(tileId);
+    if (!list) return false;
+    return list.some(s => !s.isRemoved);
+  }
+
+  /**
+   * 结构自动移除（对齐 ProcessUncovered）：依赖非空且全部离开 Desk → 移除。
+   * 返回是否有结构被移除（调用方需刷新状态）。
+   */
+  processUncoveredBoardSpecials(): boolean {
+    let changed = false;
+    for (const structure of this.boardSpecialStructures) {
+      if (structure.isRemoved) continue;
+      if (structure.dependencies.length === 0) continue;
+      const blocked = structure.dependencies.some(id => {
+        const tile = this.allTiles.get(id);
+        return tile && tile.pileType === PileType.Desk && !tile.hasFlag(TileFlag.Destroyed);
+      });
+      if (blocked) continue;
+      structure.isRemoved = true;
+      changed = true;
+    }
+    return changed;
+  }
+
   // ── Derived properties ──
 
   /** 剩余可用槽位（跟随礼盒加槽，对齐 Unity Dock.RemainSlotCount = MaxSlotCount - Frozen - Current）。 */
@@ -147,8 +209,12 @@ export class OfflineGame {
     return MAX_DOCK_SLOTS + this.dockSlotBonus;
   }
 
+  /**
+   * 胜利 = Dock 清空且 Desk 无任何可匹配牌（elementValue > 0）。
+   * 棋盘特殊物（elementValue 0）与 Unity 一致不参与胜利判定。
+   */
   get isWin(): boolean {
-    return this.deskTiles.length === 0 && this.dockTiles.length === 0;
+    return this.dockTiles.length === 0 && this.deskTiles.every(t => t.elementValue <= 0);
   }
 
   /** 死亡判定跟随当前槽位上限（对齐 Unity Dock.IsMax，礼盒加槽后为 8）。 */
@@ -170,6 +236,7 @@ export class OfflineGame {
       });
     const copy = new OfflineGame(tiles, this.terrainStructures, {
       levelResId: this.levelResId,
+      boardSpecialStructures: this.boardSpecialStructures,
     });
     copy.mechanics.copyFrom(this.mechanics);
     // 克隆必须保留动作计数（机制派生种子依赖 actionCount）与槽位加成（死亡阈值依赖 maxSlotCount）。
@@ -297,6 +364,9 @@ export class OfflineGame {
     // 7. 动作计数 + 泡泡 tick 至静止（对齐 Unity OnUpdate 的确定性等价）
     this.actionCount += 1;
     this.runMechanicTicks();
+
+    // 8. 棋盘特殊物自动移除（对齐 _processUncoveredBoardSpecialTiles：结构依赖全部离桌即移除）
+    if (this.processUncoveredBoardSpecials()) this.updateTilesState();
   }
 
   /**
@@ -316,6 +386,7 @@ export class OfflineGame {
     this.mechanicLog.push({ ...step, stepIndex: this.actionCount });
     if (decaySnapshot) applyDecayStep(this, step.type, decaySnapshot);
     this.updateTilesState();
+    if (this.processUncoveredBoardSpecials()) this.updateTilesState();
   }
   /** 循环执行泡泡 tick 直到静止（guard 防病态环）。 */
   private runMechanicTicks(): void {
@@ -373,6 +444,7 @@ export class OfflineGame {
 
     // Recompute all tile states (dependencies may have changed)
     this.updateTilesState();
+    if (this.processUncoveredBoardSpecials()) this.updateTilesState();
   }
 
   /**
@@ -416,7 +488,8 @@ export class OfflineGame {
         }
       }
 
-      tile.setClickable(tile.runtimeDependencies.size === 0);
+      // 棋盘特殊物覆盖的牌即使无依赖也不可点击（对齐 UpdateTilesState 的 isCoveredByBoardSpecial）
+      tile.setClickable(tile.runtimeDependencies.size === 0 && !this.hasActiveBoardSpecialCovering(tile.id));
 
       // Phase 1.5: Compute PerfectCovered
       tile.removeFlag(TileFlag.PerfectCovered);
@@ -557,7 +630,12 @@ export class OfflineGame {
       ? `|a${this.actionCount}`
       : '';
 
-    return `${deskIds}|${dockSeq}|${deskExtras}|b${this.dockSlotBonus}${seedSensitive}|m${this.mechanics.fingerprint()}`;
+    const structures = this.boardSpecialStructures
+      .map(s => `${s.id}:${s.extraEnum}:${s.isRemoved ? 0 : 1}`)
+      .sort()
+      .join(',');
+
+    return `${deskIds}|${dockSeq}|${deskExtras}|b${this.dockSlotBonus}${seedSensitive}|s${structures}|m${this.mechanics.fingerprint()}`;
   }
 
   /** 是否存在步数敏感机制（蒲公英/礼盒的派生种子读取 actionCount）。 */
@@ -662,6 +740,8 @@ export interface GameFactoryInput {
   mechanicConfig?: Map<number, number>;
   /** 礼盒开放效果集（对齐 s3Kit.GiftBoxExtra.IsEffectOpen）；缺省 = 全部开放 */
   giftboxOpenEffects?: Set<number>;
+  /** 棋盘边界（LevelWidth × LevelHeight；缺省时大型地形注入回退到地形包围盒） */
+  boardBounds?: { width: number; height: number };
   /**
    * 机制分配种子（调试显式覆盖）。缺省 = deriveAssignSeed(replayCode, mechanicConfig)，
    * 即「地形+replay+机制」的纯函数，零协调。
@@ -673,7 +753,7 @@ export interface GameFactoryInput {
  * Create an OfflineGame from terrain + assigned colors + replay data.
  */
 export function createGame(input: GameFactoryInput): OfflineGame {
-  const { terrainTiles, terrainStructures, elementValues, initialDock, eliminatedTileIds, levelResId, replayCode, mechanicConfig, mechanicSeed, giftboxOpenEffects } = input;
+  const { terrainTiles, terrainStructures, elementValues, initialDock, eliminatedTileIds, levelResId, replayCode, mechanicConfig, mechanicSeed, giftboxOpenEffects, boardBounds } = input;
 
   const tiles: OfflineTile[] = terrainTiles.map(tt => {
     const config: TileConfig = {
@@ -692,13 +772,22 @@ export function createGame(input: GameFactoryInput): OfflineGame {
   // ── 装载期机制分配（对齐 Unity LoadLevel/ApplyExtraConfig：先花色后挂件、只分非 const 牌） ──
   // 分配在 Dock/消除状态应用之前进行，全部 tile 为 Desk——与 Unity FixedReplayCode
   // （SetElementValue → ApplyExtraConfig → dockEntries/Eliminated）的装载顺序一致。
-  // 泡泡(39)=行为参数交给 MechanicEngine；大型地形(51-53)=棋盘级注入未接入；其余为分配请求。
+  // 泡泡(39)=行为参数交给 MechanicEngine；大型地形(51-53)=装载期棋盘级注入；其余为分配请求。
   let bubbleConfig: Map<number, number> | undefined;
+  let boardSpecialStructures: BoardSpecialStructure[] | undefined;
   if (mechanicConfig && mechanicConfig.size > 0) {
     const { bubble, assignable, boardSpecial } = splitMechanicConfig(mechanicConfig);
     bubbleConfig = bubble;
     if (boardSpecial.size > 0) {
-      logger.warn(`大型地形注入(51-53)未接入，已忽略: ${serializeMechanicCounts(boardSpecial)}`);
+      boardSpecialStructures = injectBoardSpecialsFromConfig(
+        terrainTiles,
+        boardSpecial,
+        mechanicSeed,
+        replayCode,
+        levelResId,
+        boardBounds,
+        initialDock,
+      );
     }
     if (assignable.size > 0) {
       // 种子只取"分配请求"子集（泡泡/大型地形已拆出）——与 Unity FixedReplayCodeAlgorithm
@@ -732,7 +821,45 @@ export function createGame(input: GameFactoryInput): OfflineGame {
     }
   }
 
-  return new OfflineGame(tiles, terrainStructures, { levelResId, mechanicConfig: bubbleConfig, giftboxOpenEffects });
+  return new OfflineGame(tiles, terrainStructures, { levelResId, mechanicConfig: bubbleConfig, giftboxOpenEffects, boardSpecialStructures });
+}
+
+/**
+ * 大型地形装载期注入（对齐 Unity LoadLevel：algo 之后、Dock/消除装载之前）。
+ * 模式 53 > 52 > 51；种子 = 显式 mechanicSeed > FNV-1a(replayCode) > levelResId。
+ */
+function injectBoardSpecialsFromConfig(
+  terrainTiles: TerrainTile[],
+  boardSpecialConfig: Map<number, number>,
+  mechanicSeed: number | undefined,
+  replayCode: string | undefined,
+  levelResId: number | undefined,
+  boardBounds: { width: number; height: number } | undefined,
+  initialDock: { tileId: number; element: number }[] | undefined,
+): BoardSpecialStructure[] {
+  const mode = resolveBoardSpecialMode(boardSpecialConfig);
+  if (!mode) return [];
+
+  const byLayer = new Map<number, Array<{ id: number; posX: number; posY: number; extraEnum: number | undefined }>>();
+  for (const tile of terrainTiles) {
+    const list = byLayer.get(tile.layer);
+    if (list) list.push({ id: tile.id, posX: tile.posX, posY: tile.posY, extraEnum: tile.extraEnum });
+    else byLayer.set(tile.layer, [{ id: tile.id, posX: tile.posX, posY: tile.posY, extraEnum: tile.extraEnum }]);
+  }
+  const layers = [...byLayer.entries()].map(([layer, tiles]) => ({ layer, tiles }));
+  const initialDockIds = initialDock && initialDock.length > 0 ? new Set(initialDock.map(d => d.tileId)) : undefined;
+  const placementLayers = buildPlacementLayers(layers, initialDockIds);
+  const maxTileId = terrainTiles.reduce((max, t) => Math.max(max, t.id), 0);
+  const seed = resolveBoardSpecialSeed(mechanicSeed, replayCode, levelResId);
+  const bounds = boardBounds ?? { width: 0, height: 0 };
+  return injectBoardSpecials(
+    mode,
+    seed,
+    placementLayers,
+    bounds,
+    terrainTiles.map(t => ({ id: t.id, layer: t.layer, posX: t.posX, posY: t.posY, extraEnum: t.extraEnum })),
+    maxTileId,
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════

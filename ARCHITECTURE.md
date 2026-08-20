@@ -85,6 +85,10 @@ strategy  ──→ solver ──→ mechanics
 - `replay-serializer.ts`：ReplayCode v4（version/N/elementCount/levelHash uint64 LE/instanceArray/
   dockEntries/CRC16-MODBUS，Raw DEFLATE + Base64）。规范序 = 层数组序 + 层内数组序（不做 ID 排序）。
 - `terrain-loader.ts`：Unity level JSON → 最小地形模型（含 extraEnum/extraParam、levelResId）。
+- `board-special/`：大型地形（51-53）——放置计划（`placement.ts`：Build/BuildPizza/BuildTicket 移植）、
+  装载注入（`inject.ts`：模式/种子/依赖/覆盖）与运行期语义（覆盖遮挡 + 依赖离桌自动移除）。
+- `verification/cross-side-trace.ts`：跨侧 golden 追踪（录制 + 逐帧比对；Unity 导出器与操作手册见
+  `docs/cross-side-golden.md`）。
 - `batch-generator.ts`：批量生产主引擎；`batch-generator-new.ts` 为实验迁移版（仅 test-new-* 工具引用，收敛中）。
 
 ---
@@ -135,7 +139,7 @@ replayCode + 地形 + extraConfig
 
 ## 已知边界（摘要，详见对齐契约 §2.7/§四）
 
-- Undo / 复活（Revive）不在重放契约内；大型地形注入（51-53）未接入；
+- Undo / 复活（Revive）不在重放契约内；
 - .NET `List.Sort`（不稳定）vs JS `Array.sort`（稳定）在同 key 精确并列时可能产生不同顺序（极低概率）；
 - 帧级表现（动画/音效/TA 埋点）不建模，只对齐逻辑。
 

@@ -43,7 +43,9 @@ export type MechanicBehavior =
   /** 礼盒（三消触发加权随机效果） */
   | 'giftbox'
   /** 泡泡（轮次指派/吸取/Dock魔法） */
-  | 'bubble';
+  | 'bubble'
+  /** 大型地形棋盘特殊物（51-53：装载期注入，覆盖遮挡 + 依赖离桌自动移除） */
+  | 'board-special';
 
 export interface MechanicInfo {
   value: number;
@@ -163,9 +165,9 @@ export const MECHANICS: Record<number, MechanicInfo> = {
   [38]: { value: 38, name: 'OrderExtra', label: '订单挂件', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'none', isValueExtra: true, behavior: 'order' },
   [39]: { value: 39, name: 'BubbleExtra', label: '泡泡挂件', kind: 'both', countMeaning: 'behavior-config', paramSchema: 'collect-count', isValueExtra: false, behavior: 'bubble', constants: BUBBLE_CONSTANTS },
   [40]: { value: 40, name: 'FairyExtra', label: '小精灵挂件', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'none', isValueExtra: false, behavior: 'inert' },
-  [51]: { value: 51, name: 'LargeTerrainExtra', label: '大型地形注入(2x2)', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'footprint', isValueExtra: false, behavior: 'inert' },
-  [52]: { value: 52, name: 'LargeTerrainOrderExtra', label: '大型地形订单(3x3)', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'footprint', isValueExtra: false, behavior: 'inert' },
-  [53]: { value: 53, name: 'LargeTerrainTicketExtra', label: '大型地形票券订单', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'footprint', isValueExtra: false, behavior: 'inert' },
+  [51]: { value: 51, name: 'LargeTerrainExtra', label: '大型地形注入(2x2)', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'footprint', isValueExtra: false, behavior: 'board-special' },
+  [52]: { value: 52, name: 'LargeTerrainOrderExtra', label: '大型地形订单(3x3)', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'footprint', isValueExtra: false, behavior: 'board-special' },
+  [53]: { value: 53, name: 'LargeTerrainTicketExtra', label: '大型地形票券订单', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'footprint', isValueExtra: false, behavior: 'board-special' },
   [202]: { value: 202, name: 'Unknown_Interval', label: '问号挂件(间隔策略)', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'reveal', isValueExtra: true, behavior: 'reveal' },
   [203]: { value: 203, name: 'Unknown_BottomFirst', label: '问号挂件(底层优先策略)', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'reveal', isValueExtra: true, behavior: 'reveal' },
   [207]: { value: 207, name: 'FlipExtra_Layer', label: '翻转挂件(层策略)', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'reveal', isValueExtra: true, behavior: 'reveal' },

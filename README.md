@@ -292,7 +292,7 @@ npx tsx --test test/unit/assigner.test.ts           # 机制分配器
 机制域的逐位对齐状态、已知边界与决策点以 [docs/mechanics-alignment.md](./docs/mechanics-alignment.md) 为权威契约。摘要：
 
 - **已逐位对齐**：魔药(31)、蒲公英(36)、礼盒(37)、衰减/揭示/订单类挂件、机制分配器、三套确定性随机（System.Random / Xorshift128+ / 战场派生种子）、ReplayCode 解码。
-- **记录在案的边界**：Undo/复活不在契约内；大型地形注入(51-53)未接入；C# `List.Sort`（不稳定）与 JS `Array.sort`（稳定）在同 key 精确并列时可能产生不同顺序（极低概率）。
+- **记录在案的边界**：Undo/复活不在契约内；C# `List.Sort`（不稳定）与 JS `Array.sort`（稳定）在同 key 精确并列时可能产生不同顺序（极低概率）。
 
 ---
 

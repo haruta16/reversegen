@@ -99,37 +99,55 @@ export interface PlayerSimBatchResult {
 // ═══════════════════════════════════════════════════════════
 
 /**
- * 收集一张牌的所有递归 RuntimeDependencies。
+ * 收集成本依赖（对齐 AnalyzerMgr._collectAllDependencies）：
+ * - 覆盖当前牌的棋盘特殊物（51-53）依赖穿透收集：其依赖仍在 Desk 时递归，障碍牌不计数；
+ * - runtimeDependencies 递归收集；障碍牌（elementValue ≤ 0）穿透但不计数。
  */
-function collectRecursiveDeps(
+function collectCostDeps(
   tile: OfflineTile,
   game: OfflineGame,
-  deps: Set<number>,
+  counted: Set<number>,
+  visited: Set<number>,
 ): void {
-  for (const depId of tile.runtimeDependencies) {
-    if (deps.add(depId)) {
+  for (const structure of game.getBoardSpecialStructuresCovering(tile.id)) {
+    for (const depId of structure.dependencies) {
+      if (visited.has(depId)) continue;
+      visited.add(depId);
       const dep = game.allTiles.get(depId);
-      if (dep) collectRecursiveDeps(dep, game, deps);
+      if (dep && dep.pileType === PileType.Desk) {
+        collectCostDeps(dep, game, counted, visited);
+        if (dep.elementValue > 0) counted.add(depId);
+      }
+    }
+  }
+  for (const depId of tile.runtimeDependencies) {
+    if (visited.has(depId)) continue;
+    visited.add(depId);
+    const dep = game.allTiles.get(depId);
+    if (dep) {
+      collectCostDeps(dep, game, counted, visited);
+      if (dep.elementValue > 0) counted.add(depId);
     }
   }
 }
 
 /**
  * 计算一个三连匹配组的依赖路径和 cost。
- * 路径 = 所有 desk tile 自身 + 它们的递归 RuntimeDependencies。
+ * 路径 = 所有 desk tile 自身 + 它们的递归 RuntimeDependencies（含棋盘特殊物穿透）。
  * Dock tile 不贡献依赖（已经在手上了）。
  */
 function calculatePath(
   matchTiles: OfflineTile[],
   game: OfflineGame,
 ): { path: Set<number>; totalCost: number } {
-  const deps = new Set<number>();
+  const counted = new Set<number>();
+  const visited = new Set<number>();
   for (const tile of matchTiles) {
     if (tile.pileType === PileType.Dock) continue;
-    collectRecursiveDeps(tile, game, deps);
-    deps.add(tile.id);
+    collectCostDeps(tile, game, counted, visited);
+    counted.add(tile.id);
   }
-  return { path: deps, totalCost: deps.size };
+  return { path: counted, totalCost: counted.size };
 }
 
 /**

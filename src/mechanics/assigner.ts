@@ -202,6 +202,11 @@ export function deriveAssignSeed(replayCode: string, mechanics: MechanicCounts):
   return fnv1a32(text) & 0x7fffffff;
 }
 
+/** 棋盘特殊物障碍牌（51-53）：不参与花色/挂件分配（对齐 Unity emptyTiles.RemoveAll(IsBoardSpecialObstacle)）。 */
+function isBoardSpecialObstacle(tile: OfflineTile): boolean {
+  return tile.extras.some(e => e.extraEnum === 51 || e.extraEnum === 52 || e.extraEnum === 53);
+}
+
 /**
  * 装载期机制分配（对齐 Unity ApplyExtraConfig → AssignExtrasWithColorConstraints）。
  * 就地改写 tiles 的 extras 与固定花色，返回分配摘要。
@@ -217,7 +222,7 @@ export function assignTileExtras(
   towerExcludedTileIds?: ReadonlySet<number>,
 ): AssignExtrasSummary {
   const summary: AssignExtrasSummary = { assignedCounts: new Map(), adjusted: [], evictedPreplaced: 0 };
-  const assignable = tiles.filter(t => !t.config.isConst);
+  const assignable = tiles.filter(t => !t.config.isConst && !isBoardSpecialObstacle(t));
   if (assignable.length === 0 || extraConfig.size === 0) return summary;
 
   const requests = parseConfig(extraConfig);

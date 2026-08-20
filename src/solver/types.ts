@@ -97,15 +97,6 @@ export class OfflineTile {
   }
 }
 
-// ── Game state snapshot for memoization ──
-
-export interface GameStateKey {
-  /** Sorted desk tile IDs */
-  deskIds: number[];
-  /** Dock counts by color, e.g. "1:2,3:1" (color → count in dock) */
-  dockSignature: string;
-}
-
 // ── Revive step (death recovery) ──
 
 /** A single revive operation: eliminate 1 dock tile + 2 matching desk tiles. */
@@ -160,24 +151,6 @@ export interface RandomResult {
   failReason: string | null;
   picks: number[];
   stepCount: number;
-}
-
-// ── Board analysis result ──
-
-export interface BoardAnalysis {
-  /** Terrain info */
-  levelResId?: number;
-  levelHash: string;
-  totalTiles: number;
-  freeTiles: number;
-
-  /** Solver results */
-  dfs: SolverResult | null;
-  greedy: GreedyResult | null;
-  randomResults: RandomResult[];
-
-  /** DAG features (populated later by analysis module) */
-  dagFeatures?: DAGFeatures;
 }
 
 // ── DAG features for a specific board ──

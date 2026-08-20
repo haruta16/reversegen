@@ -23,7 +23,7 @@
 - tile-count 类机制：数值 = 请求分配的挂件数（固定花色挂件自动向下取 3 的倍数）
 - **泡泡(39)**：数值是行为参数——每轮收集数（0 = 随机 2-3），不走分配器，由 `MechanicEngine` 读取
 - **202/207**：忽略数值（0/负数 = 自动数量），由分配策略自行决定
-- **51-53 大型地形**：棋盘级注入，未接入；`splitMechanicConfig` 负责拆出 39/51-53
+- **51-53 大型地形**：棋盘级注入（已接入，见 4.2）；`splitMechanicConfig` 负责拆出 39/51-53
 
 ## 二、确定性随机契约
 
@@ -153,7 +153,7 @@ Fisher-Yates 共享同一随机流——reversegen `shuffleBoard` 逐位一致�
 | 37 | 礼盒 | 1601 | 三消加权 8 效果 | ✅ giftbox（全部效果 + 种子对齐） |
 | 38 | 订单 | 外部提供 | 收集即 consumed | ⚠️ 行为已接入；花色来源见第四节 |
 | 39 | 泡泡 | — | 轮次指派/吸取（入 Dock 结算三消）/逐花色 Dock 魔法 | ✅ bubble（收集结算 + Dock 魔法链 + 种子全对齐） |
-| 51-53 | 大型地形 | — | BoardSpecial 棋盘级注入 | ❌ 未接入，见第四节 |
+| 51-53 | 大型地形 | — | 装载期注入棋盘特殊物：覆盖遮挡、依赖全部离桌自动移除 | ✅ board-special（放置计划 + 注入 + 运行期语义已对齐，见 4.2） |
 
 ## 四、已知风险与决策点
 
@@ -162,14 +162,25 @@ Unity 订单 tile 的花色由外部订单系统提供：`orderExtraPlay.GetOrde
 reversegen 没有该系统，**约定**：调用方以地形 `ConstElementValue` 或外部注入方式提供订单花色。
 行为语义（收集即 consumed）已对齐；数据源是外部契约。
 
-### 4.2 大型地形注入(51-53)未接入
-Unity 侧它是棋盘级结构而非 tile 挂件：`BoardSpecialRuntimeSystem` 覆盖 2x2/3x3 多个 tile 位，
-装载期注入（独立随机种子），被覆盖 tile 变为 `IsBoardSpecialObstacle` 且不参与花色分配。
-reversegen 缺三层能力：
-1. 棋盘模型：`BoardSpecialStructure`（位置/足迹/依赖）
-2. `OfflineGame`：障碍语义 + 装载期注入（含独立派生种子对齐）
-3. 生成侧：注入点选择 + 注入后可解性校验
-目前注册表如实标注 inert，`extraParam` footprint 已解析保留，接入时数据现成。
+### 4.2 大型地形注入(51-53)已接入
+`src/board-special/` 是 Unity `BoardSpecialInsertionSystem` / `BoardSpecialPlacementSystem` /
+`BoardSpecialRuntimeSystem` 的移植：
+
+- **模式解析**（对齐 `_resolveBoardSpecialMode`，53 > 52 > 51）与**注入种子**
+  （对齐 `_resolveBoardSpecialRandomSeed`：显式 `mechanicSeed` > FNV-1a(replayCode) > levelResId，
+  `GetStableSeed` 不截高位）。
+- **放置计划**逐位移植三种入口：`Build`（51，层数驱动、footprint 2/3 交替、Tower 避让与放宽回退）、
+  `BuildPizza`（52，`Random(seed^0x52)` 插入层选择）、`BuildTicket`（53，首/末/中间层 3×2、不足整组取消）。
+- **运行期**：结构非 Tile，不进 Desk/Dock/洗牌/分析；被覆盖牌不可点击（覆盖索引）；
+  依赖（下层覆盖 ≥ 半格）全部离桌后自动移除（对齐 `ProcessUncovered`，每次操作后处理，不产生步骤计数）；
+  analyzer 成本/礼盒转化组成本对结构依赖穿透、障碍牌不计数；障碍牌（elementValue 0）不参与花色分配、
+  三消、胜利判定与 Tower 判定。
+- **reversegen 不做层平移**：解码与分配都发生在注入之前，层号仅用于依赖/覆盖分层比较
+  （依赖 = 原层 < 注入层；覆盖 = 原层 ≥ 注入层）。
+
+未建模（记录在案）：52/53 的订单收集计数与胜利条件属活动系统（ChickenInjector/VictoryCondition）；
+结构表现层（FadeOut 动画）不建模；地形 JSON 预置 51-53 障碍牌的 ReplayCode 解码
+（生产流程在装载期注入，ReplayCode 不含特殊块）。
 
 ### 4.3 其它记录
 - 泡泡/蒲公英/礼盒/洗牌的确定性随机修复已提交 Unity 侧（`_InnerCode` 与 `_InnerTileMatchAlgo` 仓库），

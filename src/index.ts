@@ -435,6 +435,39 @@ export { STEP_APPLIERS } from './mechanics/step-appliers.js';
 export type { StepApplier } from './mechanics/step-appliers.js';
 export { COLLECT_HOOKS } from './mechanics/extras.js';
 
+// 大型地形（51-53 棋盘特殊物：装载期注入 + 运行期覆盖/自动移除）
+export { buildStandardPlan, buildPizzaPlan, buildTicketPlan } from './board-special/placement.js';
+export {
+  resolveBoardSpecialMode,
+  resolveBoardSpecialSeed,
+  getStableBoardSpecialSeed,
+  buildPlacementLayers,
+  injectBoardSpecialStructures,
+  injectBoardSpecials,
+} from './board-special/inject.js';
+export type {
+  BoardSpecialMode,
+  BoardSpecialStructure,
+  BoardSpecialPlacement,
+  BoardSpecialFootprint,
+} from './board-special/types.js';
+export { BOARD_TILE_UNIT, HALF_TILE_UNIT } from './board-special/types.js';
+
+// 跨侧 golden 追踪（Unity ↔ reversegen 逐帧对齐验证）
+export {
+  recordCrossSideTrace,
+  compareCrossSideTraces,
+  CROSS_SIDE_PROTOCOL,
+  CROSS_SIDE_VERSION,
+} from './verification/cross-side-trace.js';
+export type {
+  CrossSideMeta,
+  CrossSideFrame,
+  CrossSideTrace,
+  CrossSideDiff,
+  TraceTileState,
+} from './verification/cross-side-trace.js';
+
 // Replay 候选收集与导出
 export {
   REPLAY_SELECTION_HEADERS,
