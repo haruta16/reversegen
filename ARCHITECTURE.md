@@ -2,300 +2,150 @@
 
 ## 项目定位
 
-从 Unity TileMatch 项目中剥离的独立牌局生成工具。核心命题：
+从 Unity TileMatch 项目剥离的独立牌局生成工具：给定地形（牌的空间布局 + 叠压依赖），
+生成花色分配与机制（挂件）配置，输出可直接复制的 ReplayCode。
+纯 TypeScript（零 Unity 依赖），CLI / Web GUI / API 三种方式。
 
-> 给定地形（牌的空间布局 + 叠压依赖关系），为每张牌赋予花色，使得生成的牌局在**可解性、死亡点位置、决策分支数**等维度上可以被精确、确定性地控制。
+核心命题有二：
 
-**与 Unity 零依赖**，纯 TypeScript，CLI / Web GUI / API 三种方式。
-
-当前提供 **ReverseGen CostLadder、LayerClosure、TileExplorer、ZenMatch**
-四个生成器，统一输出 Shell tile 花色分配和 ReplayCode。
-
----
-
-## 项目结构
-
-```
-src/                          # 核心库
-├── types.ts                  # 类型聚合入口（领域类型拆在 types/）
-├── types/                    # 地形 / Triple / 牌局 / LayerClosure 领域类型
-├── constants.ts              # 全局常量（Dock 槽位等）
-├── logger.ts                 # 分级日志
-├── crc16.ts                  # CRC16/MODBUS
-├── dependency-graph.ts       # BFS 传递依赖闭包
-├── triple-builder.ts         # C(n,3) 枚举 + cost 计算
-├── reverse-gen.ts            # ★ CostLadder 生成算法
-├── layer-closure-gen.ts      # LayerClosure 编排入口 + 兼容 re-export
-├── layer-closure/            #   quota / matrix / placement / metrics 模块
-├── tile-explorer/            # Tile Explorer 生成器
-├── zen-match/                # Zen Match 策略 4/5
-├── greedy-sim.ts             # 纯贪心模拟验证
-├── replay-serializer.ts      # ReplayCode 编解码
-├── terrain-loader.ts         # 地形加载
-├── cost-generator.ts         # Cost 数组随机生成器
-├── index.ts                  # 公共 API
-└── solver/                   # 游戏引擎 + 求解器
-    ├── offline-game.ts       # 离线游戏状态机
-    ├── solver-player.ts      # 统一玩家引擎（各画像变体共用）
-    ├── solver-dfs.ts         # DFS 求解器
-    ├── solver-greedy.ts      # 贪心求解器
-    ├── solver-random.ts      # 随机批量求解器
-    └── types.ts              # 求解器类型
-
-tools/                        # 分析工具
-├── dag/                      # DAG 分析
-│   ├── board-dag.ts          # 色组 DAG + Triple DAG 构建
-│   ├── enhanced-dag.ts       # 增强 DAG 特征提取
-│   ├── triple-analyzer.ts    # Triple 关系分析器
-│   ├── verify-death.ts       # 轻量死亡验证
-│   └── deadlock-hunter.ts    # 死锁模式检测 (P1-P4)
-└── planning/                 # 消除规划
-    ├── elimination-plan.ts   # 纯逻辑消除计划
-    ├── deep-plan-single.ts   # 单关深度分析
-    └── deep-analyze.ts       # 深度分析引擎
-
-cli/generate.ts               # CLI 工具
-gui/                          # Web GUI
-├── server.ts                 # HTTP 服务骨架（基础路径/健康检查/静态文件/路由分发）
-├── lib/                      # 按域拆分的 API 模块
-│   ├── runtime.ts            #   共享状态与工具（地形解析/缓存/分档配置）
-│   ├── api-generate.ts       #   生成/解码/回放分析 API
-│   ├── api-analyze.ts        #   DAG 分析与可解性验证 API
-│   ├── api-simulate.ts       #   玩家模拟 API
-│   ├── api-grade.ts          #   难度分档 API
-│   ├── api-batch.ts          #   批量生产与候选收集 API
-│   └── api-strategy.ts       #   生成策略管理 API
-├── index.html                # 牌局生成器页面
-└── analysis.html             # DAG 分析页面 (4 种图)
-test/
-├── unit/                     # 单元测试 (17 + 10 测例)
-├── integration/              # 集成测试
-└── fixtures/                 # 测试数据
-```
-
-### 依赖方向
-
-```
-tools/ ──→ src/
-gui/   ──→ src/, tools/
-cli/   ──→ src/
-test/  ──→ src/
-```
-
-`src/` 不依赖 `tools/` 或 `gui/`。
+1. **生成**：可解性、死亡点、决策分支等维度可被精确控制（ReverseGen / LayerClosure / TileExplorer / ZenMatch / strategy-v2）。
+2. **复刻**：同一地形 + 同一 ReplayCode + 同一机制配置，在 reversegen 跑关与 Unity 客户端
+   中产生**逐位一致**的机制行为（种子、索敌、消除序列）——见
+   [docs/mechanics-alignment.md](./docs/mechanics-alignment.md)。
 
 ---
 
-## 核心算法：ReverseGen CostLadder
-
-### 输入/输出
+## 架构分层与依赖方向
 
 ```
-输入: 地形(tiles) + Cost目标数组 + 花色数量
-输出: 每张牌的花色分配 → ReplayCode
+gui/     ──→ src/, tools/       Web 界面（server.ts + 按域 API 模块 + HTML 页面）
+cli/     ──→ src/               命令行工具
+tools/   ──→ src/               分析/批量/统计脚本
+rust/    strategy-sim           玩家模拟的 Rust 高性能端口（PROTOCOL.md 对齐协议）
+src/     （不依赖以上任何层）
 ```
 
-### 流程
+`src/` 内部按域组织，域间依赖单向：
 
 ```
-① 建依赖图     BFS 展开每张牌的传递依赖闭包
-② 枚举 Triple  C(n,3) 所有三牌组合, 计算 depSet
-③ 贪心选 Triple 每步选 cost ≥ target 的第一个候选
-    ├─ 黑名单封杀  低 cost 候选全封, 保证难度曲线
-    ├─ 池化        连续同 cost 步骤在同一快照下互选
-    └─ 抢救        候选耗光时从黑名单尾部找回
-④ 花色分配    选违规最少 + 负载均衡的花色
-⑤ 模拟验证    贪心求解器验证牌局可玩
+strategy  ──→ solver ──→ mechanics
+   │            │            │
+   └────────────┴──→ types / constants / replay-serializer / terrain-loader
 ```
 
-### 核心机制
+---
 
-| 机制 | 作用 |
+## 核心域导览
+
+### 1. mechanics/ — 机制规则引擎（与 Unity 逐位对齐）
+
+| 模块 | 职责 |
 |------|------|
-| Cost = \|depSet \ collectedIds\| | 动态成本，模拟真实消除的"越消越容易" |
-| 黑名单 | 防止贪心退化为每步选最便宜的 |
-| r-chain 约束 (Σcᵢ = 3N) | 数学合法性保证 |
+| `registry.ts` | 挂件注册表：25 个 ssExtraEnum 数值、行为分类、白名单、常量、种子盐值表、礼盒权重表 |
+| `spec.ts` | 一关表示 `ReplayCode@31:3,39:2`（机制信息并列、不侵入 ReplayCode 格式）；地形挂件汇总与配置拆分 |
+| `seed.ts` | 派生种子统一实现：`mul397`（unchecked int32）、共享战场种子（levelResID^dock^desk^步数^盐）、魔药洗牌种子、洗牌种子 |
+| `assigner.ts` | 装载期机制分配器（对齐 TileExtraAssigner）：Xorshift128+ 随机、order 表、白名单互斥、驱逐/恢复、Tower 判定 |
+| `engine.ts` | `MechanicEngine`：三消行为分发（MATCH_BEHAVIORS）、泡泡状态机（tick/指派/吸取/Dock 定向魔法） |
+| `extras.ts` | 其余挂件行为：衰减/揭示/订单钩子、蒲公英扩散、礼盒效果、魔法棒、洗牌 |
+| `step-appliers.ts` | 机制步骤应用策略表（STEP_APPLIERS）+ 衰减触发面（DECAY_STEP_TYPES） |
 
-> ⚠️ **前提局限**：CostLadder 建立在"贪心路径 = 最优解路径"的前提上，该前提
-> 已被 DFS 求解器反证（贪心判定无解的关卡往往存在真实最优解）。因此 CostLadder
-> 精确控制的是贪心模拟的 cost 链，可解性与真实难度必须用 `src/solver/` 验证。
-> 详见 [project-journey.md](./project-journey.md) 第四节。
+**扩展契约**：新增机制 = registry 登记一行 + 行为函数登记一行，状态机主体零改动。
+
+**步骤计数契约**（对齐 Unity StepMgr）：`applyMechanicStep` 中 **Apply 先于 AppendStep**——
+应用器执行时 `actionCount` 不含本步；链式礼盒取 `actionCount+1` 恰为 Append 后计数；
+衰减 OnStep 仅随 Unity 会 AppendStep 的四类步骤（魔药清除/魔法棒/泡泡吸取/洗牌）触发，
+且使用本步开始前的旧可点击快照；状态刷新统一在本步末尾。
+
+### 2. solver/ — 游戏引擎与求解器
+
+- `offline-game.ts`：`OfflineGame` 状态机——collect → Dock 归组 → 三消 → 重算依赖/可见性；
+  机制操作面（moveToDock/eliminate/resolveDockMatch/addDockSlot）供步骤应用器复用；
+  `clone()` 完整保留 `actionCount`/`dockSlotBonus`/机制状态；
+  `buildStateKey()` 捕获 Desk 集合、**Dock 实际顺序与牌身份/挂件状态**、槽位加成、机制指纹，
+  并在存在蒲公英/礼盒时纳入 `actionCount`（派生种子读步数）——保证 DFS 记忆化不剪错枝。
+- `solver-player.ts`：统一玩家引擎（MatchGroup 分析/成本/可见性/选牌），各画像变体
+  （mistake/risky/shortest/costcap）只写策略增量。
+- `solver-dfs.ts` / `solver-greedy.ts` / `solver-random.ts` / `solver-death-checkpoint.ts`：求解与死亡点度量。
+  注意 `revive()` 是求解域抽象（Unity 复活 = Undo 回退 + 洗牌，不在重放契约内）。
+
+### 3. strategy/ — 批量生产策略 v2
+
+`definition`（v2 schema 校验）→ `generator`（候选生成）→ `pipeline`（阶段化：生成→过滤→模拟→评级）
+→ `simulation`（胜率模拟协议）→ `web-adapter`（GUI/HTTP 桥接）。
+策略定义是数据（`config/strategy-v2.schema.json` 校验），不是代码。
+
+### 4. 生成器域（历史算法，按 strategy-v2 编排调用）
+
+`reverse-gen.ts`（CostLadder）、`layer-closure/`（配额/矩阵/贴色）、`tile-explorer/`、
+`zen-match/`。注意：CostLadder 的"贪心路径 = 最优路径"前提已被 DFS 反证，
+可解性与真实难度统一用 `src/solver/` 验证。
+
+### 5. 序列化与数据
+
+- `replay-serializer.ts`：ReplayCode v4（version/N/elementCount/levelHash uint64 LE/instanceArray/
+  dockEntries/CRC16-MODBUS，Raw DEFLATE + Base64）。规范序 = 层数组序 + 层内数组序（不做 ID 排序）。
+- `terrain-loader.ts`：Unity level JSON → 最小地形模型（含 extraEnum/extraParam、levelResId）。
+- `batch-generator.ts`：批量生产主引擎；`batch-generator-new.ts` 为实验迁移版（仅 test-new-* 工具引用，收敛中）。
 
 ---
 
-## ReplayCode 格式
+## 确定性随机体系（三套，各对齐各的）
+
+| 随机源 | 实现 | 用途 | Unity 对齐对象 |
+|--------|------|------|----------------|
+| `DotNetRandom` | `tile-explorer/random.ts`（56 槽减法，逐位移植） | 机制引擎、洗牌、礼盒 | `System.Random` |
+| `AssignerRandom` | Xorshift128+ / SplitMix64 | 装载期挂件分配 | `DeterministicRandom.cs` |
+| 派生种子公式 | `seed.ts`（FNV-1a + `*397 ^` 混合链） | 战场派生种子 / 分配种子 | `ExtraDeterministicRandom` / `ReplaySerializer.DeriveAssignSeed` |
+
+---
+
+## 装载管线（createGame，顺序对齐 Unity FixedReplayCodeAlgorithm）
+
+```
+replayCode + 地形 + extraConfig
+  → 解码 elementValues（const 钉回固定花色）
+  → splitMechanicConfig（泡泡 39 / 大型地形 51-53 拆出）
+  → assignTileExtras（分配请求子集，FNV-1a 派生种子，Tower 排除初始 Dock 牌）
+  → initialDock / eliminatedTileIds 装载
+  → OfflineGame（MechanicEngine 接收泡泡配置与礼盒开关）
+```
+
+---
+
+## ReplayCode 格式（v4）
 
 ```
 ┌─────────┬────┬──────────────┬───────────┬──────────────┬──────────┬──────────┬───────┐
 │ version │ N  │ elementCount │ levelHash │ instanceArray│ dockCount│ dockEntries│ CRC16 │
 │  1B(=4) │1B  │     1B       │  8B LE    │   N × 1B    │   1B     │ cnt × 2B  │ 2B LE │
 └─────────┴────┴──────────────┴───────────┴──────────────┴──────────┴──────────┴───────┘
-
-每 tile 1 字节: bit[7:6] = TileState, bit[5:0] = 花色索引 (0-63)
+每 tile 1 字节: bit[7:6] = TileState, bit[5:0] = 归一化花色索引 (0-63)
 管线: 二进制 → Raw Deflate (RFC 1951) → Base64
 ```
 
 ---
 
-## 分析页面 — 四种 DAG 图
+## 测试策略
 
-分析页面 (`analysis.html`) 提供四种图来分析地形和牌局结构。所有图都基于**地形依赖图**，区别在于分析粒度和是否需要花色数据。
-
-### 统一数据源：replayCode
-
-加载 ReplayCode 后，所有依赖花色的分析（色组 DAG、Triple DAG、同花色偏序）都从 replayCode 的 `levelHash` 自动解析对应地形，不受输入框中的地形 ID 影响。replayCode 是唯一真相源。
-
-### 四种图的对比
-
-| | 偏序 DAG | 力导向 | 色组 DAG | Triple DAG |
-|---|---|---|---|---|
-| **数据** | 地形级 triple 偏序关系 | 同左 | 牌局色组阻塞关系 | 牌局同色 triple 依赖 |
-| **输入** | 只需地形 | 同左 | 地形 + ReplayCode | 地形 + ReplayCode |
-| **节点** | 一个 triple（任意 3 牌组合） | 同左 | 一个花色组 | 一个同色 triple |
-| **边** | B ≺ A: B 的 depSet ⊆ A 的 depSet | 同左 | A → B: A 色的牌压在 B 色的牌上 | A → B: A 必须在 B 前消除 |
-| **画法** | Sugiyama 分层 (上→下) | D3 力导向 (物理模拟) | 分层圆图 | 分层点图 |
-| **用途** | 看清 triple 之间的必然先后顺序 | 自由探索 triple 关系网 | 看清花色之间的宏观阻塞结构 | 看清每一步有哪些可消的 triple |
-
-### 1. 偏序 DAG（Sugiyama 分层图）
-
-**是什么**：从纯地形枚举所有可能的 3 牌组合（C(n,3)），分析 triple 之间的偏序关系。
-
-**偏序关系 B ≺ A**：当 B 的 depSet 是 A 的 depSet 的子集时，B 绝对应该在 A 之前消除（消 B 对消 A 的帮助最大）。
-
-**节点** = 一个 triple，圆圈大小 = 后继 triple 数量（影响面多大）。
-
-**分层** = 按 depSet 大小分位或依赖深度。
-
-**适用场景**：空地形分析。不需要 ReplayCode，看清地形的自由度和瓶颈在哪。
-
-### 2. 力导向图
-
-**和偏序 DAG 是同一份数据**，只是用 D3 力导向布局来画。节点可拖拽，适合自由探索 triple 之间的关联网络。
-
-### 3. 色组 DAG
-
-**是什么**：加载 ReplayCode 后，把同花色的牌归为一组，分析色组之间的阻塞关系。
-
-**节点** = 一种花色，圆圈大小 = 该花色有多少张牌。
-
-**边 A → B** = A 色的某些牌物理上压在 B 色的某些牌上面 → 必须先消 A 才能露出 B。
-
-**分层** = 拓扑层（入度为 0 的色组在顶层）。
-
-**适用场景**：看清牌局的宏观结构——哪些花色是入口、哪些是瓶颈、依赖链有多深。如果一个花色出现在很多层的阻塞链中，它就是关键色。
-
-### 4. Triple DAG（同色 Board DAG）
-
-**是什么**：加载 ReplayCode 后，在每个花色内部枚举所有可能的 triple（C(k,3)），分析同色 triple 之间的依赖关系。
-
-**节点** = 一个同色 triple，点大小 = depSet 大小。
-
-**边 A → B** = A 的 depSet ⊆ B 的 depSet → A 必须在 B 前消除。
-
-**分层** = 按最长前驱链的拓扑层。
-
-**适用场景**：深入分析具体牌局的消除路径——每一步有哪些候选 triple、它们的先后顺序。
-
-### 工作流
-
-```
-空地形分析:
-  加载地形 → 「偏序 DAG」「力导向」→ 看 triple 关系和自由度
-
-牌局分析:
-  粘贴 ReplayCode → 加载牌局 →
-    「偏序 DAG」「力导向」→ 同花色 triple 偏序
-    「色组 DAG」         → 花色间阻塞结构
-    「Triple DAG」       → 同色 triple 消除顺序
-```
+- `test/unit/`：逐域单测，机制域使用**逐位 golden**（同种子同输入 → 同输出）；
+- `test/integration/`：端到端 smoke；
+- 对齐权威契约：[docs/mechanics-alignment.md](./docs/mechanics-alignment.md)。
 
 ---
 
-## 数据流
+## 已知边界（摘要，详见对齐契约 §2.7/§四）
 
-```
-JSON 文件 → terrain-loader → TerrainTile[]
-                                    │
-                      ┌─────────────┼─────────────┐
-                      ▼             ▼             ▼
-                getAllTiles()  computeAllDeps()  getConstTiles()
-                      │             │
-                      ▼             ▼
-                freeTiles      Map<id, Set<dep>>
-                      │             │
-                      └──────┬──────┘
-                             ▼
-                      buildTriples() → Triple[]
-                             │
-                             ▼
-                      runReverseGen()
-                        │         │
-                  ┌─────┼─────┐   │
-                  ▼     ▼     ▼   ▼
-            assignments costLog branchLog
-                  │
-                  ▼
-            generateBoard()
-             │          │
-             ▼          ▼
-      elementValues  orderedTiles
-             │          │
-             └────┬─────┘
-                  ▼
-          generateReplayCode()
-                  │
-                  ▼
-            ReplayCode (Base64)
-```
-
----
-
-## 核心概念
-
-### Tile（牌）
-- `id`: 唯一标识
-- `layer`: 所在层级（0 = 最底层）
-- `dependencies`: 直接压在下面的牌 ID 列表
-- `isConst`: 是否固定花色
-
-### Triple（三牌组合）
-从自由牌中任选 3 张。`depSet` = 三张牌 + 传递依赖闭包。
-
-### Cost（动态成本）
-`cost = |depSet \ collectedIds|` — 消除这个 triple 需要连带释放多少张牌。
-
-### Cost 数组（难度曲线）
-每一步的目标 cost。cost 越大 = 这一步越难。
-
-### 黑名单
-cost ≤ 选中 triple 的候选全部封杀，防止贪心退化为每步选最便宜的。
-
-### 池化（历史机制，已移除）
-早期版本含"连续同 cost 步骤在同一快照下互选"的多选分支，但池构造始终为
-count=1 使其不可达；该分支已删除，当前算法为每步独立快照的标准贪心。
-
-### 抢救
-候选耗光时从黑名单尾部找回，遵循时间局部性原则。
-
----
-
-## 技术选型
-
-| 考量 | 选择 | 原因 |
-|------|------|------|
-| 语言 | TypeScript | C#→TS 类型映射自然 |
-| 运行时 | Node.js (tsx) | 热执行，无编译步骤 |
-| 压缩 | Raw DEFLATE (RFC 1951) | 与 .NET DeflateStream 一致 |
-| 校验 | CRC16/MODBUS | 工业标准 |
-| GUI | 纯 HTML + D3.js | 零框架依赖 |
+- Undo / 复活（Revive）不在重放契约内；大型地形注入（51-53）未接入；
+- .NET `List.Sort`（不稳定）vs JS `Array.sort`（稳定）在同 key 精确并列时可能产生不同顺序（极低概率）；
+- 帧级表现（动画/音效/TA 埋点）不建模，只对齐逻辑。
 
 ---
 
 ## 开发命令
 
 ```bash
-npm install           # 安装依赖
-npm test              # 全部 29 个测试
-npm run gui           # 启动 Web GUI (http://localhost:3000)
+npm test                        # 全部 143 个测试
+npx tsc --noEmit                # 类型检查
 npx tsx cli/generate.ts --help  # CLI 帮助
+npm run gui                     # Web GUI
 ```

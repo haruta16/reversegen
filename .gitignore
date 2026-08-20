@@ -11,3 +11,6 @@ outputs/
 replays/generated/
 __pycache__/
 *.pyc
+
+# 本地会话配置
+.claude/

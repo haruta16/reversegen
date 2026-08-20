@@ -95,6 +95,14 @@ Fisher-Yates 共享同一随机流——reversegen `shuffleBoard` 逐位一致�
 - **Undo 不在此契约内**：Unity 撤回（StepMgr.RemoveStep）会改变 Steps.Count，
   导致后续种子与无撤回时间线不同。跑关按固定动作序列（无 undo）重放，不受影响。
   若未来要求"含 undo 逐位对齐"，需把种子中的步骤数项替换为棋盘状态派生进度。
+- **复活（Revive）不在契约内**：Unity 复活 = Undo 回退至 Dock ≤ 2 后洗牌；
+  reversegen `OfflineGame.revive`（消 1 张 Dock + 2 张同色 Desk）是求解域的死亡恢复抽象，
+  仅用于 DFS 的 minRevives 度量，不参与跑关重放。
+- **求解状态键**：DFS 记忆化键包含 Dock 实际顺序与牌身份/挂件状态（matchedTiles[0] 决定机制触发）、
+  槽位加成、机制指纹；`actionCount` 仅在存在蒲公英/礼盒（派生种子读步数）时进键，
+  保证剪枝安全且不稀释无机制牌局的合并率。
+- **死亡阈值跟随槽位上限**：`isDead`/`remainSlotCount` 使用 `maxSlotCount`
+  （对齐 Unity `Dock.IsMax`，礼盒加槽后为 8）。
 - 泡泡种子叠加"轮次数"项，使其各轮收集数不同（Unity 原全局随机天然不同）。
 - **排序稳定性**：Unity `List<T>.Sort` 不稳定 vs JS `Array.sort` 稳定——仅当比较键
   精确并列（analyzer 同深度 top-9 截断、礼盒转化组 (cost,minId) 并列、分配器随机键碰撞）

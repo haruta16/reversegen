@@ -138,8 +138,9 @@ export class OfflineGame {
 
   // ── Derived properties ──
 
+  /** 剩余可用槽位（跟随礼盒加槽，对齐 Unity Dock.RemainSlotCount = MaxSlotCount - Frozen - Current）。 */
   get remainSlotCount(): number {
-    return MAX_DOCK_SLOTS - this.dockTiles.length;
+    return this.maxSlotCount - this.dockTiles.length;
   }
 
   get maxSlotCount(): number {
@@ -150,8 +151,9 @@ export class OfflineGame {
     return this.deskTiles.length === 0 && this.dockTiles.length === 0;
   }
 
+  /** 死亡判定跟随当前槽位上限（对齐 Unity Dock.IsMax，礼盒加槽后为 8）。 */
   get isDead(): boolean {
-    return this.dockTiles.length >= MAX_DOCK_SLOTS;
+    return this.dockTiles.length >= this.maxSlotCount;
   }
 
   // ── Clone ──
@@ -170,6 +172,9 @@ export class OfflineGame {
       levelResId: this.levelResId,
     });
     copy.mechanics.copyFrom(this.mechanics);
+    // 克隆必须保留动作计数（机制派生种子依赖 actionCount）与槽位加成（死亡阈值依赖 maxSlotCount）。
+    copy.actionCount = this.actionCount;
+    copy.dockSlotBonus = this.dockSlotBonus;
     return copy;
   }
 
@@ -326,6 +331,9 @@ export class OfflineGame {
    * Used when dock is full to recover from a death state.
    * Does NOT check clickability — desk tiles can be blocked.
    * After elimination, updateTilesState() recomputes all dependencies.
+   *
+   * 注意：这是求解域的死亡恢复抽象（用于 DFS 的 minRevives 度量），并非 Unity 客户端语义——
+   * Unity 复活 = Undo 回退至 Dock ≤ 2 后洗牌（StepMgr.RemoveStep 路径）。重放契约不含 Undo/复活。
    */
   revive(dockTileId: number, deskTileId1: number, deskTileId2: number): void {
     const dockTile = this.allTiles.get(dockTileId);
@@ -527,31 +535,39 @@ export class OfflineGame {
 
   /**
    * Build a deterministic state key for memoization.
-   * Format: "sorted_desk_ids|color1:count1,color2:count2,..."
+   * 完整捕获影响未来走向的全部状态：
+   * - Desk 牌集合（排序，desk 顺序由规范序决定，不随历史变化）
+   * - Dock 牌的【实际顺序】（matchedTiles[0] 决定机制触发）与每张牌的花色、挂件状态
+   * - Desk 牌的挂件状态（角标/倒计时/揭示/订单）
+   * - 槽位加成（死亡阈值）与机制引擎指纹（泡泡随机流）
+   * - actionCount 仅在存在蒲公英(36)/礼盒(37) 时纳入（它们的派生种子读取步数）
    */
   buildStateKey(): string {
     const deskIds = this.deskTiles.map(t => t.id).sort((a, b) => a - b).join(',');
 
-    const dockCounts = new Map<number, number>();
-    for (const t of this.dockTiles) {
-      dockCounts.set(t.elementValue, (dockCounts.get(t.elementValue) ?? 0) + 1);
-    }
-    const dockSig = [...dockCounts.entries()]
-      .sort((a, b) => a[0] - b[0])
-      .map(([color, count]) => `${color}:${count}`)
-      .join(',');
+    const dockSeq = this.dockTiles.map(t => `${t.id}:${t.elementValue}${extraState(t)}`).join(',');
 
-    // 挂件与运行时状态也是状态的一部分（角标/倒计时/揭示影响后续机制选择）
-    const markedIds = this.deskTiles
+    const deskExtras = this.deskTiles
       .filter(t => t.extras.length > 0)
-      .map(t => `${t.id}:${t.extras.map(e => {
-        const state = [e.countdown ?? '', e.isDone ? 1 : 0, e.isConsumed ? 1 : 0].join('.');
-        return `${e.extraEnum}(${state})`;
-      }).join('+')}`)
+      .map(t => `${t.id}:${extraState(t)}`)
       .sort()
       .join(',');
 
-    return `${deskIds}|${dockSig}|${markedIds}|m${this.mechanics.fingerprint()}`;
+    const seedSensitive = this.hasSeedSensitiveMechanics()
+      ? `|a${this.actionCount}`
+      : '';
+
+    return `${deskIds}|${dockSeq}|${deskExtras}|b${this.dockSlotBonus}${seedSensitive}|m${this.mechanics.fingerprint()}`;
+  }
+
+  /** 是否存在步数敏感机制（蒲公英/礼盒的派生种子读取 actionCount）。 */
+  private hasSeedSensitiveMechanics(): boolean {
+    for (const tile of this.allTiles.values()) {
+      for (const extra of tile.extras) {
+        if (extra.extraEnum === 36 || extra.extraEnum === 37) return true;
+      }
+    }
+    return false;
   }
 
   // ═══════════════════════════════════════════════════
@@ -620,6 +636,14 @@ export class OfflineGame {
 // ═══════════════════════════════════════════════════
 //  Factory: terrain + ReplayData → OfflineGame
 // ═══════════════════════════════════════════════════
+
+/** 挂件运行时状态编码（状态键用）：extraEnum(countdown.isDone.isConsumed) 串联。 */
+function extraState(tile: OfflineTile): string {
+  return tile.extras.map(e => {
+    const state = [e.countdown ?? '', e.isDone ? 1 : 0, e.isConsumed ? 1 : 0].join('.');
+    return `${e.extraEnum}(${state})`;
+  }).join('+');
+}
 
 export interface GameFactoryInput {
   terrainTiles: TerrainTile[];

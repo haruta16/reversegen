@@ -18,11 +18,6 @@ export function mul397(value: number): number {
   return (value * 397) | 0;
 }
 
-/** 战场内容基座：地形资源身份（去掉关卡实例 levelId）。 */
-export function battleBaseSeed(game: OfflineGame): number {
-  return game.levelResId | 0;
-}
-
 /** 共享战场派生种子：基座 → ^dock数 → ^desk数 → ^步骤数 → ^盐（对齐 ExtraDeterministicRandom.CreateSeed）。 */
 export function extraActionSeedFromCounts(
   levelResId: number,

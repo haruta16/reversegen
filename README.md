@@ -224,34 +224,37 @@ CostLadder 精确控制的是**贪心模拟**的 cost 链，而非真实玩家�
 ```
 reversegen/
 ├── src/                      # 核心库
-│   ├── reverse-gen.ts        # ★ CostLadder 生成算法
-│   ├── layer-closure-gen.ts  # ★ LayerClosure 编排入口（实现拆在 layer-closure/）
-│   ├── layer-closure/        #   LayerClosure 配额/矩阵/贴色/指标模块
-│   ├── tile-explorer/        # ★ Tile Explorer 策略、.NET RNG、view_layers
-│   ├── zen-match/            # ★ Zen Match 策略 4/5
-│   ├── types.ts              # 类型聚合入口（领域类型拆在 types/）
-│   ├── types/                #   地形 / Triple / 牌局 / LayerClosure 领域类型
-│   ├── constants.ts          # 全局常量（Dock 槽位等）
-│   ├── replay-serializer.ts  # ReplayCode 编解码
-│   ├── cost-generator.ts     # Cost 数组随机生成器
-│   ├── dependency-graph.ts   # BFS 传递依赖闭包
-│   ├── triple-builder.ts     # 三牌组合枚举
-│   ├── greedy-sim.ts         # 贪心模拟验证
+│   ├── mechanics/            # ★ 机制规则引擎（与 Unity 逐位对齐）
+│   │   ├── registry.ts       #   挂件注册表（25 枚举、白名单、常量、盐值表）
+│   │   ├── spec.ts           #   一关表示：ReplayCode + 机制枚举组合
+│   │   ├── seed.ts           #   派生种子统一实现（mul397/共享战场/魔药/洗牌）
+│   │   ├── assigner.ts       #   机制分配器（对齐 TileExtraAssigner，Xorshift128+）
+│   │   ├── engine.ts         #   MechanicEngine：三消行为分发 + 泡泡 tick
+│   │   ├── extras.ts         #   衰减/揭示/订单/蒲公英/礼盒/魔法棒/洗牌
+│   │   └── step-appliers.ts  #   机制步骤应用策略表
+│   ├── solver/               # 游戏引擎 + 求解器
+│   │   ├── offline-game.ts   #   OfflineGame 状态机（collect→Dock→三消→刷新）
+│   │   ├── solver-player.ts  #   统一玩家引擎（各画像变体复用）
+│   │   └── solver-*.ts       #   DFS/贪心/随机/死亡检查点/玩家画像变体
+│   ├── strategy/             # 批量生产策略 v2（schema 定义→生成→流水线→模拟→评级）
+│   ├── reverse-gen.ts        # CostLadder 生成算法（历史生成器）
+│   ├── layer-closure-gen.ts  # LayerClosure 编排入口（实现拆在 layer-closure/）
+│   ├── layer-closure/        #   配额/矩阵/贴色/指标模块
+│   ├── tile-explorer/        # Tile Explorer 策略、.NET RNG、view_layers
+│   ├── zen-match/            # Zen Match 静态策略 4/5
+│   ├── replay-serializer.ts  # ReplayCode v4 编解码（Deflate + CRC16）
 │   ├── terrain-loader.ts     # 地形加载
-│   ├── strategy/             # 批量生产策略 v2 流水线
-│   ├── solver/               # 游戏引擎 + 统一玩家引擎 + DFS/贪心/随机求解器
-│   └── ...
-├── tools/                    # 分析工具
-│   ├── dag/                  # DAG 分析（色组/增强/Triple）
-│   └── planning/             # 消除规划
+│   ├── types.ts              # 类型聚合入口（领域类型拆在 types/）
+│   └── batch-generator.ts    # 批量生产主引擎（batch-generator-new.ts 为实验迁移版）
+├── tools/                    # 分析工具（dag/ planning/ 批量/统计）
 ├── cli/generate.ts           # CLI 工具
 ├── gui/
 │   ├── server.ts             # HTTP 服务骨架（路由分发）
 │   ├── lib/                  #   按域拆分的 API 模块（生成/分析/模拟/分档/批量/策略）
 │   ├── index.html            # 牌局生成器页面
 │   └── analysis.html         # DAG 分析页面（4 种图）
-├── test/                     # 29 个测试
-└── docs/                     # 分析报告
+├── test/                     # 143 个单元/集成测试（含机制逐位 golden）
+└── docs/                     # 对齐契约与分析报告（mechanics-alignment.md 为机制权威契约）
 ```
 
 ---
@@ -259,9 +262,9 @@ reversegen/
 ## 测试
 
 ```bash
-npm test                 # 全部测试
-npm run test:algo        # 算法测试（10 个）
-npm run test:serializer  # 序列化测试（19 个）
+npm test                 # 全部测试（143 个）
+npx tsx --test test/unit/mechanics-engine.test.ts   # 机制引擎（golden 对齐）
+npx tsx --test test/unit/assigner.test.ts           # 机制分配器
 ```
 
 ---
@@ -286,7 +289,10 @@ npm run test:serializer  # 序列化测试（19 个）
 
 ## 与 Unity 的已知差异
 
-C# `List.Sort` 是不稳定排序，JS `Array.sort` 是稳定排序。同等 cost 的 triple 在排序后相对顺序不同，导致跨平台时可能选中不同的 triple。算法逻辑完全一致，差异仅来自排序实现细节。
+机制域的逐位对齐状态、已知边界与决策点以 [docs/mechanics-alignment.md](./docs/mechanics-alignment.md) 为权威契约。摘要：
+
+- **已逐位对齐**：魔药(31)、蒲公英(36)、礼盒(37)、衰减/揭示/订单类挂件、机制分配器、三套确定性随机（System.Random / Xorshift128+ / 战场派生种子）、ReplayCode 解码。
+- **记录在案的边界**：Undo/复活不在契约内；大型地形注入(51-53)未接入；C# `List.Sort`（不稳定）与 JS `Array.sort`（稳定）在同 key 精确并列时可能产生不同顺序（极低概率）。
 
 ---
 

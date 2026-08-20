@@ -188,3 +188,59 @@ test('机制步骤衰减用旧可点击快照：本步被揭开的牌当步不�
   game.applyMechanicStep({ type: 'magic-step', tileIds: [] });
   assert.equal(golden.extras[0].countdown, 3, '下一步才衰减');
 });
+
+test('礼盒加槽后死亡阈值与剩余槽位跟随 maxSlotCount（对齐 Dock.IsMax）', () => {
+  // 7 种不同花色 + 3 张重复花色，避免三消干扰
+  const tiles = Array.from({ length: 10 }, (_, i) => mk(i + 1, i < 7 ? i + 1 : i - 6));
+  const game = new OfflineGame(tiles, [], { levelResId: 1 });
+  game.applyMechanicStep({ type: 'giftbox-add-dock-slot' });
+  assert.equal(game.maxSlotCount, 8, '加槽后上限 8');
+  for (const id of [1, 2, 3, 4, 5, 6, 7]) game.collect(game.allTiles.get(id)!);
+  assert.equal(game.dockTiles.length, 7);
+  assert.equal(game.isDead, false, '7 张未死（上限 8）');
+  assert.equal(game.remainSlotCount, 1);
+  game.collect(game.allTiles.get(8)!); // 色1 第 2 张，不成三消
+  assert.equal(game.dockTiles.length, 8);
+  assert.equal(game.isDead, true, '8 张死亡');
+  assert.equal(game.remainSlotCount, 0);
+});
+
+test('clone 保留 actionCount 与 dockSlotBonus（机制种子与死亡阈值不漂移）', () => {
+  const tiles = Array.from({ length: 12 }, (_, i) => mk(i + 1, (i % 4) + 1));
+  const game = new OfflineGame(tiles, [], { levelResId: 7 });
+  game.applyMechanicStep({ type: 'giftbox-add-dock-slot' });
+  game.applyMechanicStep({ type: 'magic-step', tileIds: [] });
+  assert.equal(game.actionCount, 2);
+  const copy = game.clone();
+  assert.equal(copy.actionCount, game.actionCount, 'actionCount 保留');
+  assert.equal(copy.maxSlotCount, game.maxSlotCount, '槽位加成保留');
+  assert.equal(copy.buildStateKey(), game.buildStateKey());
+});
+
+test('状态键：Dock 顺序/牌身份进键，actionCount 仅在步数敏感机制存在时进键', () => {
+  const build = (seq: number[]) => {
+    const tiles = [mk(1, 1), mk(2, 1), mk(3, 1), mk(4, 2), mk(5, 3), mk(6, 4)];
+    const g = new OfflineGame(tiles, [], { levelResId: 1 });
+    for (const id of seq) g.collect(g.allTiles.get(id)!);
+    return g;
+  };
+  // 相同 desk、相同花色计数、但 Dock 顺序不同（matchedTiles[0] 触发不同）→ 键必须不同
+  const a = build([1, 4, 2]); // dock 首现序 [色1,色2] → [1,2,4]
+  const b = build([4, 1, 2]); // dock 首现序 [色2,色1] → [4,1,2]
+  assert.notEqual(a.buildStateKey(), b.buildStateKey(), 'Dock 顺序不同 → 键不同');
+
+  // 存在礼盒牌：actionCount 进键（步数改变派生种子）
+  const withGift = new OfflineGame(
+    [mk(1, 1, [{ extraEnum: 37, extraParam: '' }]), mk(2, 1), mk(3, 1), mk(4, 2), mk(5, 2), mk(6, 2)],
+    [], { levelResId: 1 },
+  );
+  const k0 = withGift.buildStateKey();
+  withGift.applyMechanicStep({ type: 'magic-step', tileIds: [] }); // 棋盘不变、步数 +1
+  assert.notEqual(withGift.buildStateKey(), k0, '步数敏感机制存在时 actionCount 进键');
+
+  // 无步数敏感机制：actionCount 不进键（不稀释 DFS 记忆化）
+  const plain = new OfflineGame([mk(1, 1), mk(2, 1), mk(3, 1), mk(4, 2), mk(5, 2), mk(6, 2)], []);
+  const p0 = plain.buildStateKey();
+  plain.applyMechanicStep({ type: 'magic-step', tileIds: [] });
+  assert.equal(plain.buildStateKey(), p0, '无步数敏感机制时键不含 actionCount');
+});

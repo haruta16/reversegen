@@ -392,8 +392,8 @@ export type { MechanicCounts, MechanicSpecError, BoardSpec } from './mechanics/s
 export { assignTileExtras, AssignerRandom, deriveAssignSeed, EXTRA_ASSIGN_CONFIG } from './mechanics/assigner.js';
 export type { AssignExtrasSummary, AssignerStrategy } from './mechanics/assigner.js';
 
-// 机制派生种子（统一实现：mul397 / 战场基座 / 共享种子 / 魔药洗牌 / 洗牌）
-export { mul397, battleBaseSeed, extraActionSeed, extraActionSeedFromCounts, magicBottleShuffleSeed, shuffleBoardSeed } from './mechanics/seed.js';
+// 机制派生种子（统一实现：mul397 / 共享种子 / 魔药洗牌 / 洗牌）
+export { mul397, extraActionSeed, extraActionSeedFromCounts, magicBottleShuffleSeed, shuffleBoardSeed } from './mechanics/seed.js';
 
 // 机制引擎（确定性移植）
 export {
