@@ -243,8 +243,7 @@ export function buildGameFromReplay(
   if (!path) throw new Error('无法解析地形（需要 levelId 或有效的 ReplayCode）');
 
   const terrain = loadTerrainFromFile(path);
-  const allTiles = getAllTiles(terrain);
-  const ordered = getCanonicalTileOrder(allTiles);
+  const ordered = getCanonicalTileOrder(getAllTiles(terrain));
 
   // 花色来自 ReplayCode：归一化 → 真实花色（const 牌钉回固定值，对齐 Unity BuildReplayElementMap）
   const elementMap = buildReplayElementMap(ordered, replayData.instanceArray, replayData.elementCount);

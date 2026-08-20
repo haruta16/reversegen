@@ -1,16 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { OfflineGame, OfflineTile } from '../../src/solver/index.js';
+import { OfflineGame, OfflineTile, TileFlag } from '../../src/solver/index.js';
 import {
   selectMagicBottleTargets,
   magicBottleOnMatch,
   selectBubbleAssignTargets,
-  dockMagicPlan,
 } from '../../src/mechanics/engine.js';
+import { initExtraState, giftBoxAvailableEffects, dockDirectedMagicPlan } from '../../src/mechanics/extras.js';
 import { magicBottleShuffleSeed } from '../../src/mechanics/seed.js';
+import { GIFTBOX_EFFECTS } from '../../src/mechanics/registry.js';
 
 function mk(id: number, color: number, extras: { extraEnum: number; extraParam: string }[] = []) {
-  return new OfflineTile({ id, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0, extras }, color);
+  const tile = new OfflineTile({ id, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0, extras }, color);
+  for (const extra of tile.extras) initExtraState(extra);
+  return tile;
 }
 
 test('魔药洗牌种子：int32 unchecked 语义 golden', () => {
@@ -53,11 +56,11 @@ test('魔药触发语义：仅 matchedTiles[0] 携带魔药才触发', () => {
   assert.equal(game.mechanicLog.length, 0, '非首张魔药不触发');
 });
 
-test('泡泡全流程：指派→吸取→Dock魔法→下一批（golden 级联）', () => {
+test('泡泡全流程：指派→吸取→Dock定向魔法链→下一批（golden 级联，对齐 Unity 逐花色 MagicStep）', () => {
   // 30 张 3 色（id i → 色 (i-1)%3+1），泡泡配置 39:3。
   // 完成色1 的 1,4,7 三消后级联：
-  //  batch1 指派 [10,2,3] → 吸取 → 魔法清 [2,5,8,3,6,9,10,13,16]
-  //  batch2 指派 [19,11,12] → 吸取 → 魔法清 [11,14,17,12,15,18,19,22,25]
+  //  batch1 指派 [10,2,3] → 吸取 → 逐花色 MagicStep 清 Dock 三消（每色一步，只收集 Desk 牌）
+  //  batch2 指派 [19,11,12] → 吸取 → 同上
   //  batch3 因 CanAssign 边界（3+1 < 9/3）终止，剩 9 张。
   const tiles = Array.from({ length: 30 }, (_, i) => mk(i + 1, (i % 3) + 1));
   const game = new OfflineGame(tiles, [], { levelResId: 200, mechanicConfig: new Map([[39, 3]]) });
@@ -65,14 +68,31 @@ test('泡泡全流程：指派→吸取→Dock魔法→下一批（golden 级联
   assert.deepEqual(game.mechanicLog, [
     { type: 'bubble-assign', tileIds: [10, 2, 3], stepIndex: 4 },
     { type: 'bubble-collect', tileIds: [2, 3, 10], stepIndex: 5 },
-    { type: 'dock-magic-clear', tileIds: [2, 5, 8, 3, 6, 9, 10, 13, 16], stepIndex: 6 },
-    { type: 'bubble-assign', tileIds: [19, 11, 12], stepIndex: 7 },
-    { type: 'bubble-collect', tileIds: [11, 12, 19], stepIndex: 8 },
-    { type: 'dock-magic-clear', tileIds: [11, 14, 17, 12, 15, 18, 19, 22, 25], stepIndex: 9 },
+    { type: 'magic-step', tileIds: [5, 8], stepIndex: 6 },
+    { type: 'magic-step', tileIds: [6, 9], stepIndex: 7 },
+    { type: 'magic-step', tileIds: [13, 16], stepIndex: 8 },
+    { type: 'bubble-assign', tileIds: [19, 11, 12], stepIndex: 9 },
+    { type: 'bubble-collect', tileIds: [11, 12, 19], stepIndex: 10 },
+    { type: 'magic-step', tileIds: [14, 17], stepIndex: 11 },
+    { type: 'magic-step', tileIds: [15, 18], stepIndex: 12 },
+    { type: 'magic-step', tileIds: [22, 25], stepIndex: 13 },
   ]);
   assert.equal(game.mechanics.bubble.completedCollectRounds, 2);
   assert.equal(game.deskTiles.length, 9);
   assert.equal(game.dockTiles.length, 0);
+});
+
+test('泡泡吸取：照常结算 Dock 三消 + 收集钩子（对齐 BubbleCollectStep.Apply）', () => {
+  const tiles = [
+    mk(1, 1), mk(2, 1), mk(4, 1, [{ extraEnum: 2, extraParam: '' }]),
+    mk(5, 2), mk(6, 2), mk(7, 2),
+  ];
+  const game = new OfflineGame(tiles, [], { levelResId: 5 });
+  game.applyMechanicStep({ type: 'bubble-assign', tileIds: [1, 2, 4] });
+  game.applyMechanicStep({ type: 'bubble-collect', tileIds: [1, 2, 4] });
+  assert.equal(game.dockTiles.length, 0, '同色三张照常三消');
+  for (const id of [1, 2, 4]) assert.ok(game.allTiles.get(id)!.hasFlag(TileFlag.Destroyed), `tile ${id} 已消除`);
+  assert.equal(game.allTiles.get(4)!.extras[0].isDone, true, '收集钩子揭示问号');
 });
 
 test('泡泡确定性：随机收集数模式（39:0）同状态同结果', () => {
@@ -94,7 +114,7 @@ test('Dock 魔法计划：按 Dock 出现顺序补齐 Desk 牌', () => {
   const game = new OfflineGame(tiles, []);
   game.collect(game.allTiles.get(2)!);  // 色1 进 Dock
   game.collect(game.allTiles.get(4)!);  // 色2 进 Dock
-  const plan = dockMagicPlan(game);
+  const plan = dockDirectedMagicPlan(game);
   assert.deepEqual(plan.map(p => [p.elementValue, p.dockCount, p.deskTiles.map(t => t.id)]), [
     [1, 1, [1, 3]],  // 色1 先出现（Dock 索引 0），补桌面的 1、3
     [2, 1, [5, 6]],  // 色2 补 5、6
@@ -125,4 +145,46 @@ test('clone 保留机制状态，状态键包含机制指纹', () => {
   // 泡泡角标牌与普通牌状态键不同
   const plain = new OfflineGame(tiles, []);
   assert.notEqual(game.buildStateKey(), plain.buildStateKey());
+});
+
+test('礼盒 Win 态守卫：胜局不触发效果（对齐 battleState==Win 提前返回）', () => {
+  const tiles = [mk(1, 1, [{ extraEnum: 37, extraParam: '' }]), mk(2, 1), mk(3, 1)];
+  const game = new OfflineGame(tiles, [], { levelResId: 3 });
+  for (const id of [1, 2, 3]) game.collect(game.allTiles.get(id)!);
+  assert.equal(game.mechanicLog.length, 0, '胜局礼盒不触发');
+});
+
+test('礼盒效果开关：未开放效果不参与可用性与滚动（对齐 IsEffectOpen）', () => {
+  const tiles = Array.from({ length: 18 }, (_, i) => mk(i + 1, (i % 3) + 1));
+  const game = new OfflineGame(tiles, [], {
+    levelResId: 300,
+    giftboxOpenEffects: new Set([GIFTBOX_EFFECTS.Shuffle]),
+  });
+  assert.deepEqual(giftBoxAvailableEffects(game), [GIFTBOX_EFFECTS.Shuffle]);
+  // clone 保留开关配置
+  assert.deepEqual(giftBoxAvailableEffects(game.clone()), [GIFTBOX_EFFECTS.Shuffle]);
+});
+
+test('机制步骤衰减：仅 AppendStep 类步骤触发，计划类效果不触发', () => {
+  const tiles = [mk(1, 1, [{ extraEnum: 4, extraParam: '04' }]), mk(2, 1), mk(3, 1), mk(4, 2), mk(5, 2), mk(6, 2)];
+  const game = new OfflineGame(tiles, [], { levelResId: 1 });
+  const golden = game.allTiles.get(1)!.extras[0];
+  game.applyMechanicStep({ type: 'giftbox-add-dock-slot' });
+  assert.equal(golden.countdown, 4, '计划类效果（加槽）不触发衰减');
+  game.applyMechanicStep({ type: 'magic-step', tileIds: [] });
+  assert.equal(golden.countdown, 3, 'MagicStep 触发衰减');
+});
+
+test('机制步骤衰减用旧可点击快照：本步被揭开的牌当步不衰减', () => {
+  const golden = new OfflineTile(
+    { id: 1, layer: 0, dependencies: [3], isConst: false, constElementValue: 0, posX: 0, posY: 0, extras: [{ extraEnum: 4, extraParam: '04' }] },
+    1,
+  );
+  initExtraState(golden.extras[0]);
+  const game = new OfflineGame([golden, mk(2, 1), mk(3, 1), mk(4, 2), mk(5, 2), mk(6, 2)], [], { levelResId: 1 });
+  game.applyMechanicStep({ type: 'magic-step', tileIds: [3] });
+  assert.equal(game.allTiles.get(1)!.isClickable, true, '本步已被揭开');
+  assert.equal(golden.extras[0].countdown, 4, '旧可点击快照：当步不衰减');
+  game.applyMechanicStep({ type: 'magic-step', tileIds: [] });
+  assert.equal(golden.extras[0].countdown, 3, '下一步才衰减');
 });

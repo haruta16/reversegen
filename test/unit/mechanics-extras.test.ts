@@ -24,6 +24,29 @@ function mk(id: number, color: number, extras: { extraEnum: number; extraParam: 
   return tile;
 }
 
+test('衰减时序：本步刚被解除遮挡的牌当步不衰减（对齐 Unity CollectStep.AppendStep 旧可点击状态）', () => {
+  // golden(Value=4) 被 tile 3 遮挡；收集 3 后 golden 本步才变可点击，
+  // 但衰减在 UpdateTilesState 之前触发（旧快照）→ 当步不衰减。
+  const golden = new OfflineTile(
+    { id: 1, layer: 0, dependencies: [3], isConst: false, constElementValue: 0, posX: 0, posY: 0, extras: [{ extraEnum: 4, extraParam: '04' }] },
+    1,
+  );
+  for (const extra of golden.extras) initExtraState(extra);
+  const game = new OfflineGame(
+    [golden, mk(2, 1), mk(3, 1), mk(4, 2), mk(5, 2), mk(6, 2)],
+    [],
+    { levelResId: 1 },
+  );
+  assert.equal(game.allTiles.get(1)!.isClickable, false, 'golden 初始被遮挡');
+  game.collect(game.allTiles.get(3)!);
+  assert.equal(game.allTiles.get(1)!.isClickable, true, 'golden 本步已可点击');
+  assert.equal(game.allTiles.get(1)!.extras[0].countdown, 4, '本步新揭示的牌不衰减（旧可点击快照）');
+
+  // 下一普通步骤才衰减
+  game.collect(game.allTiles.get(2)!);
+  assert.equal(game.allTiles.get(1)!.extras[0].countdown, 3, '下一步衰减 1');
+});
+
 test('衰减挂件：Init 参数解析与每步衰减（黄金不跳过魔药步）', () => {
   const tiles = [mk(1, 1, [{ extraEnum: 4, extraParam: '04' }]), mk(2, 1), mk(3, 1), mk(4, 2), mk(5, 2), mk(6, 2)];
   const game = new OfflineGame(tiles, [], { levelResId: 1 });

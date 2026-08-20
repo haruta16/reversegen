@@ -27,10 +27,8 @@ export type MechanicStep =
   | { type: 'magic-bottle-clear'; tileIds: number[] }
   /** 泡泡指派：给 tileIds 挂上泡泡角标 */
   | { type: 'bubble-assign'; tileIds: number[] }
-  /** 泡泡吸取：收集被标记的 tileIds（进入 Dock） */
+  /** 泡泡吸取：收集被标记的 tileIds（进入 Dock，与 Unity 一致：入 Dock 后照常结算三消） */
   | { type: 'bubble-collect'; tileIds: number[] }
-  /** Dock 魔法：按 Dock 花色补齐清除（泡泡后续 / 礼盒 DockAllMagicWand） */
-  | { type: 'dock-magic-clear'; tileIds: number[] }
   /** 蒲公英扩散：tileIds 转化为蒲公英（元素 1402 + 挂件） */
   | { type: 'dandelion-spread'; tileIds: number[] }
   /** 礼盒：Dock 槽位 +1 */
@@ -45,7 +43,7 @@ export type MechanicStep =
   | { type: 'giftbox-apply-flip'; tileIds: number[] }
   /** 礼盒：转化为魔药 */
   | { type: 'giftbox-apply-magic-bottle'; tileIds: number[] }
-  /** 魔法棒：定向收集（进 Dock 后结算三消） */
+  /** 魔法棒定向收集（进 Dock 后结算三消，可链式触发）——礼盒 MagicWand / DockAllMagicWand / 泡泡 Dock 魔法共用，对齐 Unity MagicStep */
   | { type: 'magic-step'; tileIds: number[] };
 
 /** 机制步骤日志条目（含触发时的动作序号，供跑关对照）。 */

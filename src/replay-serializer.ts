@@ -154,33 +154,14 @@ export function generateReplayCode(
 }
 
 /**
- * 获取规范牌排序 —— 按层级从低到高，同层内按 ID 排序。
- * 这个顺序决定了序列化/反序列化时每张牌的索引，必须严格一致。
+ * 获取规范牌排序 —— 与 Unity ReplaySerializer.GetCanonicalTileOrder 一致：
+ * 规范序 = 层数组序 + 层内数组序（不做 ID 排序）。
+ *
+ * 输入必须是层数组序的扁平列表（即 getAllTiles(terrain) 的输出），
+ * 本函数原样保留该顺序，是 ReplayCode 牌索引顺序的单一契约点。
  */
 export function getCanonicalTileOrder(tiles: TerrainTile[]): TerrainTile[] {
-  // 按层分组
-  const layerMap = new Map<number, TerrainTile[]>();
-  for (const tile of tiles) {
-    let layer = layerMap.get(tile.layer);
-    if (!layer) {
-      layer = [];
-      layerMap.set(tile.layer, layer);
-    }
-    layer.push(tile);
-  }
-
-  // 层升序
-  const sortedLayers = [...layerMap.keys()].sort((a, b) => a - b);
-
-  // 逐层收集，同层按 ID 排序（保证确定性）
-  const ordered: TerrainTile[] = [];
-  for (const layerId of sortedLayers) {
-    const layerTiles = layerMap.get(layerId)!;
-    layerTiles.sort((a, b) => a.id - b.id);
-    ordered.push(...layerTiles);
-  }
-
-  return ordered;
+  return [...tiles];
 }
 
 /**

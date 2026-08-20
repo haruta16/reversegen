@@ -3,7 +3,9 @@
  *
  * 覆盖：
  *  - 彩色魔药（31）：参与三消后按花色交错清除 6 组 × 3 张（MagicBottleExtra）
- *  - 泡泡（39）：轮次指派 → Dock 空时吸取 → Dock 魔法补齐清除（TileMatchBubbleCollectMgr）
+ *  - 泡泡（39）：轮次指派 → Dock 空时吸取（入 Dock 后照常结算三消）→
+ *    Dock 定向魔法（逐花色 MagicStep 链，TileMatchBubbleCollectMgr）
+ *  - 三消分发表（MATCH_BEHAVIORS）：魔药/蒲公英/礼盒各自触发（含礼盒 Win 态守卫）
  *
  * 确定性约定：
  *  - 魔药索敌洗牌种子 = CreateShuffleRandomSeed（levelResID^dock数^桌面花色，unchecked int32）
@@ -242,35 +244,6 @@ export function isBubbleCollectCandidate(tile: OfflineTile): boolean {
     && !tile.hasFlag(TileFlag.Destroyed)
     && tile.extras.some(e => e.extraEnum === 39);
 }
-
-/** GetDockDirectedMagicPlan：按 Dock 出现顺序的花色，补齐需要清除的 Desk 牌。 */
-export function dockMagicPlan(
-  game: OfflineGame,
-): Array<{ elementValue: number; dockCount: number; deskTiles: OfflineTile[] }> {
-  if (game.dockTiles.length === 0) return [];
-  const info = new Map<number, { count: number; firstIndex: number }>();
-  for (let i = 0; i < game.dockTiles.length; i++) {
-    const elementValue = game.dockTiles[i].elementValue;
-    const existing = info.get(elementValue);
-    if (existing) existing.count += 1;
-    else info.set(elementValue, { count: 1, firstIndex: i });
-  }
-  const plan: Array<{ elementValue: number; dockCount: number; deskTiles: OfflineTile[] }> = [];
-  const entries = [...info.entries()].sort((a, b) => a[1].firstIndex - b[1].firstIndex);
-  for (const [elementValue, { count }] of entries) {
-    const needCount = 3 - count;
-    if (needCount <= 0) continue;
-    const deskTiles = game.deskTiles
-      .filter(t => t.elementValue === elementValue)
-      .filter(t => !t.hasFlag(TileFlag.Destroyed))
-      .sort((a, b) => (a.extras.length > 0 ? 1 : 0) - (b.extras.length > 0 ? 1 : 0))
-      .slice(0, needCount);
-    if (deskTiles.length === needCount) {
-      plan.push({ elementValue, dockCount: count, deskTiles });
-    }
-  }
-  return plan;
-}
 // ═══════════════════════════════════════════════════════════
 //  三消分发策略表（MATCH_BEHAVIORS）
 // ═══════════════════════════════════════════════════════════
@@ -325,6 +298,8 @@ function giftBoxMatchBehavior(
   matchedTiles: OfflineTile[],
   _context: MechanicMatchContext,
 ): MechanicStep[] {
+  // 对齐 Unity：动画后异步执行前检查 Win 态（battleState == Win 提前返回），胜局不再触发效果。
+  if (game.isWin) return [];
   // Unity 礼盒在动画后、当前 step 已 Append 后才取随机，因此步数要 +1。
   const giftboxActionCount = game.actionCount + 1;
   const effect = rollGiftBoxEffect(
@@ -340,23 +315,16 @@ function giftBoxMatchBehavior(
   switch (effect) {
     case GIFTBOX_EFFECTS.AddDockSlot:
       return [{ type: 'giftbox-add-dock-slot' }];
-    case GIFTBOX_EFFECTS.MagicWand: {
-      const tiles = selectMagicWandTargets(game);
-      return tiles.length > 0 ? [{ type: 'magic-step', tileIds: tiles.map(t => t.id) }] : [];
-    }
+    case GIFTBOX_EFFECTS.MagicWand:
+      // 对齐 battle.Magic：目标为空也照常 AppendStep（步骤计数 +1，不影响棋盘）。
+      return [{ type: 'magic-step', tileIds: selectMagicWandTargets(game).map(t => t.id) }];
     case GIFTBOX_EFFECTS.DockAllMagicWand: {
+      // 对齐 ExecuteDockAllMagicWandCore：计划快照一次，按 Dock 花色序逐个执行真实 MagicStep。
       const plan = dockDirectedMagicPlan(game);
-      if (plan.length === 0) return [];
-      const tileIds: number[] = [];
-      for (const target of plan) {
-        for (const tile of game.dockTiles) {
-          if (tile.elementValue === target.elementValue && !tileIds.includes(tile.id)) tileIds.push(tile.id);
-        }
-        for (const tile of target.deskTiles) {
-          if (!tileIds.includes(tile.id)) tileIds.push(tile.id);
-        }
-      }
-      return [{ type: 'dock-magic-clear', tileIds }];
+      return plan.map(target => ({
+        type: 'magic-step' as const,
+        tileIds: target.deskTiles.map(t => t.id),
+      }));
     }
     case GIFTBOX_EFFECTS.RevealUnknown:
       return [{ type: 'giftbox-reveal-unknown' }];
@@ -428,8 +396,11 @@ export class MechanicEngine {
   /** 当前三消分发前捕获的 Unity 旧状态快照。 */
   private pendingMatchContext?: MechanicMatchContext;
   readonly bubble: BubbleState;
+  /** 礼盒开放效果集（对齐 s3Kit.GiftBoxExtra.IsEffectOpen）；null = 全部开放。 */
+  giftboxOpenEffects: Set<number> | null;
 
-  constructor(readonly game: OfflineGame, bubbleConfig?: Map<number, number>) {
+  constructor(readonly game: OfflineGame, bubbleConfig?: Map<number, number>, giftboxOpenEffects?: Set<number>) {
+    this.giftboxOpenEffects = giftboxOpenEffects ?? null;
     const config = bubbleConfig?.get(39);
     this.bubble = {
       enabled: config !== undefined,
@@ -473,6 +444,7 @@ export class MechanicEngine {
     this.bubble.activeBubbleTileIds = new Set(source.bubble.activeBubbleTileIds);
     this.bubble.activeRoundCounted = source.bubble.activeRoundCounted;
     this.bubble.cooldownTicks = source.bubble.cooldownTicks;
+    this.giftboxOpenEffects = source.giftboxOpenEffects;
     this.bubbleRandom = source.bubbleRandom
       ? DotNetRandom.fromState(source.bubbleRandom.state())
       : null;
@@ -534,9 +506,9 @@ export class MechanicEngine {
         }
         return steps;
       }
-      // 无存活角标 → Dock 魔法清除。清除非空时冷却置 0，下一 tick 直接进入
-      // 指派（对齐 Unity TryClearDockAfterBubbleTilesConsumed 末尾绕过冷却的
-      // 直接 TryAssignCollectableTiles，且基于魔法执行后的最新棋盘状态）。
+      // 无存活角标 → Dock 定向魔法（逐花色 MagicStep 链，见 dockMagicPass）。
+      // 完成后冷却置 0：下一 tick 用魔法后的最新棋盘状态立即进入指派
+      // （对齐 Unity TryClearDockAfterBubbleTilesConsumed 末尾的立即 TryAssignCollectableTiles）。
       steps.push(...this.dockMagicPass());
       return steps;
     }
@@ -587,7 +559,12 @@ export class MechanicEngine {
     return this.bubbleRandom.next(2) + 2;
   }
 
-  /** TryClearDockAfterBubbleTilesConsumed → Dock 魔法清除（对齐 GetDockDirectedMagicPlan + Execute）。 */
+  /**
+   * TryClearDockAfterBubbleTilesConsumed → Dock 定向魔法。
+   * 对齐 ExecuteDockAllMagicWandCoreAsync：计划快照一次，按 Dock 花色序逐个执行真实
+   * MagicStep（进 Dock → 结算三消 → 可链式触发）；空计划不产生步骤。
+   * Unity 完成流程末尾无论计划是否为空都立即 TryAssign，故冷却置 0。
+   */
   private dockMagicPass(): MechanicStep[] {
     const game = this.game;
     const bubble = this.bubble;
@@ -596,28 +573,16 @@ export class MechanicEngine {
       const tile = game.allTiles.get(id);
       return tile && tile.pileType === PileType.Desk && !tile.hasFlag(TileFlag.Destroyed);
     });
-    if (hasLiveOnDesk) {
-      return [];
-    }
-    const plan = dockMagicPlan(game);
+    if (hasLiveOnDesk) return [];
+
+    const plan = dockDirectedMagicPlan(game);
     bubble.activeBubbleTileIds.clear();
     bubble.activeRoundCounted = false;
-    // Unity 两分支都设 0.5s 冷却；非空分支末尾直接指派绕过冷却，
-    // 因此这里非空时置 0，让下一 tick 用魔法后的棋盘状态立即指派。
-    bubble.cooldownTicks = plan.length === 0 ? 1 : 0;
-    if (plan.length === 0) return [];
-    const tileIds: number[] = [];
-    for (const target of plan) {
-      for (const tile of game.dockTiles) {
-        if (tile.elementValue === target.elementValue && !tileIds.includes(tile.id)) {
-          tileIds.push(tile.id);
-        }
-      }
-      for (const tile of target.deskTiles) {
-        if (!tileIds.includes(tile.id)) tileIds.push(tile.id);
-      }
-    }
-    return [{ type: 'dock-magic-clear', tileIds }];
+    bubble.cooldownTicks = 0;
+    return plan.map(target => ({
+      type: 'magic-step' as const,
+      tileIds: target.deskTiles.map(t => t.id),
+    }));
   }
 }
 

@@ -74,6 +74,9 @@ for tile in Dock（按 ID 升序）:  同上
 
 按 ID 升序是**对齐契约的一部分**：两侧内部列表顺序可能不同，但 ID 排序保证种子一致。
 两侧实现：Unity `ShuffleAlgo.CreateShuffleSeed` / reversegen `shuffleBoardSeed`。
+洗牌算法本体（`_internalShuffle2`）：来源二（Dock）优先、来源一（Desk）先收集前
+`min(3, maxCount)` 张再做去重合并（重叠时少选而非顺延），依赖分组随机旋转与剩余包
+Fisher-Yates 共享同一随机流——reversegen `shuffleBoard` 逐位一致。
 
 ### 2.5 随机数发生器
 - 两侧统一使用 **.NET System.Random 语义**：Unity 直接用 `System.Random(seed)`；
@@ -93,6 +96,35 @@ for tile in Dock（按 ID 升序）:  同上
   导致后续种子与无撤回时间线不同。跑关按固定动作序列（无 undo）重放，不受影响。
   若未来要求"含 undo 逐位对齐"，需把种子中的步骤数项替换为棋盘状态派生进度。
 - 泡泡种子叠加"轮次数"项，使其各轮收集数不同（Unity 原全局随机天然不同）。
+- **排序稳定性**：Unity `List<T>.Sort` 不稳定 vs JS `Array.sort` 稳定——仅当比较键
+  精确并列（analyzer 同深度 top-9 截断、礼盒转化组 (cost,minId) 并列、分配器随机键碰撞）
+  时才可能出现不同顺序，属极低概率边界，记录不修。
+- **浮点常数**：C# `float` 常量提升为 `double` 的比较（蒲公英 0.8f）已用 `Math.fround`
+  逐位复现；分配器 30% 阈值（0.3f vs 0.3）经证明在任意实际牌数下无整数可分叉，保持原样。
+
+### 2.8 装载与步骤时序（已对齐）
+- **规范排序**：getCanonicalTileOrder 不做 ID 排序——规范序 = 层数组序 + 层内数组序
+  （与 Unity ReplaySerializer.GetCanonicalTileOrder 一致）。输入必须是 getAllTiles(terrain)
+  的层序扁平列表。此顺序同时决定 ReplayCode 的 tile 索引与分配器的随机消费顺序。
+- **分配种子**：由 replayCode + 分配请求子集派生（FNV-1a，见 §5.2），两侧同公式——
+  Unity 侧 FixedReplayCodeAlgorithm.ResolveAssignSeed 显式种子（GM/调试）优先、否则派生。
+- **衰减时序**：收集步骤的衰减（OnStep）发生在 UpdateTilesState 之前，使用本步之前的
+  旧可点击状态——本步刚被解除遮挡的牌当步不衰减（对齐 Unity CollectStep.AppendStep 时序）。
+- **机制步骤计数**：`applyMechanicStep` 对齐 Unity「Apply 先于 AppendStep」——应用器执行时
+  `actionCount` 不含本步（链式蒲公英/魔药同步读取一致），链式礼盒取 `actionCount+1`
+  恰为本步 Append 后的计数（对齐礼盒动画后才取随机）。
+- **衰减触发面**：仅 Unity 会 `AppendStep` 的步骤类型触发 OnStep 衰减——
+  `MagicBottleStep`（魔药清除）/`MagicStep`（魔法棒）/`BubbleCollectStep`（泡泡吸取）/
+  `ShuffleStep`（洗牌）；计划类效果（泡泡指派、蒲公英扩散、礼盒加槽/揭示/施加问号/翻转/魔药）
+  无 AppendStep，不触发衰减。
+- **泡泡吸取结算**：`bubble-collect` 入 Dock 后照常 `CheckDockMatch` 结算三消
+  （含 OnTileMatch 链式触发），并对每张收集牌触发 OnTileCollect（对齐 BubbleCollectStep.Apply）。
+- **Dock 定向魔法**（泡泡后续与礼盒 DockAllMagicWand 共用）：计划快照一次，按 Dock 花色序
+  **逐花色执行 MagicStep**（进 Dock → 三消 → 链式触发），步骤计数逐花色对齐
+  `ExecuteDockAllMagicWandCoreAsync`。
+- **礼盒守卫与开关**：效果滚动前检查 Win 态（`battleState == Win` 提前返回，胜局不触发）；
+  效果开关对齐 `s3Kit.GiftBoxExtra.IsEffectOpen`，经 `OfflineGameOptions.giftboxOpenEffects`
+  传入（缺省全开）。装载期的 `IsGiftBoxExtraOpen` 整体移除礼盒配置由调用方在构造配置时体现。
 
 ## 三、各机制对齐状态表
 
@@ -112,7 +144,7 @@ for tile in Dock（按 ID 升序）:  同上
 | 36 | 蒲公英 | 1402 | 三消扩散转化，白名单仅 None/Empty | ✅ dandelion（含种子对齐） |
 | 37 | 礼盒 | 1601 | 三消加权 8 效果 | ✅ giftbox（全部效果 + 种子对齐） |
 | 38 | 订单 | 外部提供 | 收集即 consumed | ⚠️ 行为已接入；花色来源见第四节 |
-| 39 | 泡泡 | — | 轮次指派/吸取/Dock 魔法 | ✅ bubble（含 Unity 种子修复） |
+| 39 | 泡泡 | — | 轮次指派/吸取（入 Dock 结算三消）/逐花色 Dock 魔法 | ✅ bubble（收集结算 + Dock 魔法链 + 种子全对齐） |
 | 51-53 | 大型地形 | — | BoardSpecial 棋盘级注入 | ❌ 未接入，见第四节 |
 
 ## 四、已知风险与决策点
@@ -159,10 +191,13 @@ replayCode + 地形 + extraConfig + seed
 
 - `AssignerRandom` = **Xorshift128+**（SplitMix64 种子扩展），逐位对齐 Unity `DeterministicRandom.cs`
   （与机制引擎用的 .NET System.Random 语义 DotNetRandom 是两套独立随机流，各对齐各的）
-- 缺省种子：`seed = hash(replayCode + 机制文本) & 0x7fffffff`（`deriveAssignSeed`，FNV-1a），
-  零协调；显式 `mechanicSeed` 仅作调试覆盖
+- 缺省种子：`seed = FNV-1a 32bit(replayCode + "|" + 分配请求子集文本) & 0x7fffffff`
+  （`deriveAssignSeed`，零协调）。**分配请求子集** = 机制配置经 `splitMechanicConfig` 拆出
+  泡泡(39)/大型地形(51-53) 后的部分——与 Unity `FixedReplayCodeAlgorithm` 收到的 extraConfig 一致；
+  Unity 侧 `ReplaySerializer.DeriveAssignSeed` 同公式派生（同输入 → 同挂件布局）。
+  显式 `mechanicSeed`（Unity 侧特殊种子/GM）优先于派生。
 - 随机消费顺序 = 输入 tile 列表顺序（LINQ/数组枚举顺序逐位一致）；与 Unity 对齐时
-  输入 tile 需以 `getCanonicalTileOrder` 顺序
+  输入 tile 需以 `getCanonicalTileOrder` 顺序（规范序 = 层数组序 + 层内数组序，见 §2.8）
 
 ### 5.3 分配规则（对齐 Unity ExtraConfig/WhitelistConfig）
 
@@ -181,9 +216,16 @@ replayCode + 地形 + extraConfig + seed
 - 白名单双向互斥：黄金/复活节只挂空牌；金币/魔药/蒲公英可搭问号/翻转；问号/翻转可搭金币
 - 预置可让位挂件（问号/翻转）先驱逐腾位、后按白名单恢复，被排挤则丢弃（`evictedPreplaced`）
 - 其余 tile-count 机制（冰封/锁链/兑换/怪物/岩石/翻转罐/订单/小精灵等）：默认 MostFrequentFirst、order 最大
+- **Tower 判定（207 排除）对齐 IsTerrain**：初始 Dock 牌（originalPile==1，经
+  `createGame` 的 `towerExcludedTileIds` 传入）与 51-53 棋盘特殊物（按 tile extraEnum 排除）
+  不参与 Tower 链判定
 - 校验为日志级（对齐 Unity ValidateFinalDistribution），不抛错
 
 ### 5.4 对齐验证
 
 `test/unit/assigner.test.ts`：确定性（同种子同输入 → 逐位相同）、固定花色取整、
 白名单互斥、驱逐/恢复、202/207 自动数量、蒲公英第五低成本组、createGame 装载集成。
+
+`test/unit/mechanics-engine.test.ts`：魔药索敌 golden、泡泡全流程 golden（逐花色
+MagicStep 链）、泡泡吸取 Dock 三消结算 + 收集钩子、礼盒 Win 态守卫、效果开关、
+衰减仅随步骤类触发 + 旧可点击快照、clone 保留机制状态。

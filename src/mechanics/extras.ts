@@ -72,15 +72,20 @@ export function isUnrevealedUnknownTile(tile: OfflineTile): boolean {
 //  衰减挂件（黄金/日历/复活节）— OnStep 移植
 // ═══════════════════════════════════════════════════════════
 
-/** 每步衰减：Value>0 且可点击时 Value--；日历/复活节跳过魔药步。 */
-export function applyDecayStep(game: OfflineGame, stepType: string | null): void {
+/**
+ * 每步衰减：Value>0 且可点击时 Value--；日历/复活节跳过魔药步。
+ * clickableSnapshot：本步开始前的可点击牌集合（对齐 Unity AppendStep 的 OnStepApply 旧标志）；
+ * 缺省时使用当前实时标志（collect 路径在刷新前调用，天然为旧状态）。
+ */
+export function applyDecayStep(game: OfflineGame, stepType: string | null, clickableSnapshot?: ReadonlySet<number>): void {
   for (const tile of game.deskTiles) {
+    if (clickableSnapshot && !clickableSnapshot.has(tile.id)) continue;
     for (const extra of tile.extras) {
       const info = mechanicInfo(extra.extraEnum);
       if (!info || info.behavior !== 'decay') continue;
       if (extra.countdown === undefined || extra.countdown <= 0) continue;
       if (stepType !== null && (info.decaySkip ?? []).includes(stepType)) continue;
-      if (tile.isClickable) extra.countdown -= 1;
+      if (clickableSnapshot || tile.isClickable) extra.countdown -= 1;
     }
   }
 }
@@ -172,7 +177,8 @@ export function selectDandelionTargets(
   const nonOverlapping = groups.filter(g => !g.tiles.some(t => selectedAIds.has(t.id)));
   let selectedB: (typeof groups)[0] | null = null;
   if (nonOverlapping.length > 0) selectedB = nonOverlapping[random.next(nonOverlapping.length)];
-  const singleGroup = selectedB === null || random.nextDouble() < DANDELION_SINGLE_GROUP_PROBABILITY;
+  // Math.fround：对齐 C# 常量 float 0.8f 提升为 double（0.800000011920929）的逐位比较语义
+  const singleGroup = selectedB === null || random.nextDouble() < Math.fround(DANDELION_SINGLE_GROUP_PROBABILITY);
   if (singleGroup) {
     const pickB = selectedB !== null && random.nextDouble() < 0.5;
     return (pickB ? selectedB! : selectedA).tiles.map(t => game.allTiles.get(t.id)!);
@@ -256,10 +262,12 @@ export function dockDirectedMagicPlan(
   return plan;
 }
 
-/** IsEffectAvailable 移植。 */
+/** IsEffectAvailable 移植（含 s3Kit.GiftBoxExtra.IsEffectOpen 开关：未开放效果不参与滚动）。 */
 export function giftBoxAvailableEffects(game: OfflineGame): number[] {
+  const openEffects = game.mechanics.giftboxOpenEffects;
   const available: number[] = [];
   for (const [effect] of GIFTBOX_EFFECT_WEIGHTS) {
+    if (openEffects && !openEffects.has(effect)) continue;
     switch (effect) {
       case GIFTBOX_EFFECTS.AddDockSlot:
         if (game.maxSlotCount < GIFTBOX_CONSTANTS.MAX_DOCK_SLOT) available.push(effect);
@@ -460,17 +468,24 @@ export function shuffleBoard(game: OfflineGame, rngSeed: number): void {
     }
   }
 
-  // 合并选中（来源二优先）
+  // 合并选中（对齐 ShuffleAlgo._internalShuffle2：来源一先收集前 deskPlaceCount 张、
+  // 不与来源二做重叠预检；合并时按 来源二 → 来源一 去重，重叠会少选而非顺延）。
+  const deskSelectedIndices: number[] = [];
+  let deskSelectedCount = 0;
+  for (let i = 0; i < packets.length && deskSelectedCount < deskPlaceCount; i++) {
+    if (packets[i].elementValue === deskSelectedColor) {
+      deskSelectedIndices.push(i);
+      deskSelectedCount++;
+    }
+  }
+
   const selectedIndices = new Set<number>();
   const selectedPackets: ShufflePacket[] = [];
   for (const idx of dockSelectedIndices) {
     if (!selectedIndices.has(idx)) { selectedIndices.add(idx); selectedPackets.push(packets[idx]); }
   }
-  let deskSelectedCount = 0;
-  for (let i = 0; i < packets.length && deskSelectedCount < deskPlaceCount; i++) {
-    if (packets[i].elementValue === deskSelectedColor && !selectedIndices.has(i)) {
-      selectedIndices.add(i); selectedPackets.push(packets[i]); deskSelectedCount++;
-    }
+  for (const idx of deskSelectedIndices) {
+    if (!selectedIndices.has(idx)) { selectedIndices.add(idx); selectedPackets.push(packets[idx]); }
   }
   const remainingPackets: ShufflePacket[] = [];
   for (let i = 0; i < packets.length; i++) {

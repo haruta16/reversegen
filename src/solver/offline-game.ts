@@ -12,7 +12,7 @@
 import { OfflineTile, PileType, TileFlag, type TileConfig } from './types.js';
 import type { FallingTerrainStructure, TerrainStructure, TerrainTile } from '../types.js';
 import { MechanicEngine, tileExtrasFromTerrain } from '../mechanics/engine.js';
-import { STEP_APPLIERS } from '../mechanics/step-appliers.js';
+import { DECAY_STEP_TYPES, STEP_APPLIERS } from '../mechanics/step-appliers.js';
 import { applyDecayStep, onTileCollected } from '../mechanics/extras.js';
 import type { MechanicStep, MechanicStepRecord } from '../mechanics/types.js';
 import { serializeMechanicCounts, splitMechanicConfig } from '../mechanics/spec.js';
@@ -36,6 +36,8 @@ export interface OfflineGameOptions {
   levelResId?: number;
   /** 机制配置（extraEnum → 数量/参数，与 Unity extraConfig 同构） */
   mechanicConfig?: Map<number, number>;
+  /** 礼盒开放效果集（对齐 s3Kit.GiftBoxExtra.IsEffectOpen）；缺省 = 全部开放 */
+  giftboxOpenEffects?: Set<number>;
 }
 
 export class OfflineGame {
@@ -95,7 +97,7 @@ export class OfflineGame {
       }
     }
 
-    this.mechanics = new MechanicEngine(this, options.mechanicConfig);
+    this.mechanics = new MechanicEngine(this, options.mechanicConfig, options.giftboxOpenEffects);
 
     this.initializeTerrainStructures();
     this.updateTilesState();
@@ -267,38 +269,48 @@ export class OfflineGame {
     if (!matched || matched.length === 0) {
       this.mechanics.clearPendingMatchContext();
     }
-    // Unity 礼盒在动画后、UpdateTilesState 之后才取随机，因此机制分发前先刷新状态。
+
+    // 3.2 衰减挂件 OnStep —— 对齐 Unity：CollectStep 在 AppendStep 时（UpdateTilesState 之前）
+    //    触发 OnStep，此刻其它 desk 牌的可点击状态仍是本步之前的旧快照，
+    //    因此本步刚被解除遮挡的牌当步不衰减。
+    applyDecayStep(this, 'collect');
+
+    // 4. 刷新状态；Unity 礼盒在动画后、UpdateTilesState 之后才取随机，
+    //    因此机制分发前先刷新一次。
     this.updateTilesState();
 
-    // 3.5 机制分发：OnMatch（matched 已 Destroyed；魔药/蒲公英/礼盒按守卫各自触发）
+    // 5. 机制分发：OnMatch（matched 已 Destroyed；魔药/蒲公英/礼盒按守卫各自触发）
     if (matched && matched.length > 0) {
       for (const mechanicStep of this.mechanics.onMatch(matched)) {
         this.applyMechanicStep(mechanicStep);
       }
     }
 
-    // 4. Update tile states (recompute RuntimeDependencies → Clickable)
+    // 6. 机制步骤可能改动桌面，再次刷新（recompute RuntimeDependencies → Clickable）
     this.updateTilesState();
 
-    // 4.2 衰减挂件 OnStep（收集步骤触发；日历/复活节跳过魔药步）
-    applyDecayStep(this, 'collect');
-
-    // 4.5 动作计数 + 泡泡 tick 至静止（对齐 Unity OnUpdate 的确定性等价）
+    // 7. 动作计数 + 泡泡 tick 至静止（对齐 Unity OnUpdate 的确定性等价）
     this.actionCount += 1;
     this.runMechanicTicks();
   }
 
   /**
    * 应用机制步骤（公开入口：策略表分发 + 日志 + 衰减结算）。
-   * 行为实现见 src/mechanics/step-appliers.ts 的 STEP_APPLIERS 表。
+   * 对齐 Unity StepMgr 时序：Apply 先于 AppendStep —— 应用器执行时 actionCount 不含本步
+   * （链式蒲公英/魔药同步读取一致；链式礼盒取 actionCount+1 恰为本步 Append 后计数）；
+   * 衰减 OnStep 仅对 Unity 会 AppendStep 的步骤类型触发，且用本步开始前的旧可点击快照；
+   * 状态刷新统一在本步末尾（对齐 Unity 各调用点的 UpdateTilesState）。
    */
   applyMechanicStep(step: MechanicStep): void {
-    this.actionCount += 1;
-    this.mechanicLog.push({ ...step, stepIndex: this.actionCount });
+    const decaySnapshot = DECAY_STEP_TYPES.has(step.type)
+      ? new Set<number>(this.deskTiles.filter(t => t.isClickable).map(t => t.id))
+      : undefined;
     const applier = STEP_APPLIERS[step.type];
     if (applier) applier(this, step);
-    // 对齐 Unity：每个应用的步骤都会触发衰减挂件 OnStep
-    applyDecayStep(this, step.type);
+    this.actionCount += 1;
+    this.mechanicLog.push({ ...step, stepIndex: this.actionCount });
+    if (decaySnapshot) applyDecayStep(this, step.type, decaySnapshot);
+    this.updateTilesState();
   }
   /** 循环执行泡泡 tick 直到静止（guard 防病态环）。 */
   private runMechanicTicks(): void {
@@ -624,6 +636,8 @@ export interface GameFactoryInput {
   replayCode?: string;
   /** 机制配置（extraEnum → 数量/参数，与 Unity extraConfig 同构） */
   mechanicConfig?: Map<number, number>;
+  /** 礼盒开放效果集（对齐 s3Kit.GiftBoxExtra.IsEffectOpen）；缺省 = 全部开放 */
+  giftboxOpenEffects?: Set<number>;
   /**
    * 机制分配种子（调试显式覆盖）。缺省 = deriveAssignSeed(replayCode, mechanicConfig)，
    * 即「地形+replay+机制」的纯函数，零协调。
@@ -635,7 +649,7 @@ export interface GameFactoryInput {
  * Create an OfflineGame from terrain + assigned colors + replay data.
  */
 export function createGame(input: GameFactoryInput): OfflineGame {
-  const { terrainTiles, terrainStructures, elementValues, initialDock, eliminatedTileIds, levelResId, replayCode, mechanicConfig, mechanicSeed } = input;
+  const { terrainTiles, terrainStructures, elementValues, initialDock, eliminatedTileIds, levelResId, replayCode, mechanicConfig, mechanicSeed, giftboxOpenEffects } = input;
 
   const tiles: OfflineTile[] = terrainTiles.map(tt => {
     const config: TileConfig = {
@@ -663,7 +677,18 @@ export function createGame(input: GameFactoryInput): OfflineGame {
       logger.warn(`大型地形注入(51-53)未接入，已忽略: ${serializeMechanicCounts(boardSpecial)}`);
     }
     if (assignable.size > 0) {
-      assignTileExtras(tiles, assignable, mechanicSeed ?? deriveAssignSeed(replayCode ?? '', mechanicConfig));
+      // 种子只取"分配请求"子集（泡泡/大型地形已拆出）——与 Unity FixedReplayCodeAlgorithm
+      // ApplyExtraConfig 收到的 extraConfig 一致，两侧同公式派生同一种子。
+      // Tower 判定排除初始 Dock 牌（对齐 IsTerrain: originalPile==1）；51-53 由分配器按 extraEnum 排除。
+      const towerExcludedTileIds = initialDock && initialDock.length > 0
+        ? new Set<number>(initialDock.map(d => d.tileId))
+        : undefined;
+      assignTileExtras(
+        tiles,
+        assignable,
+        mechanicSeed ?? deriveAssignSeed(replayCode ?? '', assignable),
+        towerExcludedTileIds,
+      );
     }
   }
 
@@ -683,7 +708,7 @@ export function createGame(input: GameFactoryInput): OfflineGame {
     }
   }
 
-  return new OfflineGame(tiles, terrainStructures, { levelResId, mechanicConfig: bubbleConfig });
+  return new OfflineGame(tiles, terrainStructures, { levelResId, mechanicConfig: bubbleConfig, giftboxOpenEffects });
 }
 
 // ═══════════════════════════════════════════════════════════════

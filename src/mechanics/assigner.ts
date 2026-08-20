@@ -187,7 +187,13 @@ function fnv1a32(text: string): number {
 }
 
 /**
- * 分配种子 = hash(replayCode + 机制) 的低 31 位（纯函数，零协调）。
+ * 分配种子 = hash(replayCode + 分配请求文本) 的低 31 位（纯函数，零协调）。
+ *
+ * 跨侧契约（与 Unity FixedReplayCodeAlgorithm 逐位一致）：
+ * - mechanics 必须是"可分配子集"（已由 splitMechanicConfig 拆出泡泡 39 / 大型地形 51-53），
+ *   与 Unity ApplyExtraConfig 收到的 extraConfig 同构；
+ * - 文本 = replayCode + "|" + 按枚举升序的 "31:3,36:3" 逗号连接（serializeMechanicCounts）；
+ * - 哈希 = FNV-1a 32 位，取低 31 位。
  * 同一关（地形+replay+机制）→ 同一种子 → 同一挂件布局；不同 replay/机制 → 大概率不同布局。
  * 地形身份已内嵌在 replayCode 的 levelHash 中，无需单独传入。
  */
@@ -201,8 +207,15 @@ export function deriveAssignSeed(replayCode: string, mechanics: MechanicCounts):
  * 就地改写 tiles 的 extras 与固定花色，返回分配摘要。
  * 调用方需先 splitMechanicConfig 拆出泡泡(39)与大型地形(51-53)。
  * 输入 tile 顺序 = 随机消费顺序；与 Unity 对齐时传 getCanonicalTileOrder 顺序。
+ * towerExcludedTileIds：Tower 判定应排除的非地形牌（对齐 IsTerrain：
+ * originalPile==1 的初始 Dock 牌 + 51-53 棋盘特殊物）。
  */
-export function assignTileExtras(tiles: OfflineTile[], extraConfig: MechanicCounts, seed: number): AssignExtrasSummary {
+export function assignTileExtras(
+  tiles: OfflineTile[],
+  extraConfig: MechanicCounts,
+  seed: number,
+  towerExcludedTileIds?: ReadonlySet<number>,
+): AssignExtrasSummary {
   const summary: AssignExtrasSummary = { assignedCounts: new Map(), adjusted: [], evictedPreplaced: 0 };
   const assignable = tiles.filter(t => !t.config.isConst);
   if (assignable.length === 0 || extraConfig.size === 0) return summary;
@@ -214,7 +227,7 @@ export function assignTileExtras(tiles: OfflineTile[], extraConfig: MechanicCoun
   const rng = new AssignerRandom(seed);
   const evacuated = evacuateFreeExtras(assignable);
   const constraints = adjustAndBuildConstraints(requests, assignable.length, summary);
-  for (const req of requests) assignRequest(assignable, req, rng, summary);
+  for (const req of requests) assignRequest(assignable, req, rng, summary, towerExcludedTileIds);
   const evicted = restoreEvacuatedExtras(evacuated);
   summary.evictedPreplaced = evicted;
   validateFinalDistribution(assignable, constraints);
@@ -278,10 +291,16 @@ function adjustAndBuildConstraints(requests: AssignRequest[], tileCount: number,
 }
 
 /** 执行单个请求：白名单筛选候选（207 额外排除 Tower 成员）→ 按策略选 tile → 附加挂件/固定花色。 */
-function assignRequest(tiles: OfflineTile[], req: AssignRequest, rng: AssignerRandom, summary: AssignExtrasSummary): void {
+function assignRequest(
+  tiles: OfflineTile[],
+  req: AssignRequest,
+  rng: AssignerRandom,
+  summary: AssignExtrasSummary,
+  towerExcludedTileIds?: ReadonlySet<number>,
+): void {
   const candidates = tiles.filter(t => canAttach(req.value, t.extras));
   if (req.value === 207) {
-    const towerIds = detectTowerTileIds(tiles);
+    const towerIds = detectTowerTileIds(tiles, towerExcludedTileIds);
     for (let i = candidates.length - 1; i >= 0; i--) {
       if (towerIds.has(candidates[i].id)) candidates.splice(i, 1);
     }
@@ -588,7 +607,8 @@ function selectByFrequency(rng: AssignerRandom, candidates: OfflineTile[], count
 //  Tower 成员识别（对齐 Unity TowerDetector，仅 207 使用）
 //  判定口径：相邻实际层中中心点曼哈顿距离恰为 1 的一对 Tile 组成候选链，
 //  且该链必须贯穿空间相连地形组的全部实际层，才认定为 Tower 成员。
-//  reversegen 无棋盘特殊物/初始 Dock 概念，全部 tile 视为普通地形。
+//  非地形牌不参与判定（对齐 IsTerrain）：towerExcludedTileIds（初始 Dock 牌，
+//  originalPile==1）与 51-53 棋盘特殊物（IsBoardSpecialExtra）。
 // ═══════════════════════════════════════════════════════════
 
 function towerDistance(a: OfflineTile, b: OfflineTile): number {
@@ -600,12 +620,19 @@ function areSameTerrainGroup(a: OfflineTile, b: OfflineTile): boolean {
          Math.abs(a.config.posY - b.config.posY) <= TILE_UNIT;
 }
 
-function detectTowerTileIds(tiles: OfflineTile[]): Set<number> {
+/** 对齐 Unity TowerDetector.IsTerrain：非初始 Dock 牌且非棋盘特殊物。 */
+function isTerrainTile(t: OfflineTile, towerExcludedTileIds?: ReadonlySet<number>): boolean {
+  if (towerExcludedTileIds?.has(t.id)) return false;
+  return !t.extras.some(e => e.extraEnum === 51 || e.extraEnum === 52 || e.extraEnum === 53);
+}
+
+function detectTowerTileIds(tiles: OfflineTile[], towerExcludedTileIds?: ReadonlySet<number>): Set<number> {
   const result = new Set<number>();
   if (tiles.length === 0) return result;
 
   const byLayer = new Map<number, OfflineTile[]>();
   for (const t of tiles) {
+    if (!isTerrainTile(t, towerExcludedTileIds)) continue;
     let g = byLayer.get(t.config.layer);
     if (!g) { g = []; byLayer.set(t.config.layer, g); }
     g.push(t);

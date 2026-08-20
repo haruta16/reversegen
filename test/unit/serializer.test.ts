@@ -211,20 +211,26 @@ describe('ReplaySerializer', () => {
     try { decodeFromString(corrupt); } catch { /* expected */ }
   });
 
-  it('should get canonical tile order', () => {
-    // Reverse tiles → canonical order should restore layer 0 first, sorted by ID
-    const reversed = [...tiles].reverse();
-    const ordered = getCanonicalTileOrder(reversed);
+  it('should get canonical tile order（层数组序 + 层内数组序，对齐 Unity，不排序）', () => {
+    // 契约：规范序 = 地形 JSON 的原始扁平序（层数组序 + 层内数组序），
+    // 与 getAllTiles(terrain) 一致，不做 ID 排序。
+    const terrain = loadTerrainFromFile(FIXTURE);
+    const flat = getAllTiles(terrain);
+    assert.deepEqual(getCanonicalTileOrder(flat), flat, '层数组序 + 层内数组序原样保留');
 
-    // Verify sorted: layer 0 before layer 1 before ..., ID ascending within layer
-    for (let i = 1; i < ordered.length; i++) {
-      const a = ordered[i - 1];
-      const b = ordered[i];
-      assert.ok(
-        a.layer < b.layer || (a.layer === b.layer && a.id < b.id),
-        `Order violation at index ${i}: tile ${a.id} (L${a.layer}) before tile ${b.id} (L${b.layer})`
-      );
-    }
+    // 故意把同层牌打乱成非 ID 序，规范序必须保持数组原序、不做 ID 排序。
+    const unordered: TerrainTile[] = [
+      { id: 3, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0 },
+      { id: 1, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0 },
+      { id: 2, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0 },
+      { id: 6, layer: 1, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0 },
+      { id: 5, layer: 1, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0 },
+    ];
+    assert.deepEqual(
+      getCanonicalTileOrder(unordered).map(t => t.id),
+      [3, 1, 2, 6, 5],
+      '保持数组原序，不做任何排序',
+    );
   });
 });
 

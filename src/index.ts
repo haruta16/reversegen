@@ -110,7 +110,6 @@ function buildReplay(
   assignments: ReadonlyMap<number, number>,
   hashOverride?: string,
 ): { replayCode: string; levelHash: string } {
-  const allTiles = getAllTiles(terrain);
   const levelHash = hashOverride ?? terrain.levelHash ?? '';
   const elementValues = new Map<number, number>();
   for (const tile of getConstTiles(terrain)) {
@@ -118,7 +117,7 @@ function buildReplay(
   }
   for (const [tileId, value] of assignments) elementValues.set(tileId, value);
   return {
-    replayCode: generateReplayCode(getCanonicalTileOrder(allTiles), elementValues, levelHash),
+    replayCode: generateReplayCode(getCanonicalTileOrder(getAllTiles(terrain)), elementValues, levelHash),
     levelHash: levelHash || '(none)',
   };
 }
@@ -406,7 +405,6 @@ export {
   isBubbleAssignCandidate,
   selectBubbleAssignTargets,
   isBubbleCollectCandidate,
-  dockMagicPlan,
   tileExtrasFromTerrain,
 } from './mechanics/engine.js';
 

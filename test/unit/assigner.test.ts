@@ -162,6 +162,33 @@ test('翻转(层)207：忽略配置数量、排除最浅两层、整层全挂', 
   assert.equal(layers.size, 1, '整层全挂：只来自同一层');
 });
 
+test('Tower 判定排除初始 Dock 牌（对齐 IsTerrain: originalPile==1）', () => {
+  // 相邻两层、中心曼哈顿距离恰为 1 → 贯穿全部层的 Tower 链
+  const build = (): OfflineTile[] => [
+    makeTile(1, { layer: 2, posX: 100, posY: 100 }),
+    makeTile(2, { layer: 3, posX: 100, posY: 101 }),
+  ];
+  const plain = build();
+  const s1 = assignTileExtras(plain, parseMechanicCounts('207:99'), 3);
+  assert.equal(s1.assignedCounts.get(207) ?? 0, 0, 'Tower 链成员全部被排除');
+
+  const excluded = build();
+  const s2 = assignTileExtras(excluded, parseMechanicCounts('207:99'), 3, new Set([2]));
+  assert.equal(s2.assignedCounts.get(207) ?? 0, 1, '排除初始 Dock 牌后不再成 Tower');
+  assert.equal(excluded.filter(t => t.extras.some(e => e.extraEnum === 207)).length, 1);
+});
+
+test('Tower 判定排除棋盘特殊物（对齐 IsBoardSpecialExtra: 51-53）', () => {
+  const tiles = [
+    makeTile(1, { layer: 2, posX: 100, posY: 100, extra: 51 }),
+    makeTile(2, { layer: 3, posX: 100, posY: 101 }),
+  ];
+  const s = assignTileExtras(tiles, parseMechanicCounts('207:99'), 3);
+  assert.equal(s.assignedCounts.get(207) ?? 0, 1, '51 牌不参与 Tower 判定，普通牌可被选中');
+  assert.equal(tiles[0].extras.some(e => e.extraEnum === 207), false, '51 牌本身不可挂 207');
+  assert.ok(tiles[1].extras.some(e => e.extraEnum === 207));
+});
+
 // ═══ 蒲公英：第五低成本三消组 ═══
 
 test('蒲公英(36)：第五低成本三消组策略，固定花色 1402，确定性', () => {
@@ -210,6 +237,24 @@ test('deriveAssignSeed: 同一 replay+机制确定、不同 replay 不同、非�
   assert.equal(deriveAssignSeed('CODE_A', m), deriveAssignSeed('CODE_A', m));
   assert.notEqual(deriveAssignSeed('CODE_A', m), deriveAssignSeed('CODE_B', m));
   assert.equal(deriveAssignSeed('CODE_A', m) & 0x80000000, 0, '非负 31 位');
+});
+
+test('deriveAssignSeed: 跨侧 golden —— 与 Unity FixedReplayCodeAlgorithm 同公式（FNV-1a + 分配请求子集）', () => {
+  // 契约文本：replayCode + "|" + 枚举升序 "k:v" 逗号连接；种子 = FNV-1a 32bit & 0x7fffffff。
+  // golden 值供 Unity 侧 ReplaySerializer.DeriveAssignSeed 交叉验证。
+  const m = parseMechanicCounts('31:3,36:3,4:6,2:6,5:3');
+  assert.equal(deriveAssignSeed('abcdEF01', m), 493015428, 'golden 锁定（跨侧一致）');
+
+  // 种子只取"分配请求"子集：泡泡(39)/大型地形(51-53) 由调用方 splitMechanicConfig 拆出后
+  // 才参与派生（与 C# ApplyExtraConfig 收到的配置一致）—— createGame 即如此。
+  const full = parseMechanicCounts('31:3,39:2,52:1');
+  const { assignable } = splitMechanicConfig(full);
+  const assignableOnly = parseMechanicCounts('31:3');
+  assert.equal(
+    deriveAssignSeed('X', assignable),
+    deriveAssignSeed('X', assignableOnly),
+    '泡泡/大型地形配置不参与分配种子',
+  );
 });
 
 // ═══ createGame 装载集成 ═══
