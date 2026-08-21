@@ -88,6 +88,14 @@ Fisher-Yates 共享同一随机流——reversegen `shuffleBoard` 逐位一致�
 
 ### 2.6 时间/动画 → 逻辑时钟契约
 - 泡泡 0.5s 冷却 = 1 次动作 tick；魔法清除后"绕过冷却直接指派" = 冷却置 0
+- **泡泡状态机（对齐 `TileMatchBubbleCollectMgr`）**：
+  1. 开局帧（Playing 后、步1 前）Dock 空 → 指派 → 立即吸取入 Dock（`onAssigned` 回调不经 Dock 空门）；
+  2. 角标牌**留在 Dock 等玩家配对消耗**（每色一张，互相不成组）——Dock 非空期间不再指派/吸取；
+  3. 最后一张角标牌被玩家三消消耗 → Dock 定向魔法（逐花色 MagicStep）→ **同一链内立即**下一轮指派→吸取；
+  4. 最多 3 轮；`CanAssignForRemainingTileCount`（target+1 < 剩余/3）不满足即不再指派。
+- 随机收集数（39:0）按 Unity 每帧重试语义：抽到无法通过剩余牌数边界的值就继续抽下一条
+  （Unity 每帧消耗一次 `Next(2,4)`），直到抽中能通过的值或最小数 2 也无法通过；
+  玩家点击只会推迟、不会插入/删除随机流消耗，结果等价。
 - 动画等待（魔药/礼盒等 async 前摇）不影响逻辑结果：动画期间棋盘状态不变，
   立即计算与延迟计算等价
 
@@ -121,6 +129,9 @@ Fisher-Yates 共享同一随机流——reversegen `shuffleBoard` 逐位一致�
 - **机制步骤计数**：`applyMechanicStep` 对齐 Unity「Apply 先于 AppendStep」——应用器执行时
   `actionCount` 不含本步（链式蒲公英/魔药同步读取一致），链式礼盒取 `actionCount+1`
   恰为本步 Append 后的计数（对齐礼盒动画后才取随机）。
+  **只有 Unity 会 `AppendStep` 的步骤类型计入 Steps.Count**（泡泡吸取/魔法棒/魔药清除/洗牌；
+  泡泡指派、蒲公英扩散、礼盒计划类效果不计数）——派生种子读取的 `actionCount`
+  与 Unity `StepMgr.Steps.Count` 逐位一致。
 - **衰减触发面**：仅 Unity 会 `AppendStep` 的步骤类型触发 OnStep 衰减——
   `MagicBottleStep`（魔药清除）/`MagicStep`（魔法棒）/`BubbleCollectStep`（泡泡吸取）/
   `ShuffleStep`（洗牌）；计划类效果（泡泡指派、蒲公英扩散、礼盒加槽/揭示/施加问号/翻转/魔药）

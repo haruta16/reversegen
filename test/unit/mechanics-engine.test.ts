@@ -56,30 +56,42 @@ test('魔药触发语义：仅 matchedTiles[0] 携带魔药才触发', () => {
   assert.equal(game.mechanicLog.length, 0, '非首张魔药不触发');
 });
 
-test('泡泡全流程：开局帧 tick 至静止（指派→吸取→逐花色Dock魔法×2轮→CanAssign边界，golden 锁定）', () => {
-  // 对齐 Unity：Playing 后、首次点击前的帧驱动即开始泡泡轮次——
-  // 30 张 3 色（色 (i-1)%3+1）、39:3、levelResId 200：
-  //   轮1 指派[1,2,3]→吸取→Dock魔法[4,7][5,8][6,9]
-  //   轮2 指派[10,11,12]→吸取→Dock魔法[13,16][14,17][15,18]
-  //   轮3 因 CanAssign（3+1 < 12/3=4 不成立）终止；Dock 空、剩 12 张。
+test('泡泡全流程：角标牌留在 Dock 等玩家配对消耗，耗尽后才开下一轮（golden 锁定）', () => {
+  // 30 张 3 色（色 (i-1)%3+1）、39:3、levelResId 200，对齐 Unity TileMatchBubbleCollectMgr：
+  //   开局（步1前）: 指派[1,2,3] → 吸取入 Dock（每色一张，互相不成组）
+  //   玩家配对消耗角标牌：4,7 → 消除[1,4,7]；5,8 → [2,5,8]；6,9 → [3,6,9]
+  //   最后一张角标牌耗尽 → Dock 已空无定向魔法计划 → 立即下一轮：指派[10,11,12] → 吸取
+  //   轮2 同样消耗后桌面剩 12 张，CanAssign(3)=4 < 12/3 不成立 → 轮3 不再指派。
   const tiles = Array.from({ length: 30 }, (_, i) => mk(i + 1, (i % 3) + 1));
   const game = new OfflineGame(tiles, [], { levelResId: 200, mechanicConfig: new Map([[39, 3]]) });
+  // 开局帧：指派不是 Unity 步骤（不计数）；吸取是步骤（Steps.Count=1）
   assert.deepEqual(game.mechanicLog, [
-    { type: 'bubble-assign', tileIds: [1, 2, 3], stepIndex: 1 },
-    { type: 'bubble-collect', tileIds: [1, 2, 3], stepIndex: 2 },
-    { type: 'magic-step', tileIds: [4, 7], stepIndex: 3 },
-    { type: 'magic-step', tileIds: [5, 8], stepIndex: 4 },
-    { type: 'magic-step', tileIds: [6, 9], stepIndex: 5 },
-    { type: 'bubble-assign', tileIds: [10, 11, 12], stepIndex: 6 },
-    { type: 'bubble-collect', tileIds: [10, 11, 12], stepIndex: 7 },
-    { type: 'magic-step', tileIds: [13, 16], stepIndex: 8 },
-    { type: 'magic-step', tileIds: [14, 17], stepIndex: 9 },
-    { type: 'magic-step', tileIds: [15, 18], stepIndex: 10 },
+    { type: 'bubble-assign', tileIds: [1, 2, 3], stepIndex: 0 },
+    { type: 'bubble-collect', tileIds: [1, 2, 3], stepIndex: 1 },
   ]);
+  assert.deepEqual(game.dockTiles.map(t => t.id), [1, 2, 3], '首轮角标牌在 Dock 等玩家配对');
+  assert.equal(game.mechanics.bubble.completedCollectRounds, 1);
+  assert.equal(game.mechanics.bubble.activeBubbleTileIds.size, 3);
+  assert.equal(game.actionCount, 1, '指派不计数');
+
+  // 玩家配对消耗三张角标牌；过程中 Dock 非空，泡泡不指派不吸取
+  for (const id of [4, 7, 5, 8, 6, 9]) game.collect(game.allTiles.get(id)!);
+  assert.deepEqual(game.mechanicLog.slice(2), [
+    { type: 'bubble-assign', tileIds: [10, 11, 12], stepIndex: 7 },
+    { type: 'bubble-collect', tileIds: [10, 11, 12], stepIndex: 8 },
+  ]);
+  assert.deepEqual(game.dockTiles.map(t => t.id), [10, 11, 12], '轮2 角标牌已吸取入 Dock');
   assert.equal(game.mechanics.bubble.completedCollectRounds, 2);
+  assert.equal(game.actionCount, 8);
+
+  // 消耗轮2 → CanAssign 边界（桌面 12 张，4 < 4 不成立）→ 轮3 不再指派
+  for (const id of [13, 16, 14, 17, 15, 18]) game.collect(game.allTiles.get(id)!);
+  assert.equal(game.mechanics.bubble.completedCollectRounds, 2, '轮3 未开');
+  assert.equal(game.mechanics.bubble.activeBubbleTileIds.size, 0);
   assert.equal(game.deskTiles.length, 12);
   assert.equal(game.dockTiles.length, 0);
-  assert.equal(game.actionCount, 10);
+  assert.equal(game.actionCount, 14);
+  assert.equal(game.mechanicLog.length, 4, '轮2 耗尽后无新增步骤');
 });
 
 test('泡泡吸取：照常结算 Dock 三消 + 收集钩子（对齐 BubbleCollectStep.Apply）', () => {
@@ -136,11 +148,12 @@ test('泡泡指派选择器：重复花色优先，每色只取首张', () => {
 test('clone 保留机制状态，状态键包含机制指纹', () => {
   const tiles = Array.from({ length: 30 }, (_, i) => mk(i + 1, (i % 3) + 1));
   const game = new OfflineGame(tiles, [], { levelResId: 200, mechanicConfig: new Map([[39, 3]]) });
-  // 开局帧 tick 已消费两轮；收集剩余的 19,20,21 再克隆
+  // 开局帧已吸取轮1（角标牌 1,2,3 在 Dock）；收集 19,20,21 再克隆
   for (const id of [19, 20, 21]) game.collect(game.allTiles.get(id)!);
   const copy = game.clone();
   assert.equal(copy.mechanics.bubble.completedCollectRounds, game.mechanics.bubble.completedCollectRounds);
   assert.deepEqual([...copy.mechanics.bubble.activeBubbleTileIds], [...game.mechanics.bubble.activeBubbleTileIds]);
+  assert.deepEqual(copy.dockTiles.map(t => t.id), game.dockTiles.map(t => t.id), 'Dock 实际顺序保留');
   assert.equal(copy.buildStateKey(), game.buildStateKey());
   // 泡泡角标牌与普通牌状态键不同
   const plain = new OfflineGame(tiles, []);
@@ -208,9 +221,9 @@ test('礼盒加槽后死亡阈值与剩余槽位跟随 maxSlotCount（对齐 Doc
 test('clone 保留 actionCount 与 dockSlotBonus（机制种子与死亡阈值不漂移）', () => {
   const tiles = Array.from({ length: 12 }, (_, i) => mk(i + 1, (i % 4) + 1));
   const game = new OfflineGame(tiles, [], { levelResId: 7 });
-  game.applyMechanicStep({ type: 'giftbox-add-dock-slot' });
-  game.applyMechanicStep({ type: 'magic-step', tileIds: [] });
-  assert.equal(game.actionCount, 2);
+  game.applyMechanicStep({ type: 'giftbox-add-dock-slot' }); // 计划类不计数
+  game.applyMechanicStep({ type: 'magic-step', tileIds: [] }); // AppendStep 类计数 +1
+  assert.equal(game.actionCount, 1, '仅 Unity 会 AppendStep 的步骤计入 Steps.Count');
   const copy = game.clone();
   assert.equal(copy.actionCount, game.actionCount, 'actionCount 保留');
   assert.equal(copy.maxSlotCount, game.maxSlotCount, '槽位加成保留');

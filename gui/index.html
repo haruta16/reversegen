@@ -920,7 +920,9 @@ function renderRunLog(entries){
       }
       html+='</div>';
     }else if(e.kind==='mechanic'){
-      html+='<div class="rl-line rl-mech"><span class="rl-chip" style="background:'+(RUN_MECH_COLOR[e.mechanic]||'#64748b')+'">'+(RUN_MECH_LABEL[e.mechanic]||e.mechanic)+'</span>'
+      html+='<div class="rl-line rl-mech">'
+        +(e.opening?'<span class="rl-step">开局</span>':'')
+        +'<span class="rl-chip" style="background:'+(RUN_MECH_COLOR[e.mechanic]||'#64748b')+'">'+(RUN_MECH_LABEL[e.mechanic]||e.mechanic)+'</span>'
         +(e.tileIds&&e.tileIds.length?'<span class="rl-tile">#'+e.tileIds.join(',#')+'</span>':'')
         +'</div>';
     }else if(e.kind==='event'){

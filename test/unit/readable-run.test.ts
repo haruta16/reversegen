@@ -11,18 +11,24 @@ function mk(id: number, color: number): OfflineTile {
   return new OfflineTile({ id, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0 }, color);
 }
 
-test('可读日志：开局泡泡轮次/点击/消除组/结束判定逐行呈现', () => {
+test('可读日志：开局泡泡轮次先于步1，角标牌留 Dock，配对耗尽后自动开下一轮', () => {
   const tiles = Array.from({ length: 30 }, (_, i) => mk(i + 1, (i % 3) + 1));
   const game = new OfflineGame(tiles, [], { levelResId: 200, mechanicConfig: new Map([[39, 3]]) });
-  // 开局帧已消费两轮（剩余 19..30）；收同色 19,22,25 验证消除行
-  const result = runSequenceLog(game, [19, 22, 25]);
+  const result = runSequenceLog(game, [4, 7, 5, 8, 6, 9]);
   assert.equal(result.win, false, '未收完');
   assert.equal(result.dead, false);
-  assert.ok(result.lines[0].includes('桌面 12 张'), result.lines[0]);
-  assert.ok(result.lines[0].includes('泡泡每轮3'), result.lines[0]);
-  assert.ok(result.lines.some(l => l.includes('步1 点击 #19(色1)')), result.lines.join('\n'));
-  assert.ok(result.lines.some(l => l.includes('消除 #19,#22,#25')), result.lines.join('\n'));
-  assert.ok(result.lines.at(-1)!.includes('泡泡 2/3 轮'), result.lines.at(-1));
+  const lines = result.lines;
+  assert.ok(lines[0].includes('桌面 27 张'), lines[0]);
+  assert.ok(lines[0].includes('初始Dock[1×1,2×1,3×1]'), lines[0]);
+  assert.ok(lines[0].includes('泡泡每轮3'), lines[0]);
+  assert.ok(lines[1].includes('开局 泡泡指派 #1,#2,#3'), lines[1]);
+  assert.ok(lines[2].includes('开局 泡泡吸取 #1,#2,#3'), lines[2]);
+  assert.ok(lines.some(l => l.includes('消除 #1,#4,#7')), lines.join('\n'));
+  assert.ok(lines.some(l => l.includes('消除 #2,#5,#8')), lines.join('\n'));
+  assert.ok(lines.some(l => l.includes('消除 #3,#6,#9')), lines.join('\n'));
+  assert.ok(lines.some(l => l.includes('泡泡指派 #10,#11,#12')), lines.join('\n'));
+  assert.ok(lines.some(l => l.includes('泡泡吸取 #10,#11,#12')), lines.join('\n'));
+  assert.ok(lines.at(-1)!.includes('泡泡 2/3 轮'), lines.at(-1));
 });
 
 test('可读日志：胜利判定与不可点击序列终止提示', () => {

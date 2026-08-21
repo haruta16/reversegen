@@ -44,14 +44,24 @@ test('比对器：定位第一处分歧（帧 + 字段路径 + 两侧值）', ()
   assert.ok(diff.message.includes('999'), diff.message);
 });
 
-test('帧结构：动作数 + 1 帧；开局帧已含泡泡轮次（对齐 Unity 步前帧驱动）', () => {
+test('帧结构：动作数 + 1 帧；开局帧已吸取首轮泡泡（对齐 Unity 步前帧驱动）', () => {
   const game = buildGame();
   const trace = recordCrossSideTrace(game, [19, 20, 21]);
   assert.equal(trace.frames.length, 4, '初始帧 + 每动作一帧');
-  // 开局帧 tick 至静止：30 牌 39:3 已消费两轮（18 张消除、Dock 空），actionCount=10
-  assert.equal(trace.frames[0].actionCount, 10);
-  assert.equal(trace.frames[0].bubble?.rounds, 2);
-  assert.equal(trace.frames[0].dock.length, 0, '静息后 Dock 空（Dock 魔法已清）');
+  // 开局帧 tick 至静止：指派→吸取发生在步1之前（指派不是 Unity 步骤，Steps.Count=1），
+  // 角标牌 [1,2,3] 留在 Dock 等玩家配对消耗。
+  assert.equal(trace.frames[0].actionCount, 1);
+  assert.equal(trace.frames[0].bubble?.rounds, 1);
+  assert.equal(trace.frames[0].bubble?.activeRoundCounted, true);
+  assert.deepEqual(trace.frames[0].bubble?.active, [1, 2, 3]);
+  assert.deepEqual(trace.frames[0].dock.map(t => t.id), [1, 2, 3]);
+  assert.deepEqual(trace.frames[0].mechanicSteps, [], '开局帧无增量步骤');
+  // 开局吸取是步栈里的第一步，Unity 导出器按 Steps.Skip(0) 会归入首个动作帧
+  assert.deepEqual(trace.frames[1].mechanicSteps, [{ type: 'bubble-collect', tileIds: [1, 2, 3] }]);
+  assert.equal(trace.frames[1].actionCount, 2);
+  assert.deepEqual(trace.frames[1].dock.map(t => t.id), [1, 19, 2, 3], '角标牌留在 Dock，点击牌按花色归组');
+  assert.equal(trace.frames[2].actionCount, 3);
+  assert.equal(trace.frames[3].actionCount, 4);
   for (const frame of trace.frames) {
     for (const step of frame.mechanicSteps) {
       assert.notEqual(step.type, 'bubble-assign', '泡泡指派不是 Unity 步骤');

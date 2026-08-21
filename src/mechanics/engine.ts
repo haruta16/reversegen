@@ -244,6 +244,11 @@ export function isBubbleCollectCandidate(tile: OfflineTile): boolean {
     && !tile.hasFlag(TileFlag.Destroyed)
     && tile.extras.some(e => e.extraEnum === 39);
 }
+
+/** CanAssignForRemainingTileCount：targetCount + 1 < remainingTileCount / 3f（Unity 浮点语义）。 */
+function canAssignForRemainingTileCount(game: OfflineGame, targetCount: number): boolean {
+  return targetCount + 1 < game.deskTiles.length / 3;
+}
 // ═══════════════════════════════════════════════════════════
 //  三消分发策略表（MATCH_BEHAVIORS）
 // ═══════════════════════════════════════════════════════════
@@ -495,21 +500,20 @@ export class MechanicEngine {
     if (!bubble.enabled) return steps;
 
     if (bubble.activeBubbleTileIds.size > 0) {
-      const liveOnDesk = [...bubble.activeBubbleTileIds].some(id => {
-        const tile = game.allTiles.get(id);
-        return tile && tile.pileType === PileType.Desk && !tile.hasFlag(TileFlag.Destroyed);
-      });
-      if (liveOnDesk) {
-        if (game.dockTiles.length === 0) {
-          const tiles = game.deskTiles.filter(isBubbleCollectCandidate).sort((a, b) => a.id - b.id);
-          if (tiles.length > 0) steps.push({ type: 'bubble-collect', tileIds: tiles.map(t => t.id) });
-        }
+      if (this.hasLiveActiveBubbleTileOnDesk()) {
+        // Unity AssignBubbleTilesAsync 的 onAssigned 回调直接 TryCollectWhenDockEmpty：
+        // 指派完成后立即吸取，不检查 Dock 是否为空。
+        const tiles = game.deskTiles.filter(isBubbleCollectCandidate).sort((a, b) => a.id - b.id);
+        if (tiles.length > 0) steps.push({ type: 'bubble-collect', tileIds: tiles.map(t => t.id) });
         return steps;
       }
-      // 无存活角标 → Dock 定向魔法（逐花色 MagicStep 链，见 dockMagicPass）。
-      // 完成后冷却置 0：下一 tick 用魔法后的最新棋盘状态立即进入指派
-      // （对齐 Unity TryClearDockAfterBubbleTilesConsumed 末尾的立即 TryAssignCollectableTiles）。
+      // 角标牌已全部离开 Desk：只要仍有存活（在 Dock 中等玩家配对消耗）→ 静止。
+      // 全部耗尽后才执行 Dock 定向魔法（对齐 Unity TryClearDockAfterBubbleTilesConsumed
+      // 的 HasLiveActiveBubbleTile 守卫——泡泡牌要真正等玩家三消消耗，不能当步立即清掉）。
+      if (this.hasLiveActiveBubbleTile()) return steps;
       steps.push(...this.dockMagicPass());
+      // Unity 完成流程末尾（冷却置 0.5s 后）立即 TryAssignCollectableTiles，不经 Dock 空门。
+      steps.push(...this.tryAssign());
       return steps;
     }
 
@@ -528,17 +532,46 @@ export class MechanicEngine {
     return steps;
   }
 
-  /** TryAssignCollectableTiles 移植（含 CanAssignForRemainingTileCount 与随机收集数）。 */
+  /** HasLiveActiveBubbleTileOnDesk：活跃角标中仍有牌留在 Desk 且存活（含泡泡挂件）。 */
+  private hasLiveActiveBubbleTileOnDesk(): boolean {
+    return [...this.bubble.activeBubbleTileIds].some(id => {
+      const tile = this.game.allTiles.get(id);
+      return !!tile
+        && tile.pileType === PileType.Desk
+        && !tile.hasFlag(TileFlag.Destroyed)
+        && tile.extras.some(e => e.extraEnum === 39);
+    });
+  }
+
+  /** HasLiveActiveBubbleTile：活跃角标中仍有牌存活（Desk 或 Dock，未进 Discard 未销毁）。 */
+  private hasLiveActiveBubbleTile(): boolean {
+    return [...this.bubble.activeBubbleTileIds].some(id => {
+      const tile = this.game.allTiles.get(id);
+      return !!tile
+        && tile.pileType !== PileType.Discard
+        && !tile.hasFlag(TileFlag.Destroyed)
+        && tile.extras.some(e => e.extraEnum === 39);
+    });
+  }
+
+  /**
+   * TryAssignCollectableTiles 移植（含 CanAssignForRemainingTileCount 与随机收集数）。
+   * 随机收集数模式对齐 Unity 的每帧重试语义：抽到无法通过剩余牌数边界的收集数时
+   * 继续抽下一条（Unity 每帧消耗一次 Next(2,4)，直到抽中能通过的值）；
+   * 抽到 2 都无法通过说明边界已不可满足，停止。固定收集数无随机消耗，只试一次。
+   */
   private tryAssign(): MechanicStep[] {
     const game = this.game;
     const bubble = this.bubble;
     if (bubble.completedCollectRounds >= BUBBLE_CONSTANTS.MAX_COLLECT_ROUNDS) return [];
-    const targetCount = bubble.useRandomCollectCount
+
+    let targetCount = bubble.useRandomCollectCount
       ? this.nextBubbleCollectCount() // Unity 复用同一个 _bubbleRandom 流
       : bubble.configuredCollectCount;
-    // CanAssignForRemainingTileCount: targetCount + 1 < remaining / 3f
-    const remaining = game.deskTiles.length;
-    if (!(targetCount + 1 < remaining / 3)) return [];
+    for (let retry = 0; !canAssignForRemainingTileCount(game, targetCount); retry++) {
+      if (!bubble.useRandomCollectCount || targetCount === 2 || retry >= 32) return [];
+      targetCount = this.nextBubbleCollectCount();
+    }
     const targets = selectBubbleAssignTargets(game, targetCount);
     if (targets.length < BUBBLE_CONSTANTS.MIN_COLLECT_COUNT) return [];
     return [{ type: 'bubble-assign', tileIds: targets.map(t => t.id) }];
@@ -563,22 +596,14 @@ export class MechanicEngine {
    * TryClearDockAfterBubbleTilesConsumed → Dock 定向魔法。
    * 对齐 ExecuteDockAllMagicWandCoreAsync：计划快照一次，按 Dock 花色序逐个执行真实
    * MagicStep（进 Dock → 结算三消 → 可链式触发）；空计划不产生步骤。
-   * Unity 完成流程末尾无论计划是否为空都立即 TryAssign，故冷却置 0。
+   * 调用方保证此时已无存活角标牌；完成后清活跃集、冷却置 0，
+   * 由 tick 在同一轮立即衔接 tryAssign（对齐 Unity 完成流程末尾的直接 TryAssign）。
    */
   private dockMagicPass(): MechanicStep[] {
-    const game = this.game;
-    const bubble = this.bubble;
-    // HasLiveActiveBubbleTile：仍有角标牌留在 Desk 时不触发
-    const hasLiveOnDesk = [...bubble.activeBubbleTileIds].some(id => {
-      const tile = game.allTiles.get(id);
-      return tile && tile.pileType === PileType.Desk && !tile.hasFlag(TileFlag.Destroyed);
-    });
-    if (hasLiveOnDesk) return [];
-
-    const plan = dockDirectedMagicPlan(game);
-    bubble.activeBubbleTileIds.clear();
-    bubble.activeRoundCounted = false;
-    bubble.cooldownTicks = 0;
+    const plan = dockDirectedMagicPlan(this.game);
+    this.bubble.activeBubbleTileIds.clear();
+    this.bubble.activeRoundCounted = false;
+    this.bubble.cooldownTicks = 0;
     return plan.map(target => ({
       type: 'magic-step' as const,
       tileIds: target.deskTiles.map(t => t.id),

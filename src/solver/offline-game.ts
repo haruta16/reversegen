@@ -243,15 +243,16 @@ export class OfflineGame {
   // ── Clone ──
 
   clone(): OfflineGame {
-    const tiles = [...this.allTiles.values()]
-      .sort((a, b) => a.id - b.id)
-      .map(t => {
-        const c = new OfflineTile(t.config, t.elementValue);
-        c.pileType = t.pileType;
-        c.flags = t.flags;
-        c.extras = t.extras.map(e => ({ ...e }));
-        return c;
-      });
+    // 按源牌局的实际顺序铺设（Desk 顺序影响稳定排序 tie-break，Dock 顺序决定 matchedTiles[0]），
+    // 不能按 id 排序——否则 Dock 顺序被重排、状态键漂移。
+    const sourceOrder = [...this.deskTiles, ...this.dockTiles, ...this.discardTiles];
+    const tiles = sourceOrder.map(t => {
+      const c = new OfflineTile(t.config, t.elementValue);
+      c.pileType = t.pileType;
+      c.flags = t.flags;
+      c.extras = t.extras.map(e => ({ ...e }));
+      return c;
+    });
     const copy = new OfflineGame(tiles, this.terrainStructures, {
       levelResId: this.levelResId,
       boardSpecialStructures: this.boardSpecialStructures,
@@ -395,7 +396,9 @@ export class OfflineGame {
    * 应用机制步骤（公开入口：策略表分发 + 日志 + 衰减结算）。
    * 对齐 Unity StepMgr 时序：Apply 先于 AppendStep —— 应用器执行时 actionCount 不含本步
    * （链式蒲公英/魔药同步读取一致；链式礼盒取 actionCount+1 恰为本步 Append 后计数）；
-   * 衰减 OnStep 仅对 Unity 会 AppendStep 的步骤类型触发，且用本步开始前的旧可点击快照；
+   * 只有 Unity 会 AppendStep 的步骤类型（DECAY_STEP_TYPES）才计入 Steps.Count——
+   * 泡泡指派/蒲公英扩散/礼盒计划类效果不增加步数，派生种子读取的 actionCount 因此逐位一致；
+   * 衰减 OnStep 同样仅对 AppendStep 类步骤触发，且用本步开始前的旧可点击快照；
    * 状态刷新统一在本步末尾（对齐 Unity 各调用点的 UpdateTilesState）。
    */
   applyMechanicStep(step: MechanicStep): void {
@@ -404,7 +407,7 @@ export class OfflineGame {
       : undefined;
     const applier = STEP_APPLIERS[step.type];
     if (applier) applier(this, step);
-    this.actionCount += 1;
+    if (DECAY_STEP_TYPES.has(step.type)) this.actionCount += 1;
     this.mechanicLog.push({ ...step, stepIndex: this.actionCount });
     if (decaySnapshot) applyDecayStep(this, step.type, decaySnapshot);
     this.updateTilesState();

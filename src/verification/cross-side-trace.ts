@@ -67,10 +67,11 @@ export interface CrossSideTrace {
   frames: CrossSideFrame[];
 }
 
-/** 挂件状态编码（与 OfflineGame.buildStateKey 同口径）。 */
+/** 挂件状态编码（与 Unity CrossSideTraceExporter.ExtraState 同口径）。 */
 function tileExtraState(tile: OfflineTile): string {
   return tile.extras.map(e => {
-    const state = [e.countdown ?? '', e.isDone ? 1 : 0, e.isConsumed ? 1 : 0].join('.');
+    // Unity：非衰减挂件 countdown 恒为 0（Golden/Advent/Easter 用 Value），缺失时写 0 不是空串
+    const state = [e.countdown ?? 0, e.isDone ? 1 : 0, e.isConsumed ? 1 : 0].join('.');
     return `${e.extraEnum}(${state})`;
   }).join('+');
 }

@@ -37,7 +37,8 @@
 ```
 
 约定：
-- `extras` 编码 = `enum(countdown.isDone.isConsumed)` 用 `+` 串联（与 `buildStateKey` 同口径）；
+- `extras` 编码 = `enum(countdown.isDone.isConsumed)` 用 `+` 串联（与 Unity
+  `CrossSideTraceExporter.ExtraState` 同口径：非衰减挂件缺失 countdown 时写 0）；
 - `mechanicSteps` 只含 Unity 会 `AppendStep` 的步骤类型（魔药清除 / 魔法棒 / 泡泡吸取 / 洗牌）；
   泡泡指派不是 Unity 步骤，其效果经 `bubble.active` 体现；
 - 冷却（0.5s）是帧时间量，不参与比对（reversegen 以 tick 近似）。

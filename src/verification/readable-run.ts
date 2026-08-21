@@ -20,7 +20,7 @@ import type { MechanicStepRecord } from '../mechanics/types.js';
 export type RunLogEntry =
   | { kind: 'overview'; text: string }
   | { kind: 'click'; text: string; step: number; tileId: number; color: number; matchedIds: number[]; dockCounts: Array<[number, number]>; warn: string | null }
-  | { kind: 'mechanic'; text: string; mechanic: string; tileIds: number[] }
+  | { kind: 'mechanic'; text: string; mechanic: string; tileIds: number[]; opening?: boolean }
   | { kind: 'event'; text: string; label: string; tone: 'reveal' | 'order'; tileIds: number[] }
   | { kind: 'structure'; text: string; structureId: number }
   | { kind: 'summary'; text: string; win: boolean; dead: boolean; desk: number; dock: number; maxDock: number };
@@ -141,7 +141,24 @@ export function runSequenceLog(game: OfflineGame, actions: number[]): RunLogResu
       + ` · 胜利条件: ${victoryLabel(game)}`,
   });
 
+  // 开局帧驱动（对齐 Unity：Playing 后、步1 之前即指派→吸取首轮泡泡）。
+  // 构造期已消费的机制步骤先于步1 呈现，避免误挂在第一步名下。
   let logOffset = 0;
+  for (const step of log.slice(logOffset)) {
+    const label = MECHANIC_LABELS[step.type];
+    if (!label) continue;
+    const tileIds = 'tileIds' in step ? step.tileIds : [];
+    const idsText = tileIds.length ? ` #${tileIds.join(',#')}` : '';
+    entries.push({
+      kind: 'mechanic',
+      mechanic: step.type,
+      tileIds,
+      opening: true,
+      text: `开局 ${label}${idsText}`,
+    });
+  }
+  logOffset = log.length;
+
   for (let i = 0; i < actions.length; i++) {
     const tile = game.allTiles.get(actions[i]);
     if (!tile) {
