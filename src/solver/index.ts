@@ -36,4 +36,6 @@ export type { CostCapConfig } from './solver-player-costcap.js';
 export { solvePlayerMistake, solvePlayerMistakeBatch } from './solver-player-mistake.js';
 export type { MistakeConfig } from './solver-player-mistake.js';
 export { solvePlayerMistakeBatchRust } from './solver-player-mistake-rust.js';
+export { solvePlayerMistakeMechanic, solvePlayerMistakeMechanicBatch } from './solver-player-mistake-mechanic.js';
+export type { MistakeMechanicConfig } from './solver-player-mistake-mechanic.js';
 export { solvePlayerShortest, solvePlayerShortestBatch } from './solver-player-shortest.js';

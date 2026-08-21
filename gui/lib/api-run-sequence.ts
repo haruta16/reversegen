@@ -12,11 +12,12 @@ import {
   solvePlayerRisky,
   solvePlayerCostCap,
   solvePlayerMistake,
+  solvePlayerMistakeMechanic,
 } from '../../src/solver/index.js';
 import { runSequenceLog } from '../../src/verification/index.js';
 import { buildGameFromReplay, json, parseBody } from './runtime.js';
 
-type RobotStrategy = 'normal' | 'shortest' | 'risky' | 'costcap' | 'mistake';
+type RobotStrategy = 'normal' | 'shortest' | 'risky' | 'costcap' | 'mistake' | 'mistake-mechanic';
 
 /** 机器人策略 → 跑关 picks（与模拟面板五个画像同实现同参数）。 */
 function robotPicks(
@@ -36,6 +37,8 @@ function robotPicks(
       return solvePlayerCostCap(game, seed, { maxCost: maxCost ?? 5 }).picks;
     case 'mistake':
       return solvePlayerMistake(game, seed, { mistakeRate: mistakeRate ?? 0.1 }).picks;
+    case 'mistake-mechanic':
+      return solvePlayerMistakeMechanic(game, seed, { mistakeRate: mistakeRate ?? 0.1 }).picks;
     case 'normal':
     default:
       return solvePlayer(game, seed).picks;

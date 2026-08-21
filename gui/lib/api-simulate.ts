@@ -8,6 +8,7 @@ import {
   solvePlayerRiskyBatch,
   solvePlayerCostCapBatch,
   solvePlayerMistakeBatch,
+  solvePlayerMistakeMechanicBatch,
   solvePlayerShortestBatch,
 } from '../../src/solver/index.js';
 import { buildGameFromReplay, json, parseBody } from './runtime.js';
@@ -175,6 +176,47 @@ export async function handlePlayerSimCostcap(req: IncomingMessage, res: ServerRe
         ok: true,
         mode: 'costcap',
         maxCost,
+        runs: simRuns,
+        wins: result.wins,
+        losses: result.losses,
+        winRate: result.winRate,
+        avgStepsOnWin: result.avgStepsOnWin,
+        avgStepsOnLoss: result.avgStepsOnLoss,
+        elapsedMs: Math.round(result.elapsedMs),
+        sampleResults: (result.results ?? []).slice(0, 10).map(r => ({
+          win: r.win,
+          failReason: r.failReason,
+          stepCount: r.stepCount,
+          seed: r.seed,
+        })),
+      });
+    } catch (err) { json(res, { ok: false, error: String(err) }, 400); }
+    return true;
+  }
+
+export async function handlePlayerSimMistakeMechanic(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
+  if (url.pathname !== '/api/player-sim-mistake-mechanic' || req.method !== 'POST') return false;
+    const body = await parseBody(req);
+    try {
+      const { replayCode, levelId, levelsDir, terrainPath, runs, mistakeRate, mechanics, mechanicSeed } = body as {
+        replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string; mechanics?: string; mechanicSeed?: number;
+        runs?: number; mistakeRate?: number;
+      };
+      if (!replayCode) throw new Error('缺少 replayCode');
+      if (mistakeRate == null || mistakeRate < 0 || mistakeRate > 1) {
+        throw new Error('失误率需在 0.0 ~ 1.0 之间');
+      }
+
+      const { game } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath, mechanics, mechanicSeed);
+      const simRuns = runs ?? 100;
+      const baseSeed = Date.now() & 0x7fffffff;
+
+      const result = solvePlayerMistakeMechanicBatch(game, simRuns, baseSeed, { mistakeRate });
+
+      json(res, {
+        ok: true,
+        mode: 'mistake-mechanic',
+        mistakeRate,
         runs: simRuns,
         wins: result.wins,
         losses: result.losses,
