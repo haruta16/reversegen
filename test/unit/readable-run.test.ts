@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { OfflineGame, OfflineTile } from '../../src/solver/index.js';
 import { runSequenceLog } from '../../src/verification/readable-run.js';
+import { boardSpecialVictoryCondition } from '../../src/board-special/victory.js';
 
 function mk(id: number, color: number): OfflineTile {
   return new OfflineTile({ id, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0 }, color);
@@ -54,4 +55,40 @@ test('可读日志：大 tile 结构移除成行', () => {
   });
   const result = runSequenceLog(game, [1, 2, 3]);
   assert.ok(result.lines.some(l => l.includes('大型地形 #9 移除')), result.lines.join('\n'));
+});
+
+test('日志事件：揭示与订单完成成行；概览含胜利条件', () => {
+  const t1 = new OfflineTile({ id: 1, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0 }, 1);
+  t1.extras.push({ extraEnum: 2, extraParam: '' });
+  const t2 = new OfflineTile({ id: 2, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0 }, 1);
+  const t3 = new OfflineTile({ id: 3, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0 }, 1);
+  const t4 = new OfflineTile({ id: 4, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0 }, 2);
+  t4.extras.push({ extraEnum: 38, extraParam: '' });
+  const t5 = new OfflineTile({ id: 5, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0 }, 2);
+  const t6 = new OfflineTile({ id: 6, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0 }, 2);
+  const game = new OfflineGame([t1, t2, t3, t4, t5, t6], [], { levelResId: 1 });
+  const result = runSequenceLog(game, [1, 4]);
+  assert.ok(result.lines[0].includes('胜利条件: 清空桌面'), result.lines[0]);
+  assert.ok(result.lines.some(l => l.includes('揭示 #1（问号）')), result.lines.join('\n'));
+  assert.ok(result.lines.some(l => l.includes('订单 #4 完成')), result.lines.join('\n'));
+});
+
+test('日志摘要：52/53 提前通关标注 + 泡泡轮次', () => {
+  const t1 = new OfflineTile({ id: 1, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 100, posY: 100 }, 1);
+  const t2 = new OfflineTile({ id: 2, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 200, posY: 100 }, 1);
+  const t4 = new OfflineTile({ id: 4, layer: 1, dependencies: [], isConst: false, constElementValue: 0, posX: 100, posY: 100 }, 2);
+  const t5 = new OfflineTile({ id: 5, layer: 1, dependencies: [], isConst: false, constElementValue: 0, posX: 200, posY: 100 }, 2);
+  const t6 = new OfflineTile({ id: 6, layer: 1, dependencies: [], isConst: false, constElementValue: 0, posX: 300, posY: 100 }, 2);
+  const game = new OfflineGame([t1, t2, t4, t5, t6], [], {
+    levelResId: 1,
+    boardSpecialStructures: [{
+      id: 9, extraEnum: 52, footprint: { width: 2, height: 2 }, layer: 1,
+      posX: 100, posY: 100, dependencies: [1, 2], coveredTileIds: [4, 5, 6], isRemoved: false,
+    }],
+    victoryCondition: boardSpecialVictoryCondition,
+  });
+  const result = runSequenceLog(game, [1, 2]);
+  assert.ok(result.lines[0].includes('胜利条件: 大型地形收集(52/53订单)'), result.lines[0]);
+  assert.ok(result.lines.some(l => l.includes('大型地形 #9 移除')), result.lines.join('\n'));
+  assert.ok(result.lines.at(-1)!.includes('✅ 提前通关（结构收集完毕，剩余桌面 3 张）'), result.lines.at(-1));
 });

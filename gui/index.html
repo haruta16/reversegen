@@ -923,6 +923,10 @@ function renderRunLog(entries){
       html+='<div class="rl-line rl-mech"><span class="rl-chip" style="background:'+(RUN_MECH_COLOR[e.mechanic]||'#64748b')+'">'+(RUN_MECH_LABEL[e.mechanic]||e.mechanic)+'</span>'
         +(e.tileIds&&e.tileIds.length?'<span class="rl-tile">#'+e.tileIds.join(',#')+'</span>':'')
         +'</div>';
+    }else if(e.kind==='event'){
+      html+='<div class="rl-line rl-mech"><span class="rl-chip" style="background:'+(e.tone==='reveal'?'#22c55e':'#f59e0b')+'">'+_esc(e.label)+'</span>'
+        +(e.tileIds&&e.tileIds.length?'<span class="rl-tile">#'+e.tileIds.join(',#')+'</span>':'')
+        +'</div>';
     }else if(e.kind==='structure'){
       html+='<div class="rl-line rl-mech"><span class="rl-chip" style="background:#f97316">大型地形</span><span class="rl-tile">#'+e.structureId+'</span><span style="color:var(--dim)">移除（依赖已清空）</span></div>';
     }else if(e.kind==='summary'){
