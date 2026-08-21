@@ -115,6 +115,9 @@ Fisher-Yates 共享同一随机流——reversegen `shuffleBoard` 逐位一致�
 - **排序稳定性**：Unity `List<T>.Sort` 不稳定 vs JS `Array.sort` 稳定——仅当比较键
   精确并列（analyzer 同深度 top-9 截断、礼盒转化组 (cost,minId) 并列、分配器随机键碰撞）
   时才可能出现不同顺序，属极低概率边界，记录不修。
+- **礼盒加权滚动遍历序**：Unity `SelectRandomEffect` 的累计阈值遍历依赖 .NET
+  `Dictionary` 枚举序（当前实现遵循插入序、与 reversegen 固定数组序一致）；语言规范
+  不保证该序，属 Unity 侧未来健壮性风险，reversegen 用固定权重数组序（更确定）。
 - **浮点常数**：C# `float` 常量提升为 `double` 的比较（蒲公英 0.8f）已用 `Math.fround`
   逐位复现；分配器 30% 阈值（0.3f vs 0.3）经证明在任意实际牌数下无整数可分叉，保持原样。
 
