@@ -47,8 +47,11 @@ export interface BoardSpecialPlacement {
   posY: number;
 }
 
-/** 几何单元：Unity LargeTerrainTileUtils.TileUnit = 100；普通牌 10×10。 */
-export const BOARD_TILE_UNIT = 100;
-export const HALF_TILE_UNIT = 50;
-/** 依赖覆盖最小宽度/高度（对齐 HasDependencyCoverage 的 minimumCoverage）。 */
-export const MIN_DEPENDENCY_COVERAGE = 50;
+/**
+ * 几何单元（对齐 LargeTerrainTileUtils.TileUnit）：普通牌 10×10、中心间距 10，
+ * TileUnit = 10（tile 宽度）；半格 = 5。棋盘边界（LevelWidth/Height）与 tile 坐标同量纲。
+ */
+export const BOARD_TILE_UNIT = 10;
+export const HALF_TILE_UNIT = 5;
+/** 依赖覆盖最小宽度/高度（对齐 HasDependencyCoverage：≥ 半格）。 */
+export const MIN_DEPENDENCY_COVERAGE = 5;

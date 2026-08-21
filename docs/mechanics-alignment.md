@@ -169,6 +169,8 @@ reversegen 没有该系统，**约定**：调用方以地形 `ConstElementValue`
 - **模式解析**（对齐 `_resolveBoardSpecialMode`，53 > 52 > 51）与**注入种子**
   （对齐 `_resolveBoardSpecialRandomSeed`：显式 `mechanicSeed` > FNV-1a(replayCode) > levelResId，
   `GetStableSeed` 不截高位）。
+- **坐标量纲**：普通牌 10×10、中心间距 10，`TileUnit = 10`（tile 宽度）、半格 = 5；
+  棋盘边界（LevelWidth/Height）与 tile 坐标同量纲；依赖覆盖阈值为半格 5。
 - **放置计划**逐位移植三种入口：`Build`（51，层数驱动、footprint 2/3 交替、Tower 避让与放宽回退）、
   `BuildPizza`（52，`Random(seed^0x52)` 插入层选择）、`BuildTicket`（53，首/末/中间层 3×2、不足整组取消）。
 - **运行期**：结构非 Tile，不进 Desk/Dock/洗牌/分析；被覆盖牌不可点击（覆盖索引）；

@@ -153,8 +153,8 @@ function buildWhitelist(): Map<number, Set<number>> {
 }
 const EXTRA_WHITELIST = buildWhitelist();
 
-/** Tower 检测坐标单位（对齐 Unity LargeTerrainTileUtils.TileUnit）。 */
-const TILE_UNIT = 100;
+/** Tower 检测坐标单位（对齐 Unity LargeTerrainTileUtils.TileUnit = tile 宽度 10）。 */
+const TILE_UNIT = 10;
 
 // ═══════════════════════════════════════════════════════════
 //  分配入口

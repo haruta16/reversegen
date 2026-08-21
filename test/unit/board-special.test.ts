@@ -81,24 +81,26 @@ test('放置计划：同种子确定性，不同种子可能不同', () => {
   assert.deepEqual(buildTicketPlan(placementLayers, bounds, 5), buildTicketPlan(placementLayers, bounds, 5));
 });
 
-test('注入语义：依赖 = 下层覆盖 ≥ 半格；覆盖 = 上层正面积相交', () => {
+test('注入语义：依赖 = 下层覆盖 ≥ 半格(5)；覆盖 = 上层正面积相交', () => {
+  // 10 单位网格：tile 宽 10、半格 5；结构 2×2 包围盒 = ±10
   const allTiles = [
-    { id: 1, layer: 0, posX: 100, posY: 100, extraEnum: 0 },
-    { id: 2, layer: 0, posX: 200, posY: 100, extraEnum: 0 },
-    { id: 3, layer: 1, posX: 100, posY: 100, extraEnum: 0 },
-    { id: 4, layer: 1, posX: 300, posY: 100, extraEnum: 0 },
+    { id: 1, layer: 0, posX: 100, posY: 100, extraEnum: 0 },   // 与结构中心重合 → 覆盖 10 ≥ 5 → 依赖
+    { id: 2, layer: 0, posX: 110, posY: 100, extraEnum: 0 },   // 相邻半重叠 → 覆盖 5 ≥ 5 → 依赖
+    { id: 3, layer: 0, posX: 130, posY: 100, extraEnum: 0 },   // 无重叠 → 非依赖
+    { id: 4, layer: 1, posX: 100, posY: 100, extraEnum: 0 },   // 正面积相交 → 被覆盖
+    { id: 5, layer: 1, posX: 140, posY: 100, extraEnum: 0 },   // 不相交 → 不被覆盖
   ];
   const placementLayers = buildPlacementLayers([
-    { layer: 0, tiles: allTiles.slice(0, 2) },
-    { layer: 1, tiles: allTiles.slice(2) },
+    { layer: 0, tiles: allTiles.slice(0, 3) },
+    { layer: 1, tiles: allTiles.slice(3) },
   ], undefined);
   const plan = [{ sourceLayerIndex: 0, footprint: { width: 2, height: 2 }, posX: 100, posY: 100 }];
   const structures = injectBoardSpecialStructures(plan, 51, placementLayers, allTiles, 9);
   assert.equal(structures.length, 1);
   const s = structures[0];
   assert.equal(s.layer, 1, '注入层 = 源层 + 1');
-  assert.deepEqual(s.dependencies, [1, 2], '下层覆盖 ≥ 50 的牌为依赖');
-  assert.deepEqual(s.coveredTileIds, [3], '上层正面积相交的牌被覆盖（4 不相交）');
+  assert.deepEqual(s.dependencies, [1, 2], '下层覆盖 ≥ 半格(5) 的牌为依赖');
+  assert.deepEqual(s.coveredTileIds, [4], '上层正面积相交的牌被覆盖（5 不相交）');
 });
 
 test('覆盖遮挡与自动移除：依赖全部离桌后结构移除、被覆盖牌解锁', () => {
