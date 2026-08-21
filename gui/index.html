@@ -632,7 +632,7 @@ kbd{
           <option value="risky">激进 — 水位线放宽 cost</option>
           <option value="costcap">成本上限 — 忽略高 cost 候选</option>
           <option value="mistake" selected>失误率 — 模拟操作失误</option>
-          <option value="mistake-mechanic">机制感知失误 — 隐藏未揭示牌 + 优先魔药</option>
+          <option value="mistake-mechanic">失误率——机制感知（隐藏未揭示牌 + 优先魔药）</option>
         </select>
 
         <div class="sim-params" id="simParamRisky" style="display:none">
@@ -804,7 +804,7 @@ var PARAM_HELP={
   teRandomMode:{title:'V3 普通层比例随机方式',copy:'仅 V3 使用。开启时普通层保底比例从 0.2～0.5 随机，关闭时从 0～0.2 随机。'},
   teGradientGroups:{title:'各阶段花色分组',copy:'仅花色梯度策略使用。外层数组代表开局、中段、后段，内层数字是该阶段允许使用的花色。',effect:'例如 [[1,2],[3,4],[5,6]]。'},
   teFirstBatch:{title:'首批混层方式',copy:'仅限制分层随机使用。可让第一批采用完整混层范围，或只采用“总层数除以混层范围”的余数层。'},
-  simStrategy:{title:'模拟策略',copy:'代表不同玩家行为：普通随机选择安全组；短视最优只看当前最省；激进承受更多卡槽压力；成本上限避开高 Cost；失误率加入误操作；机制感知失误在此基础上把未揭示问号/翻转与大tile覆盖视为不可见，且魔药组 cost 达标时必选。'},
+  simStrategy:{title:'模拟策略',copy:'代表不同玩家行为：普通随机选择安全组；短视最优只看当前最省；激进承受更多卡槽压力；成本上限避开高 Cost；失误率加入误操作；机制感知在失误率基础上把未揭示问号/翻转与大tile覆盖视为不可见，且魔药组 cost 达标时必选。'},
   riskThreshold:{title:'水位线阈值',copy:'仅激进策略使用，表示机器人愿意承受多少额外卡槽压力。',effect:'数值越高，选择越冒险。'},
   simMaxCost:{title:'最大允许 Cost',copy:'仅成本上限策略使用；机器人不会选择超过该释放成本的三连组。',caution:'设得太低可能因为过度保守而无路可走。'},
   mistakeRate:{title:'失误概率',copy:'仅失误率策略使用。0.10 表示每次决策约有 10% 概率不按安全选择。'},
@@ -897,7 +897,7 @@ var RUN_MECH_COLOR={
   'giftbox-reveal-unknown':'#f59e0b','giftbox-shuffle':'#f59e0b',
   'giftbox-apply-unknown':'#f59e0b','giftbox-apply-flip':'#f59e0b','giftbox-apply-magic-bottle':'#f59e0b'
 };
-var RUN_STRATEGY_LABEL={normal:'普通',shortest:'短视最优',risky:'激进',costcap:'成本上限',mistake:'失误率','mistake-mechanic':'机制感知失误'};
+var RUN_STRATEGY_LABEL={normal:'普通',shortest:'短视最优',risky:'激进',costcap:'成本上限',mistake:'失误率','mistake-mechanic':'机制感知'};
 function _esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function renderRunLog(entries){
   var html='';
