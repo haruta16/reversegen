@@ -162,7 +162,13 @@ export const MECHANICS: Record<number, MechanicInfo> = {
     value: 37, name: 'GiftBoxExtra', label: '礼盒挂件', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'none',
     isValueExtra: true, behavior: 'giftbox', fixedElementValue: 1601, constants: GIFTBOX_CONSTANTS,
   },
-  [38]: { value: 38, name: 'OrderExtra', label: '订单挂件', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'none', isValueExtra: true, behavior: 'order' },
+  [38]: {
+    value: 38, name: 'OrderExtra', label: '订单挂件', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'none',
+    isValueExtra: true, behavior: 'order',
+    // 对齐 Unity OrderExtra.IsFixedElementValue → orderExtraPlay.GetOrderExraElementValue() 的默认值
+    // （运行时订单系统可配置；缺省 2181）。
+    fixedElementValue: 2181,
+  },
   [39]: { value: 39, name: 'BubbleExtra', label: '泡泡挂件', kind: 'both', countMeaning: 'behavior-config', paramSchema: 'collect-count', isValueExtra: false, behavior: 'bubble', constants: BUBBLE_CONSTANTS },
   [40]: { value: 40, name: 'FairyExtra', label: '小精灵挂件', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'none', isValueExtra: false, behavior: 'inert' },
   [51]: { value: 51, name: 'LargeTerrainExtra', label: '大型地形注入(2x2)', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'footprint', isValueExtra: false, behavior: 'board-special' },

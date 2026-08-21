@@ -102,6 +102,15 @@ test('白名单互斥：魔药(31)与金币(5)不落在同一张牌上，魔药�
   for (const t of coins) assert.equal(t.elementValue, 1201, '金币固定花色 1201');
 });
 
+test('订单(38)固定花色 2181（对齐 OrderExtra.IsFixedElementValue 缺省值）', () => {
+  const tiles: OfflineTile[] = [];
+  for (let i = 0; i < 6; i++) tiles.push(makeTile(i, { color: (i % 3) + 1 }));
+  assignTileExtras(tiles, parseMechanicCounts('38:3'), 100);
+  const orders = tiles.filter(t => t.extras.some(e => e.extraEnum === 38));
+  assert.equal(orders.length, 3, '注入 3 个订单挂件');
+  for (const t of orders) assert.equal(t.elementValue, 2181, '订单固定花色 2181');
+});
+
 // ═══ 驱逐 / 恢复 ═══
 
 test('预置可让位挂件：黄金排挤问号（驱逐），金币保留问号（恢复）', () => {
