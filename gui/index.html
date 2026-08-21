@@ -379,13 +379,6 @@ kbd{
         <button class="tab" data-algo="zen-match" onclick="switchAlgo('zen-match')">ZenMatch</button>
       </div>
 
-      <!-- 特殊机制（所有算法通用，可空） -->
-      <div style="margin-top:8px">
-        <label>特殊机制 <button type="button" class="param-help" data-param-help="mechanics" aria-label="解释特殊机制">?</button></label>
-        <input type="text" id="mechanics" placeholder="如 31:3,39:2（可空）" oninput="validateMechanicsInput()">
-        <div class="msg" id="mechanicsNote"></div>
-      </div>
-
       <!-- CostLadder -->
       <div id="panelCost" style="display:none">
         <label>Cost 目标数组 <button type="button" class="param-help" data-param-help="costArray" aria-label="解释 Cost 目标数组">?</button></label>
@@ -629,7 +622,10 @@ kbd{
     <div class="panel fade-in" style="margin-top:14px">
       <div class="panel-hd"><span class="dot gold"></span> 玩家模拟测试</div>
       <div class="panel-bd">
-        <label>模拟策略 <button type="button" class="param-help" data-param-help="simStrategy" aria-label="解释模拟策略">?</button></label>
+        <label>特殊机制 <button type="button" class="param-help" data-param-help="mechanics" aria-label="解释特殊机制">?</button></label>
+        <input type="text" id="mechanics" placeholder="如 31:3,39:2（可空）" oninput="validateMechanicsInput()">
+        <div class="msg" id="mechanicsNote"></div>
+        <label style="margin-top:6px">模拟策略 <button type="button" class="param-help" data-param-help="simStrategy" aria-label="解释模拟策略">?</button></label>
         <select id="simStrategy" onchange="switchSimStrategy()">
           <option value="normal">普通 — 安全三连组随机选择</option>
           <option value="shortest">短视最优 — 当前安全组最短路径</option>
