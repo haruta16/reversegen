@@ -365,22 +365,6 @@ kbd{
         <div class="msg" id="mechanicsNote"></div>
       </div>
 
-      <!-- 操作序列跑关（人工对照 Unity：同一配置 + 同一操作序列 → 可读操作结果序列） -->
-      <details id="runPanel" style="margin-top:8px;border:1px solid var(--line);border-radius:8px;padding:6px 10px">
-        <summary style="cursor:pointer;font-size:12px">▶ 操作序列跑关（人工对照 Unity）</summary>
-        <div style="margin-top:6px">
-          <label>操作序列（tileId 逗号分隔；留空 = 机器人自动跑）</label>
-          <input type="text" id="runActions" placeholder="如 1,4,7,2（留空自动）" style="font-size:11px">
-          <div class="row" style="margin-top:6px">
-            <button class="btn" onclick="runSequence(false)">按序列跑关</button>
-            <button class="btn btn-outline" onclick="runSequence(true)">机器人跑关</button>
-            <button class="btn btn-outline" onclick="copyRunLog()">复制日志</button>
-          </div>
-          <div class="msg" id="runNote" style="margin-top:4px"></div>
-          <pre id="runLog" style="margin-top:4px;max-height:300px;overflow:auto;font-size:11px;white-space:pre-wrap;word-break:break-all;display:none"></pre>
-        </div>
-      </details>
-
       <!-- CostLadder -->
       <div id="panelCost" style="display:none">
         <label>Cost 目标数组 <button type="button" class="param-help" data-param-help="costArray" aria-label="解释 Cost 目标数组">?</button></label>
@@ -650,6 +634,21 @@ kbd{
         </div>
         <div class="sim-result" id="simResult"></div>
         <div class="sim-history" id="simHistory"></div>
+      </div>
+    </div>
+
+    <div class="panel fade-in" style="margin-top:14px">
+      <div class="panel-hd"><span class="dot gold"></span> 操作序列跑关 <span style="font-weight:400;font-size:9px;color:var(--dim);margin-left:4px">人工对照 Unity</span></div>
+      <div class="panel-bd">
+        <label>操作序列（tileId 逗号分隔；留空 = 机器人自动跑）</label>
+        <input type="text" id="runActions" placeholder="如 1,4,7,2（留空自动）" style="font-size:11px;font-family:var(--mono)">
+        <div class="row" style="margin-top:6px">
+          <button class="btn btn-primary" onclick="runSequence(false)" style="flex:1">▶ 按序列跑关</button>
+          <button class="btn btn-outline" onclick="runSequence(true)" style="flex:1">机器人跑关</button>
+          <button class="btn btn-outline btn-xs" onclick="copyRunLog()">复制日志</button>
+        </div>
+        <div class="msg" id="runNote" style="margin-top:4px"></div>
+        <pre id="runLog" style="margin-top:6px;max-height:300px;overflow:auto;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;display:none"></pre>
       </div>
     </div>
 
