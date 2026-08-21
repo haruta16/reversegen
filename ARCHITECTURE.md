@@ -133,7 +133,8 @@ replayCode + 地形 + extraConfig
 
 - `test/unit/`：逐域单测，机制域使用**逐位 golden**（同种子同输入 → 同输出）；
 - `test/integration/`：端到端 smoke；
-- 对齐权威契约：[docs/mechanics-alignment.md](./docs/mechanics-alignment.md)。
+- 对齐权威契约：[docs/mechanics-alignment.md](./docs/mechanics-alignment.md)；
+- 移植/审计执行规范：[docs/mechanics-porting-playbook.md](./docs/mechanics-porting-playbook.md)。
 
 ---
 
