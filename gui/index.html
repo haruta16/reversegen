@@ -365,17 +365,19 @@ kbd{
         <div class="msg" id="mechanicsNote"></div>
       </div>
 
-      <!-- 逐帧追踪（跨侧 golden 验证：同一 ReplayCode + 机制 + 动作序列 → 逐帧状态 JSON） -->
-      <details id="tracePanel" style="margin-top:8px;border:1px solid var(--line);border-radius:8px;padding:6px 10px">
-        <summary style="cursor:pointer;font-size:12px">🔬 逐帧追踪导出（跨侧 golden 验证）</summary>
+      <!-- 操作序列跑关（人工对照 Unity：同一配置 + 同一操作序列 → 可读操作结果序列） -->
+      <details id="runPanel" style="margin-top:8px;border:1px solid var(--line);border-radius:8px;padding:6px 10px">
+        <summary style="cursor:pointer;font-size:12px">▶ 操作序列跑关（人工对照 Unity）</summary>
         <div style="margin-top:6px">
-          <label>动作序列（tileId 逗号分隔，模拟逐次收牌）</label>
-          <input type="text" id="traceActions" placeholder="如 1,4,7,2" style="font-size:11px">
+          <label>操作序列（tileId 逗号分隔；留空 = 机器人自动跑）</label>
+          <input type="text" id="runActions" placeholder="如 1,4,7,2（留空自动）" style="font-size:11px">
           <div class="row" style="margin-top:6px">
-            <button class="btn" onclick="exportTrace()">导出追踪 JSON</button>
-            <button class="btn btn-outline" onclick="exportTrace(true)">自检一致性</button>
+            <button class="btn" onclick="runSequence(false)">按序列跑关</button>
+            <button class="btn btn-outline" onclick="runSequence(true)">机器人跑关</button>
+            <button class="btn btn-outline" onclick="copyRunLog()">复制日志</button>
           </div>
-          <div class="msg" id="traceNote" style="margin-top:4px"></div>
+          <div class="msg" id="runNote" style="margin-top:4px"></div>
+          <pre id="runLog" style="margin-top:4px;max-height:300px;overflow:auto;font-size:11px;white-space:pre-wrap;word-break:break-all;display:none"></pre>
         </div>
       </details>
 
@@ -863,50 +865,44 @@ window.addEventListener('resize',closeParamHelp);
 window.addEventListener('scroll',closeParamHelp,true);
 
 // ═══════════════════════════════════
-//  逐帧追踪导出（跨侧 golden）
+//  操作序列跑关（人工对照 Unity）
 // ═══════════════════════════════════
-async function exportTrace(selfCheckOnly){
+var _runLogText='';
+async function runSequence(auto){
   var d=S.result;
   if(!d||!d.replayCode){toast('请先生成或导入牌局','err');return}
-  var actions=(document.getElementById('traceActions').value.trim()||'').split(/[\s,]+/).filter(Boolean).map(Number);
-  if(!actions.length){setMsg(document.getElementById('traceNote'),'请填写动作序列（tileId 逗号分隔）','err');return}
-  var note=document.getElementById('traceNote');
-  note.textContent='正在生成追踪…';
+  var note=document.getElementById('runNote');
+  var body={
+    replayCode:d.replayCode,
+    levelId:document.getElementById('levelId').value.trim(),
+    terrainPath:S.terrainPath,
+    mechanics:(document.getElementById('mechanics').value||'').trim()||undefined
+  };
+  if(!auto){
+    var actions=(document.getElementById('runActions').value.trim()||'').split(/[\s,]+/).filter(Boolean).map(Number);
+    if(!actions.length){setMsg(note,'请填写操作序列（tileId 逗号分隔），或点「机器人跑关」','err');return}
+    body.actions=actions;
+  }
+  note.textContent='正在跑关…';
   try{
-    var r=await appFetch('/api/trace',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-      replayCode:d.replayCode,
-      levelId:document.getElementById('levelId').value.trim(),
-      terrainPath:S.terrainPath,
-      mechanics:(document.getElementById('mechanics').value||'').trim()||undefined,
-      actions:actions
-    })});
+    var r=await appFetch('/api/run-sequence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var data=await r.json();
-    if(!data.ok){setMsg(note,data.error||'导出失败','err');return}
-    if(selfCheckOnly){
-      // 自检：重建一次比对确定性（逐帧 JSON 深比较）
-      var r2=await appFetch('/api/trace',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-        replayCode:d.replayCode,
-        levelId:document.getElementById('levelId').value.trim(),
-        terrainPath:S.terrainPath,
-        mechanics:(document.getElementById('mechanics').value||'').trim()||undefined,
-        actions:actions
-      })});
-      var data2=await r2.json();
-      if(!data2.ok){setMsg(note,data2.error||'重建失败','err');return}
-      var same=JSON.stringify(data.trace)===JSON.stringify(data2.trace);
-      setMsg(note,same?('✅ 自检一致：'+data.frames+' 帧 · '+data.mechanicStepCount+' 个机制步骤')
-                     :'❌ 自检不一致：两次重建结果不同（确定性被破坏）',same?'ok':'err');
-      return;
-    }
-    var blob=new Blob([JSON.stringify(data.trace,null,2)],{type:'application/json'});
-    var a=document.createElement('a');
-    a.href=URL.createObjectURL(blob);
-    a.download='trace_'+String(d.levelResId||'board')+'.json';
-    a.click();
-    URL.revokeObjectURL(a.href);
-    setMsg(note,'✅ 已导出 '+data.frames+' 帧 · '+data.mechanicStepCount+' 个机制步骤 → 与 Unity 导出的 trace 用 verify-cross-side 对照','ok');
+    if(!data.ok){setMsg(note,data.error||'跑关失败','err');return}
+    _runLogText=data.lines.join('\n');
+    var log=document.getElementById('runLog');
+    log.textContent=_runLogText;
+    log.style.display='block';
+    setMsg(note,(data.robot?'🤖 机器人策略：':'✅ 按序列：')+'共 '+data.actions.length+' 次动作 · '+(data.win?'通关':data.dead?'死亡':'未通关'),data.win?'ok':data.dead?'err':'');
   }catch(e){
-    setMsg(note,'导出失败: '+(e&&e.message||e),'err');
+    setMsg(note,'跑关失败: '+(e&&e.message||e),'err');
+  }
+}
+function copyRunLog(){
+  if(!_runLogText){toast('请先跑关','err');return}
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(_runLogText).then(function(){toast('日志已复制','ok')},function(){toast('复制失败','err')});
+  }else{
+    toast('浏览器不支持剪贴板，请手动选中复制','err');
   }
 }
 

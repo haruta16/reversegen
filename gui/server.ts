@@ -11,6 +11,7 @@
  *   lib/api-generate.ts    生成/解码/回放分析类 API
  *   lib/api-analyze.ts     DAG 分析与可解性验证 API
  *   lib/api-simulate.ts    玩家模拟 API
+ *   lib/api-run-sequence.ts 操作序列跑关（人工对照 Unity 的可读日志）
  *   lib/api-grade.ts       难度分档 API
  *   lib/api-batch.ts       批量生产与候选收集 API
  *   lib/api-strategy.ts    生成策略管理 API
@@ -60,7 +61,7 @@ import {
   handlePlayerSimCostcap,
   handlePlayerSimMistake,
 } from './lib/api-simulate.js';
-import { handleTraceExport } from './lib/api-trace.js';
+import { handleRunSequence } from './lib/api-run-sequence.js';
 import {
   handleGradeConfig,
   handleGradeConfigReload,
@@ -204,8 +205,8 @@ const server = createServer(async (req, res) => {
   if (await handlePlayerSimCostcap(req, res, url)) return;
   if (await handlePlayerSimMistake(req, res, url)) return;
 
-  // ── 逐帧追踪（跨侧 golden 导出） ──
-  if (await handleTraceExport(req, res, url)) return;
+  // ── 操作序列跑关（人工对照 Unity 的可读日志） ──
+  if (await handleRunSequence(req, res, url)) return;
 
   // ── 分档 ──
   if (await handleGradeConfig(req, res, url)) return;

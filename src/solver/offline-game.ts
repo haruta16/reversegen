@@ -298,8 +298,9 @@ export class OfflineGame {
   /**
    * Collect a clickable tile: Desk → Dock → check match → update state.
    * This is the atomic game action.
+   * 返回本次三消的消除组（无三消为 null），供跑关日志/验证消费；不关心返回值的调用方照常忽略。
    */
-  collect(tile: OfflineTile): void {
+  collect(tile: OfflineTile): OfflineTile[] | null {
     if (tile.pileType !== PileType.Desk || !tile.isClickable) {
       throw new Error(`Tile ${tile.id} is not clickable, cannot collect`);
     }
@@ -367,6 +368,8 @@ export class OfflineGame {
 
     // 8. 棋盘特殊物自动移除（对齐 _processUncoveredBoardSpecialTiles：结构依赖全部离桌即移除）
     if (this.processUncoveredBoardSpecials()) this.updateTilesState();
+
+    return matched && matched.length > 0 ? matched : null;
   }
 
   /**

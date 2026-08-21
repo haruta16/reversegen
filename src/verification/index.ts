@@ -18,3 +18,5 @@ export type {
 } from './cross-side-trace.js';
 export { buildTraceFromInputs } from './trace-builder.js';
 export type { TraceBuildInput } from './trace-builder.js';
+export { runSequenceLog } from './readable-run.js';
+export type { RunLogResult } from './readable-run.js';
