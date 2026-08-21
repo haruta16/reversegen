@@ -45,6 +45,7 @@ export async function handleRunSequence(req: IncomingMessage, res: ServerRespons
       win: result.win,
       dead: result.dead,
       lines: result.lines,
+      entries: result.entries,
     });
     return true;
   } catch (e) {

@@ -307,6 +307,27 @@ kbd{
 }
 .generator-surface .topbar>a{display:none}
 .generator-surface .topnav-links{display:none}
+
+/* ── 操作序列跑关日志 ── */
+.run-log{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:8px 10px;max-height:340px;overflow:auto;font-size:11px;line-height:1.7}
+.run-log:empty{display:none}
+.rl-line{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:1px 0}
+.rl-line+.rl-line{border-top:1px dashed var(--line2,var(--line))}
+.rl-step{font-family:var(--mono);color:var(--faint);min-width:30px;flex:none}
+.rl-arrow{color:var(--faint)}
+.rl-tile{font-family:var(--mono)}
+.rl-color{color:var(--dim);font-size:10px;font-family:var(--mono)}
+.rl-dock{color:var(--dim)}
+.rl-match{color:#4ade80;font-family:var(--mono)}
+.rl-warn{color:#f56c6c}
+.rl-mech{margin-left:22px}
+.rl-overview{color:var(--dim)}
+.rl-summary{font-weight:700}
+.rl-summary-win{color:#4ade80}
+.rl-summary-dead{color:#f56c6c}
+.rl-chip{border-radius:4px;padding:0 6px;font-size:10px;font-weight:700;line-height:16px;color:#fff;flex:none}
+.rl-chip-click{background:#3a7afe}
+.rl-chip-mini{border-radius:3px;padding:0 5px;font-size:10px;line-height:15px;background:var(--ink);border:1px solid var(--line);color:var(--text);font-family:var(--mono)}
 </style>
 </head>
 <body>
@@ -648,7 +669,7 @@ kbd{
           <button class="btn btn-outline btn-xs" onclick="copyRunLog()">复制日志</button>
         </div>
         <div class="msg" id="runNote" style="margin-top:4px"></div>
-        <pre id="runLog" style="margin-top:6px;max-height:300px;overflow:auto;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;display:none"></pre>
+        <div class="run-log" id="runLog"></div>
       </div>
     </div>
 
@@ -867,6 +888,51 @@ window.addEventListener('scroll',closeParamHelp,true);
 //  操作序列跑关（人工对照 Unity）
 // ═══════════════════════════════════
 var _runLogText='';
+var RUN_MECH_LABEL={
+  'magic-bottle-clear':'魔药','bubble-assign':'泡泡指派','bubble-collect':'泡泡吸取',
+  'magic-step':'魔法棒','dandelion-spread':'蒲公英','giftbox-add-dock-slot':'礼盒·槽位',
+  'giftbox-reveal-unknown':'礼盒·揭示','giftbox-shuffle':'礼盒·洗牌',
+  'giftbox-apply-unknown':'礼盒·问号','giftbox-apply-flip':'礼盒·翻转','giftbox-apply-magic-bottle':'礼盒·魔药'
+};
+var RUN_MECH_COLOR={
+  'magic-bottle-clear':'#8b5cf6','bubble-assign':'#38bdf8','bubble-collect':'#0ea5e9',
+  'magic-step':'#0ea5e9','dandelion-spread':'#22c55e','giftbox-add-dock-slot':'#f59e0b',
+  'giftbox-reveal-unknown':'#f59e0b','giftbox-shuffle':'#f59e0b',
+  'giftbox-apply-unknown':'#f59e0b','giftbox-apply-flip':'#f59e0b','giftbox-apply-magic-bottle':'#f59e0b'
+};
+function _esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function renderRunLog(entries){
+  var html='';
+  entries.forEach(function(e){
+    if(e.kind==='overview'){
+      html+='<div class="rl-line rl-overview">'+_esc(e.text)+'</div>';
+    }else if(e.kind==='click'){
+      html+='<div class="rl-line'+(e.warn?' rl-warn':'')+'"><span class="rl-step">步'+e.step+'</span>';
+      if(e.warn){
+        html+='<span class="rl-chip" style="background:#f56c6c">终止</span><span class="rl-tile">#'+e.tileId+'</span><span>'+_esc(e.warn)+'</span></div>';
+        return;
+      }
+      html+='<span class="rl-chip rl-chip-click">点击</span><span class="rl-tile">#'+e.tileId+'</span><span class="rl-color">色'+e.color+'</span>';
+      if(e.dockCounts&&e.dockCounts.length){
+        html+='<span class="rl-arrow">→ Dock</span>'
+          +e.dockCounts.map(function(c){return '<span class="rl-chip-mini">'+c[0]+'×'+c[1]+'</span>';}).join('');
+      }
+      if(e.matchedIds&&e.matchedIds.length){
+        html+='<span class="rl-arrow">→</span><span class="rl-match">消除 '+e.matchedIds.map(function(id){return '#'+id;}).join(' ')+'</span>';
+      }
+      html+='</div>';
+    }else if(e.kind==='mechanic'){
+      html+='<div class="rl-line rl-mech"><span class="rl-chip" style="background:'+(RUN_MECH_COLOR[e.mechanic]||'#64748b')+'">'+(RUN_MECH_LABEL[e.mechanic]||e.mechanic)+'</span>'
+        +(e.tileIds&&e.tileIds.length?'<span class="rl-tile">#'+e.tileIds.join(',#')+'</span>':'')
+        +'</div>';
+    }else if(e.kind==='structure'){
+      html+='<div class="rl-line rl-mech"><span class="rl-chip" style="background:#f97316">大型地形</span><span class="rl-tile">#'+e.structureId+'</span><span style="color:var(--dim)">移除（依赖已清空）</span></div>';
+    }else if(e.kind==='summary'){
+      html+='<div class="rl-line rl-summary '+(e.win?'rl-summary-win':e.dead?'rl-summary-dead':'')+'">'+_esc(e.text)+'</div>';
+    }
+  });
+  return html;
+}
 async function runSequence(auto){
   var d=S.result;
   if(!d||!d.replayCode){toast('请先生成或导入牌局','err');return}
@@ -883,14 +949,13 @@ async function runSequence(auto){
     body.actions=actions;
   }
   note.textContent='正在跑关…';
+  var log=document.getElementById('runLog');
   try{
     var r=await appFetch('/api/run-sequence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var data=await r.json();
     if(!data.ok){setMsg(note,data.error||'跑关失败','err');return}
     _runLogText=data.lines.join('\n');
-    var log=document.getElementById('runLog');
-    log.textContent=_runLogText;
-    log.style.display='block';
+    log.innerHTML=renderRunLog(data.entries||[]);
     setMsg(note,(data.robot?'🤖 机器人策略：':'✅ 按序列：')+'共 '+data.actions.length+' 次动作 · '+(data.win?'通关':data.dead?'死亡':'未通关'),data.win?'ok':data.dead?'err':'');
   }catch(e){
     setMsg(note,'跑关失败: '+(e&&e.message||e),'err');
