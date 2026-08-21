@@ -176,11 +176,15 @@ export interface AssignExtrasSummary {
   evictedPreplaced: number;
 }
 
-/** FNV-1a 32-bit（确定性纯函数，用作分配种子哈希）。 */
+/**
+ * FNV-1a 32-bit（确定性纯函数，用作分配种子哈希）。
+ * 对齐 Unity ReplaySerializer.Fnv1a32：每个 char 截断为低 8 位（(byte)c）再异或——
+ * ASCII 下与 code-unit 异或相同，非 ASCII（>255）时与 Unity 逐位一致。
+ */
 function fnv1a32(text: string): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
+    h ^= text.charCodeAt(i) & 0xff;
     h = Math.imul(h, 0x01000193);
   }
   return h | 0;

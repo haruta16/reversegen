@@ -328,3 +328,10 @@ test('端到端：魔药(31)三消后触发清除（分配器 → OfflineGame �
   assert.ok(g.mechanicLog.some(s => s.type === 'magic-bottle-clear'), '魔药三消应触发 magic-bottle-clear');
   assert.ok(g.deskTiles.length < deskBefore, '魔药清除应移除场上牌');
 });
+
+test('分配种子 FNV-1a：逐字符截断低 8 位（对齐 ReplaySerializer.Fnv1a32 的 (byte)c）', () => {
+  // U+0161(š) 低字节 = 0x61 = 'a' → 与 'a' 同种子；U+20AC(€) 低字节 0xAC，不与 'a' 相同
+  const empty = new Map<number, number>();
+  assert.equal(deriveAssignSeed('š', empty), deriveAssignSeed('a', empty));
+  assert.notEqual(deriveAssignSeed('€', empty), deriveAssignSeed('a', empty));
+});

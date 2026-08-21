@@ -242,10 +242,14 @@ replayCode + 地形 + extraConfig + seed
 - `AssignerRandom` = **Xorshift128+**（SplitMix64 种子扩展），逐位对齐 Unity `DeterministicRandom.cs`
   （与机制引擎用的 .NET System.Random 语义 DotNetRandom 是两套独立随机流，各对齐各的）
 - 缺省种子：`seed = FNV-1a 32bit(replayCode + "|" + 分配请求子集文本) & 0x7fffffff`
-  （`deriveAssignSeed`，零协调）。**分配请求子集** = 机制配置经 `splitMechanicConfig` 拆出
-  泡泡(39)/大型地形(51-53) 后的部分——与 Unity `FixedReplayCodeAlgorithm` 收到的 extraConfig 一致；
+  （`deriveAssignSeed`，零协调）。**逐字符截断低 8 位**（对齐 Unity `ReplaySerializer.Fnv1a32`
+  的 `(byte)c`——ASCII 下与码元异或相同，非 ASCII 也逐位一致）。
+  **分配请求子集** = 机制配置经 `splitMechanicConfig` 拆出
+  泡泡(39)/大型地形(51-53,55) 后的部分——与 Unity `FixedReplayCodeAlgorithm` 收到的 extraConfig 一致；
   Unity 侧 `ReplaySerializer.DeriveAssignSeed` 同公式派生（同输入 → 同挂件布局）。
   显式 `mechanicSeed`（Unity 侧特殊种子/GM）优先于派生。
+  注：棋盘特殊物注入种子用另一套 FNV（`BoardSpecialInsertionSystem.GetStableSeed`，
+  整码元异或、不截低 8 位、不截高位），两侧分别对齐。
 - 随机消费顺序 = 输入 tile 列表顺序（LINQ/数组枚举顺序逐位一致）；与 Unity 对齐时
   输入 tile 需以 `getCanonicalTileOrder` 顺序（规范序 = 层数组序 + 层内数组序，见 §2.8）
 
