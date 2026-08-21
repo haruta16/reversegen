@@ -36,9 +36,9 @@ const TILE_SIZE = 10; // tile is 10×10 units, centered at (posX, posY)
 /** 胜利条件谓词（可插拔：缺省 = 清空可匹配牌；52/53 订单玩法 = 全部棋盘特殊物移除即胜）。 */
 export type VictoryCondition = (game: OfflineGame) => boolean;
 
-/** 默认胜利条件：Dock 清空且桌面无可匹配牌（elementValue > 0，障碍牌不参与）。 */
+/** 默认胜利条件：桌面清空（对齐 Unity ConditionDefault：Desk.DeskTiles.Count == 0；不检查 Dock，障碍牌同样阻塞胜利）。 */
 export function defaultVictoryCondition(game: OfflineGame): boolean {
-  return game.dockTiles.length === 0 && game.deskTiles.every(t => t.elementValue <= 0);
+  return game.deskTiles.length === 0;
 }
 
 /** OfflineGame 构造选项（机制等可选上下文）。 */
@@ -82,7 +82,6 @@ export class OfflineGame {
   readonly boardSpecialStructures: BoardSpecialStructure[];
   /** coveredTileId → 覆盖它的活跃结构列表（对齐 BoardSpecialRuntimeSystem 覆盖索引） */
   private readonly boardSpecialCoverage = new Map<number, BoardSpecialStructure[]>();
-  private readonly transferTileIds = new Set<number>();
   private readonly fallingGroups: FallingTerrainStructure[] = [];
   private readonly fallingGroupByTileId = new Map<number, FallingTerrainStructure>();
 
@@ -153,7 +152,7 @@ export class OfflineGame {
       }
 
       if (structure.type === 'transfer') {
-        for (const tileId of structure.tileIds) this.transferTileIds.add(tileId);
+        // 对齐 Unity：transfer 结构只做视觉传送，不影响点击语义（正常依赖回路）
         continue;
       }
       if (!Number.isInteger(structure.viewLength)
@@ -306,9 +305,9 @@ export class OfflineGame {
     return matched;
   }
 
-  /** Dock 槽位 +1（礼盒 AddDockSlot，上限 8）。 */
+  /** Dock 槽位置为上限 8（礼盒 AddDockSlot，对齐 Unity SetMaxSlotCount(8)，幂等）。 */
   mechanicAddDockSlot(): void {
-    if (this.maxSlotCount < 8) this.dockSlotBonus += 1;
+    this.dockSlotBonus = Math.max(this.dockSlotBonus, 8 - MAX_DOCK_SLOTS);
   }
 
   // ═══════════════════════════════════════════════════
@@ -345,9 +344,6 @@ export class OfflineGame {
     this.dockTiles.push(tile);
     this.sortDockTiles();
 
-    // 2.5 收集回调（OnCollect）：揭示/衰减有效收集/订单 consumed
-    onTileCollected(tile);
-
     // 3. Check for match (3 same-color in dock)
     const matched = this.checkDockMatch();
     if (matched && matched.length > 0) {
@@ -362,6 +358,10 @@ export class OfflineGame {
     if (!matched || matched.length === 0) {
       this.mechanics.clearPendingMatchContext();
     }
+
+    // 3.5 收集回调（OnCollect）：揭示/衰减有效收集/订单 consumed
+    //    对齐 Unity CollectStep.Apply：CheckDockMatch 结算之后才广播 OnTileCollect。
+    onTileCollected(tile);
 
     // 3.2 衰减挂件 OnStep —— 对齐 Unity：CollectStep 在 AppendStep 时（UpdateTilesState 之前）
     //    触发 OnStep，此刻其它 desk 牌的可点击状态仍是本步之前的旧快照，
@@ -386,8 +386,7 @@ export class OfflineGame {
     this.actionCount += 1;
     this.runMechanicTicks();
 
-    // 8. 棋盘特殊物自动移除（对齐 _processUncoveredBoardSpecialTiles：结构依赖全部离桌即移除）
-    if (this.processUncoveredBoardSpecials()) this.updateTilesState();
+    // 8. 棋盘特殊物自动移除已并入 updateTilesState 末尾（对齐 Unity），此处无需重复处理。
 
     return matched && matched.length > 0 ? matched : null;
   }
@@ -402,16 +401,19 @@ export class OfflineGame {
    * 状态刷新统一在本步末尾（对齐 Unity 各调用点的 UpdateTilesState）。
    */
   applyMechanicStep(step: MechanicStep): void {
-    const decaySnapshot = DECAY_STEP_TYPES.has(step.type)
+    // 洗牌对齐 Unity Shuffle()：UpdateTilesState 先于 AppendStep，衰减用洗牌后的实时可点击状态；
+    // 其余 AppendStep 步骤用本步开始前的旧可点击快照（对齐 OnStepApply 时序）。
+    const isShuffle = step.type === 'giftbox-shuffle';
+    const isCountedStep = DECAY_STEP_TYPES.has(step.type);
+    const decaySnapshot = isCountedStep && !isShuffle
       ? new Set<number>(this.deskTiles.filter(t => t.isClickable).map(t => t.id))
       : undefined;
     const applier = STEP_APPLIERS[step.type];
     if (applier) applier(this, step);
-    if (DECAY_STEP_TYPES.has(step.type)) this.actionCount += 1;
+    if (isCountedStep) this.actionCount += 1;
     this.mechanicLog.push({ ...step, stepIndex: this.actionCount });
-    if (decaySnapshot) applyDecayStep(this, step.type, decaySnapshot);
+    if (isCountedStep) applyDecayStep(this, step.type, decaySnapshot);
     this.updateTilesState();
-    if (this.processUncoveredBoardSpecials()) this.updateTilesState();
   }
   /** 循环执行泡泡 tick 直到静止（guard 防病态环）。 */
   private runMechanicTicks(): void {
@@ -469,7 +471,6 @@ export class OfflineGame {
 
     // Recompute all tile states (dependencies may have changed)
     this.updateTilesState();
-    if (this.processUncoveredBoardSpecials()) this.updateTilesState();
   }
 
   /**
@@ -480,6 +481,11 @@ export class OfflineGame {
    */
   /** 重算所有 Desk 牌的 RuntimeDependencies / Clickable / 遮挡标志。 */
   updateTilesState(): void {
+    // 对齐 Unity 有效时序：ResolveOutcomeAfterOperation → _processUncoveredBoardSpecialTiles
+    // （FadeOut 同步置 IsRemoving）先于本帧的 UpdateTilesState 循环——依赖全部离桌的结构
+    // 先移除，被覆盖牌的解锁在同一轮刷新里生效。
+    this.processUncoveredBoardSpecials();
+
     const hiddenFallingTileIds = this.hiddenFallingTileIds();
 
     // Phase 1: Compute RuntimeDependencies and Clickable
@@ -498,13 +504,8 @@ export class OfflineGame {
         continue;
       }
 
-      const specialTile = this.transferTileIds.has(tile.id)
-        || this.fallingGroupByTileId.has(tile.id);
-      if (specialTile) {
-        tile.setClickable(true);
-        tile.removeFlag(TileFlag.PerfectCovered);
-        continue;
-      }
+      // 对齐 Unity UpdateTilesState：transfer 与可见 falling 牌走正常依赖回路
+      // （有剩余依赖即不可点击），只有 hidden falling 牌整体隐藏。
 
       for (const depId of tile.config.dependencies) {
         const dep = this.allTiles.get(depId);
@@ -546,6 +547,16 @@ export class OfflineGame {
         isProjectionFullyCovered(tile, this.allTiles);
       if (invisible) tile.setFlag(TileFlag.Invisible);
       else tile.removeFlag(TileFlag.Invisible);
+    }
+
+    // 翻转挂件 OnUpdateTileState：变为可点击即揭示（对齐 FlipExtra：isDone=true，无需收集）
+    for (const tile of this.deskTiles) {
+      if (!tile.isClickable) continue;
+      for (const extra of tile.extras) {
+        if ((extra.extraEnum === 7 || extra.extraEnum === 207) && extra.isDone !== true) {
+          extra.isDone = true;
+        }
+      }
     }
   }
 
@@ -791,7 +802,11 @@ export function createGame(input: GameFactoryInput): OfflineGame {
       posY: tt.posY,
       extras: tileExtrasFromTerrain(tt.extraEnum, tt.extraParam),
     };
-    return new OfflineTile(config, elementValues.get(tt.id) ?? 1);
+    // 棋盘障碍物（51-53,55）花色恒为 0（对齐 Unity SetElementValue 拦截 IsBoardSpecialExtra）
+    const elementValue = tt.extraEnum === 51 || tt.extraEnum === 52 || tt.extraEnum === 53 || tt.extraEnum === 55
+      ? 0
+      : elementValues.get(tt.id) ?? 1;
+    return new OfflineTile(config, elementValue);
   });
 
   // ── 装载期机制分配（对齐 Unity LoadLevel/ApplyExtraConfig：先花色后挂件、只分非 const 牌） ──

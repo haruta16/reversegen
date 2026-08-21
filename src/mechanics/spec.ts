@@ -97,7 +97,7 @@ export function validateMechanicCounts(injected: MechanicCounts): MechanicSpecEr
 /**
  * 拆分机制配置（对齐 Unity LoadLevel 的拆出逻辑）：
  * - bubble(39)：行为参数（每轮收集数），交给 MechanicEngine，不走分配器
- * - boardSpecial(51-53)：大型地形，棋盘级注入，reversegen 未接入
+ * - boardSpecial(51-53,55)：大型地形/大金币，棋盘障碍物（不参与花色分配），51-53 走棋盘级注入
  * - assignable：其余 tile-count 机制，作为分配请求交给机制分配器
  */
 export function splitMechanicConfig(config: MechanicCounts): {
@@ -110,7 +110,8 @@ export function splitMechanicConfig(config: MechanicCounts): {
   const boardSpecial = new Map<number, number>();
   for (const [value, count] of config) {
     if (value === 39) bubble.set(value, count);
-    else if (value === 51 || value === 52 || value === 53) boardSpecial.set(value, count);
+    // 51/52/53 大型地形 + 55 大金币(2x2) 均为棋盘障碍物（对齐 Unity IsBoardSpecialObstacle）
+    else if (value === 51 || value === 52 || value === 53 || value === 55) boardSpecial.set(value, count);
     else assignable.set(value, count);
   }
   return { bubble, assignable, boardSpecial };

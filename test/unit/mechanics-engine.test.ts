@@ -257,3 +257,52 @@ test('状态键：Dock 顺序/牌身份进键，actionCount 仅在步数敏感�
   plain.applyMechanicStep({ type: 'magic-step', tileIds: [] });
   assert.equal(plain.buildStateKey(), p0, '无步数敏感机制时键不含 actionCount');
 });
+
+test('魔药清除：对每张目标牌触发自身收集钩子（对齐 MagicBottleStep 的 tile.OnTileCollect）', () => {
+  // 目标组：色2=[4,5,6]（#5 带问号，白名单内）、色3=[7,8,9]；
+  // 色4=[10,11,12] 的 #10 带订单(38)——38 不在魔药白名单，整组被排除。
+  const tiles = [
+    mk(99, 1, [{ extraEnum: 31, extraParam: '' }]),
+    mk(1, 1), mk(2, 1),
+    mk(4, 2), mk(5, 2, [{ extraEnum: 2, extraParam: '00' }]), mk(6, 2),
+    mk(7, 3), mk(8, 3), mk(9, 3),
+    mk(10, 4, [{ extraEnum: 38, extraParam: '' }]), mk(11, 4), mk(12, 4),
+  ];
+  const game = new OfflineGame(tiles, [], { levelResId: 100 });
+  for (const id of [99, 1, 2]) game.collect(game.allTiles.get(id)!);
+  assert.ok(game.mechanicLog.some(s => s.type === 'magic-bottle-clear'), '魔药清除已触发');
+  const cleared = new Set(game.mechanicLog.find(s => s.type === 'magic-bottle-clear')!.tileIds);
+  assert.equal(game.allTiles.get(5)!.extras[0].isDone, true, '清除目标问号揭示');
+  assert.ok(cleared.has(5), '问号牌在清除名单内');
+  assert.ok(!cleared.has(10), '订单(38)组被白名单排除');
+  assert.notEqual(game.allTiles.get(10)!.extras[0].isConsumed, true, '未被清除的订单不完成');
+});
+
+test('默认胜利：桌面清空即胜（对齐 ConditionDefault；障碍牌阻塞、Dock 不阻塞）', () => {
+  // 障碍牌（elementValue 0）留在桌面 → 不胜利
+  const obstacle = new OfflineTile(
+    { id: 9, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 0, posY: 0 },
+    0,
+  );
+  const game = new OfflineGame([mk(1, 1), mk(2, 1), mk(3, 1), obstacle], []);
+  for (const id of [1, 2, 3]) game.collect(game.allTiles.get(id)!);
+  assert.equal(game.isWin, false, '障碍牌仍在桌面，不胜利');
+  assert.equal(game.dockTiles.length, 0);
+  // 障碍牌被魔药清除 → 桌面空 → 胜利
+  game.applyMechanicStep({ type: 'magic-bottle-clear', tileIds: [9] });
+  assert.equal(game.isWin, true, '桌面清空即胜');
+});
+
+test('默认胜利：Dock 有残余牌但桌面已空 → 胜利（对齐 ConditionDefault 只看 Desk）', () => {
+  // 桌面 2 张 + Dock 1 张（不成组）：魔法棒把桌面收完 → 桌面空 → 胜利，Dock 无需清空
+  const tiles = [mk(1, 1), mk(2, 1), mk(3, 1), mk(4, 2), mk(5, 2), mk(6, 2)];
+  const game = new OfflineGame(tiles, [], { levelResId: 1 });
+  game.collect(game.allTiles.get(1)!); // Dock=[1]
+  game.collect(game.allTiles.get(2)!); // Dock=[1,2]
+  assert.equal(game.isWin, false, '桌面仍有牌');
+  for (const id of [4, 5, 6]) game.collect(game.allTiles.get(id)!); // 色2 三消，桌面剩 3(色1)
+  game.applyMechanicStep({ type: 'magic-bottle-clear', tileIds: [3] }); // 清最后一张桌面牌
+  assert.equal(game.deskTiles.length, 0);
+  assert.ok(game.dockTiles.length > 0, 'Dock 仍有牌');
+  assert.equal(game.isWin, true, '桌面空即胜，Dock 不阻塞');
+});

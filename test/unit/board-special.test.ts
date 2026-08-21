@@ -229,6 +229,21 @@ test('胜利条件可插拔：52/53 订单玩法全部结构移除即胜（桌�
   assert.equal(game.isWin, true, '结构全部收集即胜（对齐 VictoryConditionType.Chicken）');
 });
 
+test('胜利条件 OR 组合：52/53 桌面清空也胜（对齐 [ConditionDefault, ConditionChicken]）', () => {
+  // 无依赖结构永不自动移除；桌面清空后 ConditionDefault 兜底判胜
+  const tiles = [mk(1, 0, 100, 100, 1), mk(2, 0, 200, 100, 1), mk(3, 0, 300, 100, 1)];
+  const game = new OfflineGame(tiles, [], {
+    levelResId: 1,
+    boardSpecialStructures: [structure({ id: 9, dependencies: [], coveredTileIds: [] })],
+    victoryCondition: boardSpecialVictoryCondition,
+  });
+  assert.equal(game.isWin, false);
+  for (const id of [1, 2, 3]) game.collect(game.allTiles.get(id)!);
+  assert.equal(game.deskTiles.length, 0);
+  assert.equal(game.boardSpecialStructures[0].isRemoved, false, '无依赖结构不自动移除');
+  assert.equal(game.isWin, true, '桌面清空兜底判胜');
+});
+
 test('胜利条件可插拔：自定义谓词与默认条件共存', () => {
   const tiles = [mk(1, 0, 0, 0, 1), mk(2, 0, 0, 0, 1), mk(3, 0, 0, 0, 1), mk(4, 0, 0, 0, 2), mk(5, 0, 0, 0, 2), mk(6, 0, 0, 0, 2)];
   const custom = new OfflineGame(tiles, [], {

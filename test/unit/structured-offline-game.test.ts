@@ -98,4 +98,21 @@ describe('特殊结构打关状态机', () => {
     assert.equal(result.summary.runs, 1);
     assert.equal(result.results?.length, 1);
   });
+
+  it('transfer 牌走正常依赖回路（对齐 Unity UpdateTilesState：无依赖才可点击）', () => {
+    const terrainTiles = [
+      terrainTile(1, [9]),
+      terrainTile(2, []),
+      terrainTile(9, []),
+    ];
+    const terrainStructures: TerrainStructure[] = [
+      { type: 'transfer', id: 1, tileIds: [1, 2], tileNum: 2 },
+    ];
+    const elementValues = new Map(terrainTiles.map(tile => [tile.id, 1]));
+    const game = createGame({ terrainTiles, terrainStructures, elementValues });
+    assert.equal(game.allTiles.get(2)!.isClickable, true, '无依赖 transfer 牌可点击');
+    assert.equal(game.allTiles.get(1)!.isClickable, false, '有依赖的 transfer 牌不可点击');
+    game.collect(game.allTiles.get(9)!);
+    assert.equal(game.allTiles.get(1)!.isClickable, true, '依赖离桌后解锁');
+  });
 });

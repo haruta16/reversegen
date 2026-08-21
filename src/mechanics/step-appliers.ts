@@ -30,10 +30,19 @@ export const DECAY_STEP_TYPES: ReadonlySet<MechanicStep['type']> = new Set([
   'giftbox-shuffle',
 ]);
 
-/** 魔药清除（MagicBottleStep）：直接消除，无收集/三消钩子（对齐 Unity：不触发 OnTileCollect/OnTileMatch）。 */
+/**
+ * 魔药清除（MagicBottleStep）：直接消除 + 对每张目标牌触发自身收集钩子。
+ * 对齐 Unity MagicBottleStep.Apply：先 Desk/Dock → Discard，再对每张目标牌调用
+ * tile.OnTileCollect(tile)（揭示 isDone / 订单 consumed / 衰减有效收集——仅目标牌自身挂件；
+ * 不触发三消 OnTileMatch，不广播 battle.OnTileCollect）。
+ */
 function applyMagicBottleClear(game: OfflineGame, step: MechanicStep): void {
   if (step.type !== 'magic-bottle-clear') return;
   game.mechanicEliminate(step.tileIds);
+  for (const id of step.tileIds) {
+    const tile = game.allTiles.get(id);
+    if (tile) onTileCollected(tile);
+  }
 }
 
 /** 泡泡指派：动态追加泡泡挂件 + 登记为活跃角标（对齐 Unity AssignBubbleTilesAsync，无步骤计数）。 */

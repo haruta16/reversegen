@@ -202,9 +202,9 @@ export function deriveAssignSeed(replayCode: string, mechanics: MechanicCounts):
   return fnv1a32(text) & 0x7fffffff;
 }
 
-/** 棋盘特殊物障碍牌（51-53）：不参与花色/挂件分配（对齐 Unity emptyTiles.RemoveAll(IsBoardSpecialObstacle)）。 */
+/** 棋盘特殊物障碍牌（51-53 + 55 大金币）：不参与花色/挂件分配（对齐 Unity emptyTiles.RemoveAll(IsBoardSpecialObstacle)）。 */
 function isBoardSpecialObstacle(tile: OfflineTile): boolean {
-  return tile.extras.some(e => e.extraEnum === 51 || e.extraEnum === 52 || e.extraEnum === 53);
+  return tile.extras.some(e => e.extraEnum === 51 || e.extraEnum === 52 || e.extraEnum === 53 || e.extraEnum === 55);
 }
 
 /**
@@ -625,10 +625,10 @@ function areSameTerrainGroup(a: OfflineTile, b: OfflineTile): boolean {
          Math.abs(a.config.posY - b.config.posY) <= TILE_UNIT;
 }
 
-/** 对齐 Unity TowerDetector.IsTerrain：非初始 Dock 牌且非棋盘特殊物。 */
+/** 对齐 Unity TowerDetector.IsTerrain：非初始 Dock 牌且非棋盘特殊物（51-53,55）。 */
 function isTerrainTile(t: OfflineTile, towerExcludedTileIds?: ReadonlySet<number>): boolean {
   if (towerExcludedTileIds?.has(t.id)) return false;
-  return !t.extras.some(e => e.extraEnum === 51 || e.extraEnum === 52 || e.extraEnum === 53);
+  return !t.extras.some(e => e.extraEnum === 51 || e.extraEnum === 52 || e.extraEnum === 53 || e.extraEnum === 55);
 }
 
 function detectTowerTileIds(tiles: OfflineTile[], towerExcludedTileIds?: ReadonlySet<number>): Set<number> {

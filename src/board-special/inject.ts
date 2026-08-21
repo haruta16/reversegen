@@ -31,18 +31,18 @@ export function getStableBoardSpecialSeed(value: string): number {
   return hash | 0;
 }
 
-/** 注入种子（对齐 _resolveBoardSpecialRandomSeed：显式种子 > replayCode FNV-1a > levelResId）。 */
+/** 注入种子（对齐 _resolveBoardSpecialRandomSeed：显式种子 > replayCode FNV-1a > levelResId；空白 replayCode 视为缺失）。 */
 export function resolveBoardSpecialSeed(
   explicitSeed: number | undefined,
   replayCode: string | undefined,
   levelResId: number | undefined,
 ): number {
   if (explicitSeed !== undefined) return explicitSeed | 0;
-  if (replayCode) return getStableBoardSpecialSeed(replayCode);
+  if (replayCode && replayCode.trim().length > 0) return getStableBoardSpecialSeed(replayCode);
   return levelResId ?? 0;
 }
 
-/** 从地形构造放置层视图（IsTerrain = 非初始 Dock 且非 51-53）。 */
+/** 从地形构造放置层视图（IsTerrain = 非初始 Dock 且非 51-53/55）。 */
 export function buildPlacementLayers(
   layers: Array<{ layer: number; tiles: Array<{ id: number; posX: number; posY: number; extraEnum: number | undefined }> }>,
   initialDockTileIds: ReadonlySet<number> | undefined,
@@ -50,7 +50,7 @@ export function buildPlacementLayers(
   const byLayer = new Map<number, PlacementTile[]>();
   for (const layer of layers) {
     for (const tile of layer.tiles) {
-      const isBoardSpecial = tile.extraEnum === 51 || tile.extraEnum === 52 || tile.extraEnum === 53;
+      const isBoardSpecial = tile.extraEnum === 51 || tile.extraEnum === 52 || tile.extraEnum === 53 || tile.extraEnum === 55;
       if (!byLayer.has(layer.layer)) byLayer.set(layer.layer, []);
       byLayer.get(layer.layer)!.push({
         id: tile.id,

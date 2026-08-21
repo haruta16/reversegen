@@ -282,6 +282,9 @@ function dandelionMatchBehavior(
   context: MechanicMatchContext,
 ): MechanicStep[] {
   if (!isDandelionMatch(matchedTiles)) return [];
+  // 对齐 Unity：扩散在动画后的异步执行开始前检查 battleState==Win，胜局不再扩散
+  // （与礼盒同款守卫；reversegen 在分发时点评估 isWin，状态上已等价）。
+  if (game.isWin) return [];
   // Unity 在 matched 移出 Dock 前同步触发蒲公英：
   // Dock 数要加回本次匹配的 3 张；步数仍是当前步提交前的 actionCount。
   const dandelionDockCount = game.dockTiles.length + matchedTiles.length;

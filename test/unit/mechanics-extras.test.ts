@@ -197,3 +197,40 @@ test('礼盒端到端：三消触发 → mechanicLog 含礼盒步骤（确定性
   assert.ok(log.length >= 1, '礼盒触发至少一个步骤');
   assert.equal(run(), JSON.stringify(log), '确定性重跑');
 });
+
+test('翻转挂件：变为可点击即揭示（对齐 FlipExtra.OnUpdateTileState，无需收集）', () => {
+  // 翻转牌被 tile 3 遮挡；收集 3 后翻转牌可点击 → isDone 立即变 true（未收集）
+  const flip = new OfflineTile(
+    { id: 1, layer: 0, dependencies: [3], isConst: false, constElementValue: 0, posX: 0, posY: 0, extras: [{ extraEnum: 7, extraParam: '00' }] },
+    1,
+  );
+  for (const extra of flip.extras) initExtraState(extra);
+  const game = new OfflineGame(
+    [flip, mk(2, 1), mk(3, 1), mk(4, 2), mk(5, 2), mk(6, 2)],
+    [],
+    { levelResId: 1 },
+  );
+  assert.equal(flip.extras[0].isDone, false, '初始被遮挡未揭示');
+  game.collect(game.allTiles.get(3)!);
+  assert.equal(game.allTiles.get(1)!.isClickable, true);
+  assert.equal(flip.extras[0].isDone, true, '可点击即揭示（未收集）');
+  assert.equal(game.deskTiles.some(t => t.id === 1), true, '翻转牌仍在桌面');
+});
+
+test('黄金挂件 Init：TryParse 回退 4 + Clamp(0..4)（对齐 GoldenExtra.Init）', () => {
+  const parse = (extraEnum: number, extraParam: string) => {
+    const extra: { extraEnum: number; extraParam: string; countdown?: number; isValidCollect?: boolean; isDone?: boolean; isConsumed?: boolean } =
+      { extraEnum, extraParam };
+    initExtraState(extra);
+    return extra;
+  };
+  const bad = parse(4, '0x');
+  assert.equal(bad.countdown, 4, '非法数字回退 4');
+  const big = parse(4, '09');
+  assert.equal(big.countdown, 4, 'Clamp 上限 4');
+  const valid = parse(4, '041');
+  assert.equal(valid.countdown, 4);
+  assert.equal(valid.isValidCollect, true, 'param[2]=1 有效收集标记');
+  const cal = parse(6, '09');
+  assert.equal(cal.countdown, 9, '日历不 Clamp（对齐 int.Parse 直读）');
+});

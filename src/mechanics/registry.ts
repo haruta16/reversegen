@@ -168,6 +168,7 @@ export const MECHANICS: Record<number, MechanicInfo> = {
   [51]: { value: 51, name: 'LargeTerrainExtra', label: '大型地形注入(2x2)', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'footprint', isValueExtra: false, behavior: 'board-special' },
   [52]: { value: 52, name: 'LargeTerrainOrderExtra', label: '大型地形订单(3x3)', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'footprint', isValueExtra: false, behavior: 'board-special' },
   [53]: { value: 53, name: 'LargeTerrainTicketExtra', label: '大型地形票券订单', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'footprint', isValueExtra: false, behavior: 'board-special' },
+  [55]: { value: 55, name: 'BigCoin2x2Extra', label: '大金币(2x2 障碍物)', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'footprint', isValueExtra: false, behavior: 'board-special' },
   [202]: { value: 202, name: 'Unknown_Interval', label: '问号挂件(间隔策略)', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'reveal', isValueExtra: true, behavior: 'reveal' },
   [203]: { value: 203, name: 'Unknown_BottomFirst', label: '问号挂件(底层优先策略)', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'reveal', isValueExtra: true, behavior: 'reveal' },
   [207]: { value: 207, name: 'FlipExtra_Layer', label: '翻转挂件(层策略)', kind: 'tile', countMeaning: 'tile-count', paramSchema: 'reveal', isValueExtra: true, behavior: 'reveal' },

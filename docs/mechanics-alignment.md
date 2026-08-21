@@ -144,6 +144,19 @@ Fisher-Yates 共享同一随机流——reversegen `shuffleBoard` 逐位一致�
 - **礼盒守卫与开关**：效果滚动前检查 Win 态（`battleState == Win` 提前返回，胜局不触发）；
   效果开关对齐 `s3Kit.GiftBoxExtra.IsEffectOpen`，经 `OfflineGameOptions.giftboxOpenEffects`
   传入（缺省全开）。装载期的 `IsGiftBoxExtraOpen` 整体移除礼盒配置由调用方在构造配置时体现。
+- **翻转挂件揭示时机**：`FlipExtra.OnUpdateTileState` —— 牌**变为可点击**即 `isDone=true`
+  （无需收集）；问号(2/202/203) 仍只在收集时揭示。reversegen 在 `updateTilesState` 末尾
+  对可点击 Desk 牌同步执行（对齐每次 UpdateTilesState 的 OnUpdateTileState 派发）。
+- **魔药清除收集钩子**：`MagicBottleStep` 对每张目标牌调用 `tile.OnTileCollect(tile)`
+  （仅目标自身挂件：揭示/订单/衰减有效收集），不广播、不触发三消 OnTileMatch；
+  reversegen `applyMagicBottleClear` 同口径（此前遗漏，已修复）。
+- **特殊结构点击语义**：transfer 与可见 falling 牌走**正常依赖回路**（有剩余依赖即不可点击），
+  只有隐藏 falling 牌整体隐藏不可点（对齐 Unity `UpdateTilesState`，此前 transfer 恒可点的分支已删除）。
+- **洗牌衰减时序**：Unity `Shuffle()` 先 `UpdateTilesState` 后 `AppendStep` —— 衰减用洗牌后的
+  实时可点击状态；其余 AppendStep 步骤仍用本步前旧快照（reversegen 对 `giftbox-shuffle` 不取快照）。
+- **礼盒加槽**：对齐 `SetMaxSlotCount(8)` —— `dockSlotBonus` 直接置为 `8 - MAX_DOCK_SLOTS`，幂等。
+- **大金币(55)**：`IsBoardSpecialObstacle` 一员（51/52/53/55），拆分配置时归入棋盘特殊物桶、
+  不参与花色/挂件分配、花色恒为 0（对齐 Unity `SetElementValue` 拦截）。
 
 ## 三、各机制对齐状态表
 
@@ -185,13 +198,14 @@ reversegen 没有该系统，**约定**：调用方以地形 `ConstElementValue`
 - **放置计划**逐位移植三种入口：`Build`（51，层数驱动、footprint 2/3 交替、Tower 避让与放宽回退）、
   `BuildPizza`（52，`Random(seed^0x52)` 插入层选择）、`BuildTicket`（53，首/末/中间层 3×2、不足整组取消）。
 - **运行期**：结构非 Tile，不进 Desk/Dock/洗牌/分析；被覆盖牌不可点击（覆盖索引）；
-  依赖（下层覆盖 ≥ 半格）全部离桌后自动移除（对齐 `ProcessUncovered`，每次操作后处理，不产生步骤计数）；
-  analyzer 成本/礼盒转化组成本对结构依赖穿透、障碍牌不计数；障碍牌（elementValue 0）不参与花色分配、
-  三消与 Tower 判定。
-- **胜利条件可插拔**（对齐 victoryConditionMgr）：`OfflineGame.victoryCondition` 谓词，缺省 =
-  清空可匹配牌（Dock 空 + 桌面无 elementValue>0）；52/53 订单玩法 = 全部注入结构移除即胜
-  （对齐 `VictoryConditionType.Chicken`），由 `createGame` 按模式自动装配，无结构时回退默认；
-  51 与普通关卡沿用默认。
+  依赖（下层覆盖 ≥ 半格）全部离桌后自动移除（对齐 `ProcessUncovered`：`UpdateTilesState` 开头
+  处理、`TrySwitchToWinState` 评估前再处理一次，不产生步骤计数）；
+  analyzer 成本/礼盒转化组成本对结构依赖穿透、障碍牌不计数；障碍牌（elementValue 0，含 55 大金币）
+  不参与花色分配、三消与 Tower 判定。
+- **胜利条件**（对齐 victoryConditionMgr 组合语义）：`ConditionDefault` = **桌面清空**
+  （`Desk.DeskTiles.Count == 0`——不检查 Dock，障碍牌同样阻塞胜利）；
+  52/53 订单玩法 = `[ConditionDefault, ConditionChicken]` 任一满足即胜
+  （全部结构移除 **或** 桌面清空），由 `createGame` 按模式自动装配；51 与普通关卡仅默认条件。
 - **reversegen 不做层平移**：解码与分配都发生在注入之前，层号仅用于依赖/覆盖分层比较
   （依赖 = 原层 < 注入层；覆盖 = 原层 ≥ 注入层）。
 

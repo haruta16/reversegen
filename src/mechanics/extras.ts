@@ -33,7 +33,19 @@ export function initExtraState(extra: TileExtra): void {
   switch (info.paramSchema) {
     case 'decay': {
       const param = extra.extraParam ?? '';
-      extra.countdown = param.length < 2 ? 4 : Number(param[1]);
+      if (param.length < 2) {
+        extra.countdown = 4;
+        extra.isValidCollect = false;
+        break;
+      }
+      let value = Number(param[1]);
+      if (extra.extraEnum === 4) {
+        // 对齐 GoldenExtra.Init：TryParse 失败回退 4，并 Clamp(0..4)；
+        // 日历(6)/复活节(8) 是 int.Parse 直读（Unity 不 Clamp）。
+        if (!Number.isInteger(value)) value = 4;
+        value = Math.max(0, Math.min(4, value));
+      }
+      extra.countdown = value;
       extra.isValidCollect = param.length >= 3 && param[2] === '1';
       break;
     }
@@ -57,7 +69,8 @@ export function isExtraConsumed(tile: OfflineTile, extra: TileExtra): boolean {
     case 'order': return extra.isConsumed === true;
     case 'magic-bottle':
     case 'dandelion':
-    case 'giftbox': return tile.hasFlag(TileFlag.Destroyed);
+    case 'giftbox':
+    case 'bubble': return tile.hasFlag(TileFlag.Destroyed);
     default: return false;
   }
 }
