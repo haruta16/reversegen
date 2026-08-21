@@ -15,7 +15,7 @@
  * 退出码：0 = 逐位一致；1 = 存在分歧；2 = 参数/运行错误。
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import {
   loadTerrainFromFile,
   getAllTiles,
@@ -44,6 +44,7 @@ interface Args {
   unityTrace?: string;
   mechanicSeed?: number;
   giftboxOpen?: string;
+  out?: string;
   selfCheck: boolean;
 }
 
@@ -63,6 +64,7 @@ function parseArgs(argv: string[]): Args {
       case '--unity-trace': args.unityTrace = take(i); i++; break;
       case '--mechanic-seed': args.mechanicSeed = Number(take(i)); i++; break;
       case '--giftbox-open': args.giftboxOpen = take(i); i++; break;
+      case '--out': args.out = take(i); i++; break;
       case '--self-check': args.selfCheck = true; break;
       case '--help': throw new Error('help');
       default: throw new Error(`未知参数: ${argv[i]}`);
@@ -129,6 +131,7 @@ const HELP = `跨侧 golden 验证
   --unity-trace <file>  Unity 导出的追踪（对照模式）
   --mechanic-seed <n>   显式机制种子
   --giftbox-open <csv>  礼盒开放效果（缺省全开）
+  --out <file>          导出 reversegen 追踪 JSON（逐帧人工查看/存档）
   --self-check          自检模式（重建两次比对确定性）`;
 
 async function main(): Promise<number> {
@@ -149,6 +152,7 @@ async function main(): Promise<number> {
       const b = buildTrace(args, actions);
       const diff = compareCrossSideTraces(a, b);
       console.log(`[self-check] ${diff.message}`);
+      if (args.out) writeFileSync(args.out, `${JSON.stringify(b, null, 2)}\n`, 'utf-8');
       return diff.ok ? 0 : 1;
     }
 
@@ -161,6 +165,7 @@ async function main(): Promise<number> {
       const localTrace = buildTrace(args, actions);
       const diff = compareCrossSideTraces(localTrace, unityTrace);
       console.log(`[cross-side] ${diff.message}`);
+      if (args.out) writeFileSync(args.out, `${JSON.stringify(localTrace, null, 2)}\n`, 'utf-8');
       return diff.ok ? 0 : 1;
     }
 
