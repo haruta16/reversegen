@@ -11,7 +11,8 @@
 
 import { OfflineTile, PileType, TileFlag, type TileConfig } from './types.js';
 import type { FallingTerrainStructure, TerrainStructure, TerrainTile } from '../types.js';
-import type { BoardSpecialStructure } from '../board-special/types.js';
+import type { BoardSpecialMode, BoardSpecialStructure } from '../board-special/types.js';
+import { boardSpecialVictoryCondition } from '../board-special/victory.js';
 import { buildPlacementLayers, injectBoardSpecials, resolveBoardSpecialMode, resolveBoardSpecialSeed } from '../board-special/inject.js';
 import { MechanicEngine, tileExtrasFromTerrain } from '../mechanics/engine.js';
 import { DECAY_STEP_TYPES, STEP_APPLIERS } from '../mechanics/step-appliers.js';
@@ -32,6 +33,14 @@ const TILE_SIZE = 10; // tile is 10×10 units, centered at (posX, posY)
 //  OfflineGame
 // ═══════════════════════════════════════════════════
 
+/** 胜利条件谓词（可插拔：缺省 = 清空可匹配牌；52/53 订单玩法 = 全部棋盘特殊物移除即胜）。 */
+export type VictoryCondition = (game: OfflineGame) => boolean;
+
+/** 默认胜利条件：Dock 清空且桌面无可匹配牌（elementValue > 0，障碍牌不参与）。 */
+export function defaultVictoryCondition(game: OfflineGame): boolean {
+  return game.dockTiles.length === 0 && game.deskTiles.every(t => t.elementValue <= 0);
+}
+
 /** OfflineGame 构造选项（机制等可选上下文）。 */
 export interface OfflineGameOptions {
   /** 地形资源 ID（机制派生种子基座，对齐 Unity battle.levelResID） */
@@ -42,6 +51,8 @@ export interface OfflineGameOptions {
   giftboxOpenEffects?: Set<number>;
   /** 装载期注入的棋盘特殊物（51-53 大型地形结构） */
   boardSpecialStructures?: BoardSpecialStructure[];
+  /** 胜利条件（缺省 = defaultVictoryCondition，对齐 Unity victoryConditionMgr） */
+  victoryCondition?: VictoryCondition;
 }
 
 export class OfflineGame {
@@ -57,6 +68,8 @@ export class OfflineGame {
   readonly terrainStructures: TerrainStructure[];
   /** 地形资源 ID（派生种子基座） */
   readonly levelResId: number;
+  /** 胜利条件（可插拔；缺省 = 清空可匹配牌） */
+  readonly victoryCondition: VictoryCondition;
   /** 机制引擎（魔药/泡泡），clone 时深拷贝 */
   readonly mechanics: MechanicEngine;
   /** 机制步骤日志（跑关验证） */
@@ -85,6 +98,7 @@ export class OfflineGame {
       tileIds: [...structure.tileIds],
     }));
     this.levelResId = options.levelResId ?? 0;
+    this.victoryCondition = options.victoryCondition ?? defaultVictoryCondition;
     this.boardSpecialStructures = (options.boardSpecialStructures ?? []).map(s => ({
       ...s,
       dependencies: [...s.dependencies],
@@ -210,11 +224,11 @@ export class OfflineGame {
   }
 
   /**
-   * 胜利 = Dock 清空且 Desk 无任何可匹配牌（elementValue > 0）。
-   * 棋盘特殊物（elementValue 0）与 Unity 一致不参与胜利判定。
+   * 胜利判定（可插拔：victoryCondition 决定语义）。
+   * 缺省 = Dock 清空且 Desk 无可匹配牌；52/53 订单玩法 = 全部棋盘特殊物移除即胜。
    */
   get isWin(): boolean {
-    return this.dockTiles.length === 0 && this.deskTiles.every(t => t.elementValue <= 0);
+    return this.victoryCondition(this);
   }
 
   /** 死亡判定跟随当前槽位上限（对齐 Unity Dock.IsMax，礼盒加槽后为 8）。 */
@@ -237,6 +251,7 @@ export class OfflineGame {
     const copy = new OfflineGame(tiles, this.terrainStructures, {
       levelResId: this.levelResId,
       boardSpecialStructures: this.boardSpecialStructures,
+      victoryCondition: this.victoryCondition,
     });
     copy.mechanics.copyFrom(this.mechanics);
     // 克隆必须保留动作计数（机制派生种子依赖 actionCount）与槽位加成（死亡阈值依赖 maxSlotCount）。
@@ -778,19 +793,23 @@ export function createGame(input: GameFactoryInput): OfflineGame {
   // 泡泡(39)=行为参数交给 MechanicEngine；大型地形(51-53)=装载期棋盘级注入；其余为分配请求。
   let bubbleConfig: Map<number, number> | undefined;
   let boardSpecialStructures: BoardSpecialStructure[] | undefined;
+  let boardSpecialMode: BoardSpecialMode | null = null;
   if (mechanicConfig && mechanicConfig.size > 0) {
     const { bubble, assignable, boardSpecial } = splitMechanicConfig(mechanicConfig);
     bubbleConfig = bubble;
     if (boardSpecial.size > 0) {
-      boardSpecialStructures = injectBoardSpecialsFromConfig(
-        terrainTiles,
-        boardSpecial,
-        mechanicSeed,
-        replayCode,
-        levelResId,
-        boardBounds,
-        initialDock,
-      );
+      boardSpecialMode = resolveBoardSpecialMode(boardSpecial);
+      if (boardSpecialMode) {
+        boardSpecialStructures = injectBoardSpecialsFromConfig(
+          terrainTiles,
+          boardSpecialMode,
+          mechanicSeed,
+          replayCode,
+          levelResId,
+          boardBounds,
+          initialDock,
+        );
+      }
     }
     if (assignable.size > 0) {
       // 种子只取"分配请求"子集（泡泡/大型地形已拆出）——与 Unity FixedReplayCodeAlgorithm
@@ -824,25 +843,35 @@ export function createGame(input: GameFactoryInput): OfflineGame {
     }
   }
 
-  return new OfflineGame(tiles, terrainStructures, { levelResId, mechanicConfig: bubbleConfig, giftboxOpenEffects, boardSpecialStructures });
+  // 胜利条件（对齐 Unity victoryConditionMgr）：52/53 订单玩法 = 全部结构收集即胜；
+  // 51 与普通关卡 = 默认清空可匹配牌。无结构注入时回退默认。
+  const victoryCondition = boardSpecialStructures && boardSpecialStructures.length > 0
+    && (boardSpecialMode === 'pizza' || boardSpecialMode === 'ticket')
+    ? boardSpecialVictoryCondition
+    : undefined;
+
+  return new OfflineGame(tiles, terrainStructures, {
+    levelResId,
+    mechanicConfig: bubbleConfig,
+    giftboxOpenEffects,
+    boardSpecialStructures,
+    victoryCondition,
+  });
 }
 
 /**
  * 大型地形装载期注入（对齐 Unity LoadLevel：algo 之后、Dock/消除装载之前）。
- * 模式 53 > 52 > 51；种子 = 显式 mechanicSeed > FNV-1a(replayCode) > levelResId。
+ * 种子 = 显式 mechanicSeed > FNV-1a(replayCode) > levelResId。
  */
 function injectBoardSpecialsFromConfig(
   terrainTiles: TerrainTile[],
-  boardSpecialConfig: Map<number, number>,
+  mode: BoardSpecialMode,
   mechanicSeed: number | undefined,
   replayCode: string | undefined,
   levelResId: number | undefined,
   boardBounds: { width: number; height: number } | undefined,
   initialDock: { tileId: number; element: number }[] | undefined,
 ): BoardSpecialStructure[] {
-  const mode = resolveBoardSpecialMode(boardSpecialConfig);
-  if (!mode) return [];
-
   const byLayer = new Map<number, Array<{ id: number; posX: number; posY: number; extraEnum: number | undefined }>>();
   for (const tile of terrainTiles) {
     const list = byLayer.get(tile.layer);

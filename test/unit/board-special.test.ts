@@ -14,6 +14,7 @@ import {
   buildPlacementLayers,
 } from '../../src/board-special/inject.js';
 import { buildStandardPlan, buildPizzaPlan, buildTicketPlan } from '../../src/board-special/placement.js';
+import { boardSpecialVictoryCondition } from '../../src/board-special/victory.js';
 import { computeAnalyzerMatchGroups } from '../../src/solver/solver-player.js';
 import { assignTileExtras } from '../../src/mechanics/assigner.js';
 import { parseMechanicCounts } from '../../src/mechanics/spec.js';
@@ -202,4 +203,44 @@ test('分配器跳过棋盘特殊物牌（对齐 emptyTiles.RemoveAll(IsBoardSpe
   assert.equal(summary.assignedCounts.get(5), 3, '金币 3 个全落在普通牌');
   assert.equal(obstacle.extras.length, 1, '障碍牌未获得新挂件');
   assert.equal(obstacle.elementValue, 0, '障碍牌花色不被改写');
+});
+
+test('胜利条件可插拔：52/53 订单玩法全部结构移除即胜（桌面仍有牌）', () => {
+  const tiles = [
+    mk(1, 0, 100, 100, 1), mk(2, 0, 200, 100, 1),
+    mk(4, 1, 100, 100, 2), mk(5, 1, 200, 100, 2), mk(6, 1, 300, 100, 2),
+  ];
+  const game = new OfflineGame(tiles, [], {
+    levelResId: 1,
+    boardSpecialStructures: [structure({ id: 9, dependencies: [1, 2], coveredTileIds: [4, 5, 6] })],
+    victoryCondition: boardSpecialVictoryCondition,
+  });
+  assert.equal(game.isWin, false, '结构未移除不胜利');
+  game.collect(game.allTiles.get(1)!);
+  game.collect(game.allTiles.get(2)!);
+  assert.equal(game.boardSpecialStructures[0].isRemoved, true);
+  assert.equal(game.deskTiles.length, 3, '桌面仍有 4,5,6');
+  assert.equal(game.isWin, true, '结构全部收集即胜（对齐 VictoryConditionType.Chicken）');
+});
+
+test('胜利条件可插拔：自定义谓词与默认条件共存', () => {
+  const tiles = [mk(1, 0, 0, 0, 1), mk(2, 0, 0, 0, 1), mk(3, 0, 0, 0, 1), mk(4, 0, 0, 0, 2), mk(5, 0, 0, 0, 2), mk(6, 0, 0, 0, 2)];
+  const custom = new OfflineGame(tiles, [], {
+    victoryCondition: g => g.deskTiles.length <= 3,
+  });
+  assert.equal(custom.isWin, false, '6 张桌面未触发自定义条件');
+  custom.collect(custom.allTiles.get(1)!);
+  custom.collect(custom.allTiles.get(2)!);
+  custom.collect(custom.allTiles.get(3)!);
+  assert.equal(custom.isWin, true, '桌面剩 3 张触发自定义条件');
+  const copy = custom.clone();
+  assert.equal(copy.isWin, true, 'clone 保留胜利条件');
+});
+
+test('boardSpecialVictoryCondition：无结构恒 false（调用方回退默认）', () => {
+  const plain = new OfflineGame([mk(1, 0, 0, 0, 1), mk(2, 0, 0, 0, 1), mk(3, 0, 0, 0, 1)], [], {
+    victoryCondition: boardSpecialVictoryCondition,
+  });
+  assert.equal(plain.boardSpecialStructures.length, 0);
+  assert.equal(plain.isWin, false, '无结构不提前胜利');
 });

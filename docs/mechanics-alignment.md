@@ -174,11 +174,15 @@ reversegen 没有该系统，**约定**：调用方以地形 `ConstElementValue`
 - **运行期**：结构非 Tile，不进 Desk/Dock/洗牌/分析；被覆盖牌不可点击（覆盖索引）；
   依赖（下层覆盖 ≥ 半格）全部离桌后自动移除（对齐 `ProcessUncovered`，每次操作后处理，不产生步骤计数）；
   analyzer 成本/礼盒转化组成本对结构依赖穿透、障碍牌不计数；障碍牌（elementValue 0）不参与花色分配、
-  三消、胜利判定与 Tower 判定。
+  三消与 Tower 判定。
+- **胜利条件可插拔**（对齐 victoryConditionMgr）：`OfflineGame.victoryCondition` 谓词，缺省 =
+  清空可匹配牌（Dock 空 + 桌面无 elementValue>0）；52/53 订单玩法 = 全部注入结构移除即胜
+  （对齐 `VictoryConditionType.Chicken`），由 `createGame` 按模式自动装配，无结构时回退默认；
+  51 与普通关卡沿用默认。
 - **reversegen 不做层平移**：解码与分配都发生在注入之前，层号仅用于依赖/覆盖分层比较
   （依赖 = 原层 < 注入层；覆盖 = 原层 ≥ 注入层）。
 
-未建模（记录在案）：52/53 的订单收集计数与胜利条件属活动系统（ChickenInjector/VictoryCondition）；
+未建模（记录在案）：52/53 的订单收集计数与顶部 UI（ChickenInjector 计数/披萨 6 片换算）属活动系统；
 结构表现层（FadeOut 动画）不建模；地形 JSON 预置 51-53 障碍牌的 ReplayCode 解码
 （生产流程在装载期注入，ReplayCode 不含特殊块）。
 

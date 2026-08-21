@@ -18,7 +18,8 @@ export type {
 export { OfflineTile, TileFlag, PileType } from './types.js';
 
 // Game engine
-export { OfflineGame, createGame } from './offline-game.js';
+export { OfflineGame, createGame, defaultVictoryCondition } from './offline-game.js';
+export type { VictoryCondition } from './offline-game.js';
 export type { GameFactoryInput } from './offline-game.js';
 
 // Solvers

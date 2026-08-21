@@ -452,6 +452,7 @@ export type {
   BoardSpecialFootprint,
 } from './board-special/types.js';
 export { BOARD_TILE_UNIT, HALF_TILE_UNIT } from './board-special/types.js';
+export { boardSpecialVictoryCondition } from './board-special/victory.js';
 
 // 跨侧 golden 追踪（Unity ↔ reversegen 逐帧对齐验证）
 export {
