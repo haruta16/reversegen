@@ -60,6 +60,7 @@ import {
   handlePlayerSimCostcap,
   handlePlayerSimMistake,
 } from './lib/api-simulate.js';
+import { handleTraceExport } from './lib/api-trace.js';
 import {
   handleGradeConfig,
   handleGradeConfigReload,
@@ -202,6 +203,9 @@ const server = createServer(async (req, res) => {
   if (await handlePlayerSimRisky(req, res, url)) return;
   if (await handlePlayerSimCostcap(req, res, url)) return;
   if (await handlePlayerSimMistake(req, res, url)) return;
+
+  // ── 逐帧追踪（跨侧 golden 导出） ──
+  if (await handleTraceExport(req, res, url)) return;
 
   // ── 分档 ──
   if (await handleGradeConfig(req, res, url)) return;

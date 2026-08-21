@@ -365,6 +365,20 @@ kbd{
         <div class="msg" id="mechanicsNote"></div>
       </div>
 
+      <!-- 逐帧追踪（跨侧 golden 验证：同一 ReplayCode + 机制 + 动作序列 → 逐帧状态 JSON） -->
+      <details id="tracePanel" style="margin-top:8px;border:1px solid var(--line);border-radius:8px;padding:6px 10px">
+        <summary style="cursor:pointer;font-size:12px">🔬 逐帧追踪导出（跨侧 golden 验证）</summary>
+        <div style="margin-top:6px">
+          <label>动作序列（tileId 逗号分隔，模拟逐次收牌）</label>
+          <input type="text" id="traceActions" placeholder="如 1,4,7,2" style="font-size:11px">
+          <div class="row" style="margin-top:6px">
+            <button class="btn" onclick="exportTrace()">导出追踪 JSON</button>
+            <button class="btn btn-outline" onclick="exportTrace(true)">自检一致性</button>
+          </div>
+          <div class="msg" id="traceNote" style="margin-top:4px"></div>
+        </div>
+      </details>
+
       <!-- CostLadder -->
       <div id="panelCost" style="display:none">
         <label>Cost 目标数组 <button type="button" class="param-help" data-param-help="costArray" aria-label="解释 Cost 目标数组">?</button></label>
@@ -847,6 +861,54 @@ document.addEventListener('click',function(event){if(paramHelpPinned&&!event.tar
 document.addEventListener('keydown',function(event){if(event.key==='Escape')closeParamHelp()});
 window.addEventListener('resize',closeParamHelp);
 window.addEventListener('scroll',closeParamHelp,true);
+
+// ═══════════════════════════════════
+//  逐帧追踪导出（跨侧 golden）
+// ═══════════════════════════════════
+async function exportTrace(selfCheckOnly){
+  var d=S.result;
+  if(!d||!d.replayCode){toast('请先生成或导入牌局','err');return}
+  var actions=(document.getElementById('traceActions').value.trim()||'').split(/[\s,]+/).filter(Boolean).map(Number);
+  if(!actions.length){setMsg(document.getElementById('traceNote'),'请填写动作序列（tileId 逗号分隔）','err');return}
+  var note=document.getElementById('traceNote');
+  note.textContent='正在生成追踪…';
+  try{
+    var r=await appFetch('/api/trace',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      replayCode:d.replayCode,
+      levelId:document.getElementById('levelId').value.trim(),
+      terrainPath:S.terrainPath,
+      mechanics:(document.getElementById('mechanics').value||'').trim()||undefined,
+      actions:actions
+    })});
+    var data=await r.json();
+    if(!data.ok){setMsg(note,data.error||'导出失败','err');return}
+    if(selfCheckOnly){
+      // 自检：重建一次比对确定性（逐帧 JSON 深比较）
+      var r2=await appFetch('/api/trace',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        replayCode:d.replayCode,
+        levelId:document.getElementById('levelId').value.trim(),
+        terrainPath:S.terrainPath,
+        mechanics:(document.getElementById('mechanics').value||'').trim()||undefined,
+        actions:actions
+      })});
+      var data2=await r2.json();
+      if(!data2.ok){setMsg(note,data2.error||'重建失败','err');return}
+      var same=JSON.stringify(data.trace)===JSON.stringify(data2.trace);
+      setMsg(note,same?('✅ 自检一致：'+data.frames+' 帧 · '+data.mechanicStepCount+' 个机制步骤')
+                     :'❌ 自检不一致：两次重建结果不同（确定性被破坏）',same?'ok':'err');
+      return;
+    }
+    var blob=new Blob([JSON.stringify(data.trace,null,2)],{type:'application/json'});
+    var a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='trace_'+String(d.levelResId||'board')+'.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    setMsg(note,'✅ 已导出 '+data.frames+' 帧 · '+data.mechanicStepCount+' 个机制步骤 → 与 Unity 导出的 trace 用 verify-cross-side 对照','ok');
+  }catch(e){
+    setMsg(note,'导出失败: '+(e&&e.message||e),'err');
+  }
+}
 
 // ═══════════════════════════════════
 //  Toast

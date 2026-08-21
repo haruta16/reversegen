@@ -17,23 +17,25 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import {
-  loadTerrainFromFile,
-  getAllTiles,
-  getCanonicalTileOrder,
-  decodeFromString,
-  buildReplayElementMap,
-  mapReplayElementValue,
-  parseMechanicCounts,
-} from '../src/index.js';
-import { createGame } from '../src/solver/index.js';
-import {
   compareCrossSideTraces,
-  recordCrossSideTrace,
+  buildTraceFromInputs,
   CROSS_SIDE_PROTOCOL,
   CROSS_SIDE_VERSION,
-  type CrossSideMeta,
   type CrossSideTrace,
-} from '../src/verification/cross-side-trace.js';
+} from '../src/verification/index.js';
+
+interface Args {
+  terrain?: string;
+  replay?: string;
+  mechanics?: string;
+  actions?: string;
+  actionsFile?: string;
+  unityTrace?: string;
+  mechanicSeed?: number;
+  giftboxOpen?: string;
+  out?: string;
+  selfCheck: boolean;
+}
 
 interface Args {
   terrain?: string;
@@ -79,48 +81,16 @@ function parseActions(args: Args): number[] {
 }
 
 function buildTrace(args: Args, actions: number[]): CrossSideTrace {
-  const terrain = loadTerrainFromFile(args.terrain!);
-  const ordered = getCanonicalTileOrder(getAllTiles(terrain));
-  const replayData = decodeFromString(args.replay!);
-  if (!replayData) throw new Error('ReplayCode 解码失败');
-  const elementMap = buildReplayElementMap(ordered, replayData.instanceArray, replayData.elementCount);
-  const elementValues = new Map<number, number>();
-  for (let i = 0; i < ordered.length && i < replayData.instanceArray.length; i++) {
-    const normValue = (replayData.instanceArray[i] & 0x3f) + 1;
-    elementValues.set(ordered[i].id, mapReplayElementValue(normValue, elementMap));
-  }
-  const mechanics = args.mechanics ? parseMechanicCounts(args.mechanics) : undefined;
-  const giftboxOpen = args.giftboxOpen
-    ? new Set(args.giftboxOpen.split(',').map(s => Number(s.trim())))
-    : undefined;
-
-  const game = createGame({
-    terrainTiles: ordered,
-    terrainStructures: terrain.terrainStructures,
-    elementValues,
-    levelResId: terrain.levelResId,
-    replayCode: args.replay,
-    mechanicConfig: mechanics,
-    mechanicSeed: args.mechanicSeed,
-    giftboxOpenEffects: giftboxOpen,
-    boardBounds: terrain.LevelWidth && terrain.LevelHeight
-      ? { width: terrain.LevelWidth, height: terrain.LevelHeight }
-      : undefined,
-  });
-
-  const trace = recordCrossSideTrace(game, actions);
-  const meta: CrossSideMeta = {
-    levelResId: terrain.levelResId,
-    replayCode: args.replay,
+  return buildTraceFromInputs({
+    terrainPath: args.terrain!,
+    replayCode: args.replay!,
     mechanics: args.mechanics,
-    giftboxOpenEffects: args.giftboxOpen ? args.giftboxOpen.split(',').map(Number) : undefined,
-    boardBounds: terrain.LevelWidth && terrain.LevelHeight
-      ? { width: terrain.LevelWidth, height: terrain.LevelHeight }
-      : undefined,
     mechanicSeed: args.mechanicSeed,
-  };
-  trace.meta = meta;
-  return trace;
+    giftboxOpenEffects: args.giftboxOpen
+      ? args.giftboxOpen.split(',').map(s => Number(s.trim()))
+      : undefined,
+    actions,
+  });
 }
 
 const HELP = `跨侧 golden 验证
