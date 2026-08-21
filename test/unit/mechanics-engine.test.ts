@@ -56,30 +56,30 @@ test('魔药触发语义：仅 matchedTiles[0] 携带魔药才触发', () => {
   assert.equal(game.mechanicLog.length, 0, '非首张魔药不触发');
 });
 
-test('泡泡全流程：指派→吸取→Dock定向魔法链→下一批（golden 级联，对齐 Unity 逐花色 MagicStep）', () => {
-  // 30 张 3 色（id i → 色 (i-1)%3+1），泡泡配置 39:3。
-  // 完成色1 的 1,4,7 三消后级联：
-  //  batch1 指派 [10,2,3] → 吸取 → 逐花色 MagicStep 清 Dock 三消（每色一步，只收集 Desk 牌）
-  //  batch2 指派 [19,11,12] → 吸取 → 同上
-  //  batch3 因 CanAssign 边界（3+1 < 9/3）终止，剩 9 张。
+test('泡泡全流程：开局帧 tick 至静止（指派→吸取→逐花色Dock魔法×2轮→CanAssign边界，golden 锁定）', () => {
+  // 对齐 Unity：Playing 后、首次点击前的帧驱动即开始泡泡轮次——
+  // 30 张 3 色（色 (i-1)%3+1）、39:3、levelResId 200：
+  //   轮1 指派[1,2,3]→吸取→Dock魔法[4,7][5,8][6,9]
+  //   轮2 指派[10,11,12]→吸取→Dock魔法[13,16][14,17][15,18]
+  //   轮3 因 CanAssign（3+1 < 12/3=4 不成立）终止；Dock 空、剩 12 张。
   const tiles = Array.from({ length: 30 }, (_, i) => mk(i + 1, (i % 3) + 1));
   const game = new OfflineGame(tiles, [], { levelResId: 200, mechanicConfig: new Map([[39, 3]]) });
-  for (const id of [1, 4, 7]) game.collect(game.allTiles.get(id)!);
   assert.deepEqual(game.mechanicLog, [
-    { type: 'bubble-assign', tileIds: [10, 2, 3], stepIndex: 4 },
-    { type: 'bubble-collect', tileIds: [2, 3, 10], stepIndex: 5 },
-    { type: 'magic-step', tileIds: [5, 8], stepIndex: 6 },
-    { type: 'magic-step', tileIds: [6, 9], stepIndex: 7 },
+    { type: 'bubble-assign', tileIds: [1, 2, 3], stepIndex: 1 },
+    { type: 'bubble-collect', tileIds: [1, 2, 3], stepIndex: 2 },
+    { type: 'magic-step', tileIds: [4, 7], stepIndex: 3 },
+    { type: 'magic-step', tileIds: [5, 8], stepIndex: 4 },
+    { type: 'magic-step', tileIds: [6, 9], stepIndex: 5 },
+    { type: 'bubble-assign', tileIds: [10, 11, 12], stepIndex: 6 },
+    { type: 'bubble-collect', tileIds: [10, 11, 12], stepIndex: 7 },
     { type: 'magic-step', tileIds: [13, 16], stepIndex: 8 },
-    { type: 'bubble-assign', tileIds: [19, 11, 12], stepIndex: 9 },
-    { type: 'bubble-collect', tileIds: [11, 12, 19], stepIndex: 10 },
-    { type: 'magic-step', tileIds: [14, 17], stepIndex: 11 },
-    { type: 'magic-step', tileIds: [15, 18], stepIndex: 12 },
-    { type: 'magic-step', tileIds: [22, 25], stepIndex: 13 },
+    { type: 'magic-step', tileIds: [14, 17], stepIndex: 9 },
+    { type: 'magic-step', tileIds: [15, 18], stepIndex: 10 },
   ]);
   assert.equal(game.mechanics.bubble.completedCollectRounds, 2);
-  assert.equal(game.deskTiles.length, 9);
+  assert.equal(game.deskTiles.length, 12);
   assert.equal(game.dockTiles.length, 0);
+  assert.equal(game.actionCount, 10);
 });
 
 test('泡泡吸取：照常结算 Dock 三消 + 收集钩子（对齐 BubbleCollectStep.Apply）', () => {
@@ -99,8 +99,7 @@ test('泡泡确定性：随机收集数模式（39:0）同状态同结果', () =
   const run = () => {
     const tiles = Array.from({ length: 30 }, (_, i) => mk(i + 1, (i % 3) + 1));
     const game = new OfflineGame(tiles, [], { levelResId: 200, mechanicConfig: new Map([[39, 0]]) });
-    for (const id of [1, 4, 7]) game.collect(game.allTiles.get(id)!);
-    return JSON.stringify(game.mechanicLog);
+    return JSON.stringify({ log: game.mechanicLog, desk: game.deskTiles.length, dock: game.dockTiles.map(t => t.id) });
   };
   assert.equal(run(), run(), '派生种子随机必须逐位可复现');
 });
@@ -137,7 +136,8 @@ test('泡泡指派选择器：重复花色优先，每色只取首张', () => {
 test('clone 保留机制状态，状态键包含机制指纹', () => {
   const tiles = Array.from({ length: 30 }, (_, i) => mk(i + 1, (i % 3) + 1));
   const game = new OfflineGame(tiles, [], { levelResId: 200, mechanicConfig: new Map([[39, 3]]) });
-  for (const id of [1, 4, 7]) game.collect(game.allTiles.get(id)!);
+  // 开局帧 tick 已消费两轮；收集剩余的 19,20,21 再克隆
+  for (const id of [19, 20, 21]) game.collect(game.allTiles.get(id)!);
   const copy = game.clone();
   assert.equal(copy.mechanics.bubble.completedCollectRounds, game.mechanics.bubble.completedCollectRounds);
   assert.deepEqual([...copy.mechanics.bubble.activeBubbleTileIds], [...game.mechanics.bubble.activeBubbleTileIds]);

@@ -125,10 +125,17 @@ export function runSequenceLog(game: OfflineGame, actions: number[]): RunLogResu
   const specialSig = game.boardSpecialStructures.length
     ? ` · 大型地形${game.boardSpecialStructures.map(s => `#${s.id}`).join(',')}`
     : '';
+  const initialDockCounts: Array<[number, number]> = [];
+  {
+    const counts = new Map<number, number>();
+    for (const t of game.dockTiles) counts.set(t.elementValue, (counts.get(t.elementValue) ?? 0) + 1);
+    for (const [c, n] of counts) initialDockCounts.push([c, n]);
+  }
+  const initialDockSig = initialDockCounts.length ? ` · 初始Dock${dockSig(initialDockCounts)}` : '';
   entries.push({
     kind: 'overview',
     text:
-      `初始: 桌面 ${game.deskTiles.length} 张 · 花色 ${colorSig}`
+      `初始: 桌面 ${game.deskTiles.length} 张${initialDockSig} · 花色 ${colorSig}`
       + (bubble.enabled ? ` · 泡泡每轮${bubble.useRandomCollectCount ? '随机2-3' : bubble.configuredCollectCount}` : '')
       + specialSig
       + ` · 胜利条件: ${victoryLabel(game)}`,

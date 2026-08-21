@@ -20,9 +20,10 @@ function buildGame(): OfflineGame {
 }
 
 test('录制确定性：同一输入两次录制逐位一致（self-check 语义）', () => {
+  // 开局帧 tick 已消费两轮泡泡（1~18 被消除），点击剩余可点牌
   const run = () => {
     const game = buildGame();
-    const trace = recordCrossSideTrace(game, [1, 4, 7]);
+    const trace = recordCrossSideTrace(game, [19, 20, 21]);
     trace.meta = { levelResId: 200, mechanics: '39:3' };
     return trace;
   };
@@ -33,7 +34,7 @@ test('录制确定性：同一输入两次录制逐位一致（self-check 语义
 test('比对器：定位第一处分歧（帧 + 字段路径 + 两侧值）', () => {
   const a = (() => {
     const game = buildGame();
-    return recordCrossSideTrace(game, [1, 4, 7]);
+    return recordCrossSideTrace(game, [19, 20, 21]);
   })();
   const b = JSON.parse(JSON.stringify(a)) as CrossSideTrace;
   b.frames[2].dock[0].elementValue = 999;
@@ -43,20 +44,19 @@ test('比对器：定位第一处分歧（帧 + 字段路径 + 两侧值）', ()
   assert.ok(diff.message.includes('999'), diff.message);
 });
 
-test('帧结构：动作数 + 1 帧；泡泡指派不进 mechanicSteps、经帧状态体现', () => {
+test('帧结构：动作数 + 1 帧；开局帧已含泡泡轮次（对齐 Unity 步前帧驱动）', () => {
   const game = buildGame();
-  const trace = recordCrossSideTrace(game, [1, 4, 7]);
+  const trace = recordCrossSideTrace(game, [19, 20, 21]);
   assert.equal(trace.frames.length, 4, '初始帧 + 每动作一帧');
-  assert.equal(trace.frames[0].actionCount, 0);
+  // 开局帧 tick 至静止：30 牌 39:3 已消费两轮（18 张消除、Dock 空），actionCount=10
+  assert.equal(trace.frames[0].actionCount, 10);
+  assert.equal(trace.frames[0].bubble?.rounds, 2);
+  assert.equal(trace.frames[0].dock.length, 0, '静息后 Dock 空（Dock 魔法已清）');
   for (const frame of trace.frames) {
     for (const step of frame.mechanicSteps) {
       assert.notEqual(step.type, 'bubble-assign', '泡泡指派不是 Unity 步骤');
     }
   }
-  // 帧记录的是"动作 + 机制级联静息后"的状态（对齐 Unity 导出器等待 busy 结束）；
-  // 泡泡轮次计数与吸取步骤在帧中体现。
-  assert.ok(trace.frames.some(f => f.bubble && f.bubble.rounds > 0), '泡泡轮次在帧中体现');
-  assert.ok(trace.frames.some(f => f.mechanicSteps.some(s => s.type === 'bubble-collect')), '泡泡吸取步骤在帧中体现');
   assert.equal(trace.frames[0].bubble?.enabled, true);
 });
 

@@ -129,6 +129,10 @@ export class OfflineGame {
 
     this.initializeTerrainStructures();
     this.updateTilesState();
+
+    // 对齐 Unity 开局帧驱动：Playing 后、玩家首次点击之前，泡泡管理器按帧 tick 至静止——
+    // Dock 为空且 CanAssign 通过时，「指派 → 吸取」发生在第一步之前（Steps.Count 从 1 起）。
+    this.runMechanicTicks();
   }
 
   private initializeTerrainStructures(): void {
