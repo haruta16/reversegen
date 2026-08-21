@@ -900,6 +900,7 @@ var RUN_MECH_COLOR={
   'giftbox-reveal-unknown':'#f59e0b','giftbox-shuffle':'#f59e0b',
   'giftbox-apply-unknown':'#f59e0b','giftbox-apply-flip':'#f59e0b','giftbox-apply-magic-bottle':'#f59e0b'
 };
+var RUN_STRATEGY_LABEL={normal:'普通',shortest:'短视最优',risky:'激进',costcap:'成本上限',mistake:'失误率'};
 function _esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function renderRunLog(entries){
   var html='';
@@ -947,6 +948,13 @@ async function runSequence(auto){
     var actions=(document.getElementById('runActions').value.trim()||'').split(/[\s,]+/).filter(Boolean).map(Number);
     if(!actions.length){setMsg(note,'请填写操作序列（tileId 逗号分隔），或点「机器人跑关」','err');return}
     body.actions=actions;
+  }else{
+    // 机器人跟随模拟面板当前策略与参数
+    var strategy=document.getElementById('simStrategy').value;
+    body.strategy=strategy;
+    if(strategy==='risky')body.riskThreshold=Number(document.getElementById('simRiskThreshold').value);
+    if(strategy==='costcap')body.maxCost=Number(document.getElementById('simMaxCost').value);
+    if(strategy==='mistake')body.mistakeRate=Number(document.getElementById('simMistakeRate').value);
   }
   note.textContent='正在跑关…';
   var log=document.getElementById('runLog');
@@ -956,7 +964,7 @@ async function runSequence(auto){
     if(!data.ok){setMsg(note,data.error||'跑关失败','err');return}
     _runLogText=data.lines.join('\n');
     log.innerHTML=renderRunLog(data.entries||[]);
-    setMsg(note,(data.robot?'🤖 机器人策略：':'✅ 按序列：')+'共 '+data.actions.length+' 次动作 · '+(data.win?'通关':data.dead?'死亡':'未通关'),data.win?'ok':data.dead?'err':'');
+    setMsg(note,(data.robot?('🤖 '+(RUN_STRATEGY_LABEL[data.strategy]||data.strategy)+'策略：'):'✅ 按序列：')+'共 '+data.actions.length+' 次动作 · '+(data.win?'通关':data.dead?'死亡':'未通关'),data.win?'ok':data.dead?'err':'');
   }catch(e){
     setMsg(note,'跑关失败: '+(e&&e.message||e),'err');
   }
