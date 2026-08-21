@@ -12,7 +12,7 @@ export interface IntRect {
   yMax: number;
 }
 
-/** 普通牌边界（对齐 LargeTerrainTileUtils.GetBounds：TileUnit 网格，半格 = 50）。 */
+/** 普通牌边界（对齐 LargeTerrainTileUtils.GetBounds：TileUnit 网格，半格 = 5）。 */
 export function tileBounds(posX: number, posY: number): IntRect {
   return {
     xMin: posX - HALF_TILE_UNIT,

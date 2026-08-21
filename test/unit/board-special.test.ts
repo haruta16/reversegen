@@ -14,7 +14,11 @@ import {
   buildPlacementLayers,
 } from '../../src/board-special/inject.js';
 import { buildStandardPlan, buildPizzaPlan, buildTicketPlan } from '../../src/board-special/placement.js';
+import { resolveBoardSpecialSeed } from '../../src/board-special/inject.js';
 import { boardSpecialVictoryCondition } from '../../src/board-special/victory.js';
+import { boardSpecialBounds } from '../../src/board-special/geometry.js';
+import { loadTerrainFromFile, getAllTiles } from '../../src/terrain-loader.js';
+import { join } from 'node:path';
 import { computeAnalyzerMatchGroups } from '../../src/solver/solver-player.js';
 import { assignTileExtras } from '../../src/mechanics/assigner.js';
 import { parseMechanicCounts } from '../../src/mechanics/spec.js';
@@ -245,4 +249,44 @@ test('boardSpecialVictoryCondition：无结构恒 false（调用方回退默认�
   });
   assert.equal(plain.boardSpecialStructures.length, 0);
   assert.equal(plain.isWin, false, '无结构不提前胜利');
+});
+
+test('量纲自检：普通牌 10 宽、2×2 结构 20 宽（TileUnit=10 回归防线）', () => {
+  const s2 = boardSpecialBounds(100, 100, { width: 2, height: 2 });
+  assert.equal(s2.xMax - s2.xMin, 20, '2×2 结构宽 = 2 × TileUnit(10)');
+  const s3 = boardSpecialBounds(100, 100, { width: 3, height: 2 });
+  assert.equal(s3.xMax - s3.xMin, 30);
+  assert.equal(s3.yMax - s3.yMin, 20);
+});
+
+test('真实地形回归：100075 三模式计划非空 + 披萨 golden 锁定', () => {
+  const terrain = loadTerrainFromFile(join(process.cwd(), 'test', 'fixtures', '100075.json'));
+  const tiles = getAllTiles(terrain);
+  const byLayer = new Map<number, Array<{ id: number; posX: number; posY: number; extraEnum: number | undefined }>>();
+  for (const t of tiles) {
+    if (!byLayer.has(t.layer)) byLayer.set(t.layer, []);
+    byLayer.get(t.layer)!.push({ id: t.id, posX: t.posX, posY: t.posY, extraEnum: t.extraEnum });
+  }
+  const layers = [...byLayer.entries()].map(([layer, ts]) => ({ layer, tiles: ts }));
+  const placementLayers = buildPlacementLayers(layers, undefined);
+  const bounds = { xMin: 0, yMin: 0, xMax: terrain.LevelWidth ?? 0, yMax: terrain.LevelHeight ?? 0 };
+  const seed = resolveBoardSpecialSeed(undefined, 'TESTCODE', terrain.levelResId);
+
+  const pizza = buildPizzaPlan(placementLayers, bounds, seed);
+  assert.ok(pizza.length > 0, '真实地形披萨计划非空');
+  // golden 锁定（防量纲/候选逻辑回归）：同输入逐位一致
+  assert.deepEqual(JSON.parse(JSON.stringify(pizza)), [
+    { sourceLayerIndex: 2, footprint: { width: 2, height: 2 }, posX: 50, posY: 40 },
+    { sourceLayerIndex: 3, footprint: { width: 3, height: 3 }, posX: 15, posY: 35 },
+    { sourceLayerIndex: 5, footprint: { width: 2, height: 2 }, posX: 40, posY: 55 },
+    { sourceLayerIndex: 6, footprint: { width: 3, height: 3 }, posX: 20, posY: 45 },
+    { sourceLayerIndex: 7, footprint: { width: 2, height: 2 }, posX: 15, posY: 55 },
+  ]);
+
+  const standard = buildStandardPlan(placementLayers, 8, seed);
+  assert.ok(standard.length > 0, '真实地形标准计划非空');
+
+  const ticket = buildTicketPlan(placementLayers, bounds, seed);
+  assert.ok(ticket.length > 0, '真实地形奖券计划非空');
+  assert.ok(ticket.length <= 3, '奖券计划至多 3 个');
 });

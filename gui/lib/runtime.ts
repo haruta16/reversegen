@@ -264,6 +264,9 @@ export function buildGameFromReplay(
     replayCode,
     mechanicConfig: mechanics,
     mechanicSeed,
+    boardBounds: terrain.LevelWidth && terrain.LevelHeight
+      ? { width: terrain.LevelWidth, height: terrain.LevelHeight }
+      : undefined,
   });
   return { game, totalTiles: ordered.length };
 }
