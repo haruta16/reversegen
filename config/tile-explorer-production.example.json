@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "production_id": "tile_explorer_default_example",
+  "strategy": "default",
+  "levels_dir": "test/fixtures",
+  "root_seed": 20260720,
+  "target_count_per_variant": 1,
+  "max_attempts_per_task": 4,
+  "levels": [
+    {
+      "output_level_id": 100075,
+      "terrain_id": 100075,
+      "variants": [
+        {
+          "difficulty": 2,
+          "color_count": 3,
+          "tile_type_weights": [1, 1, 1]
+        }
+      ]
+    }
+  ]
+}

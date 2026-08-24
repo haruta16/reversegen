@@ -61,6 +61,38 @@ npm run strategy:run -- \
 `accepted.jsonl`、`status.json` 和 `timing.log.jsonl`。CSV、工作簿、replay selection
 都应从 JSONL 再投影，不再作为策略内部协议。
 
+## TileExplorer 默认策略批跑（候选生成）
+
+`tools/run-tile-explorer-production.ts` 使用 TileExplorer 的 `default` 策略，按配置中的
+“输出关卡 × 难度 × 花色权重”生成可复现、去重的 Replay 候选。它只写入被 Git 忽略的
+运行目录；不会发布 Replay、改写主线 stage 或 release config。正式资源仍须遵循
+formal-delivery contract 的验收和发布流程。
+
+输入文件见 `config/tile-explorer-production.example.json`。`difficulty` 会原样投影为
+`selection.csv` 的 `grade`；该参数按 Replay 编码范围支持 1–99。
+
+```bash
+# 仅校验输入并写入计划
+npm run tile-explorer:plan -- \
+  --input config/tile-explorer-production.example.json \
+  --output-dir output/runs/tile_explorer_default/example_plan
+
+# 执行生成；可按 CPU/内存调整并发数
+npm run tile-explorer:run -- \
+  --input config/tile-explorer-production.example.json \
+  --output-dir output/runs/tile_explorer_default/example_run \
+  --concurrency 2
+
+# 中断后，从同一显式目录续跑
+npm run tile-explorer:run -- \
+  --input config/tile-explorer-production.example.json \
+  --output-dir output/runs/tile_explorer_default/example_run \
+  --concurrency 2 --resume
+```
+
+一次运行包含：输入快照、`plan.json`、状态和时序日志、可恢复的 `records.jsonl`、
+人工审阅用 `production.csv`，以及已由 runner 校验过的 `selection.csv`。
+
 网页的“批量产关”会把页面参数编译为临时 strategy v2，再调用同一执行入口。
 “产出策略”页保留表单编辑体验，但保存的可执行文件直接是
 `strategies/<strategy_id>/strategy.v2.json`。主页的单局生成、分析和验证链路不走批量策略。

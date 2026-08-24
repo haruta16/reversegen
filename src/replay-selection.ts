@@ -28,6 +28,9 @@ export const REPLAY_SELECTION_HEADERS = [
   'LowWinRate',
 ] as const;
 
+/** Replay grades are serialized in the shared 1-byte, 0..99 resource range. */
+export const MAX_REPLAY_GRADE = 99;
+
 export interface ReplaySelectionRow {
   levelResId: number;
   ReplayKey: string;
@@ -129,9 +132,14 @@ function csvEscape(value: string | number): string {
 export function serializeReplaySelectionCsv(rows: ReplaySelectionRow[]): string {
   const lines = [REPLAY_SELECTION_HEADERS.join(',')];
   for (const row of rows) {
-    lines.push(REPLAY_SELECTION_HEADERS.map(header => csvEscape(row[header])).join(','));
+    lines.push(serializeReplaySelectionRow(row));
   }
   return `\uFEFF${lines.join('\n')}\n`;
+}
+
+/** Serialize one validated selection row for append-only generation runners. */
+export function serializeReplaySelectionRow(row: ReplaySelectionRow): string {
+  return REPLAY_SELECTION_HEADERS.map(header => csvEscape(row[header])).join(',');
 }
 
 function parseCsv(text: string): ParsedCsvRecord[] {
@@ -208,7 +216,7 @@ function requireNumber(value: string | number, name: string, lineNumber: number)
 
 function parseGrade(value: string | number | null | undefined, lineNumber: number): number | '' {
   if (value == null || String(value).trim() === '') return '';
-  return requireInteger(value, 'grade', lineNumber, 0, 5);
+  return requireInteger(value, 'grade', lineNumber, 0, MAX_REPLAY_GRADE);
 }
 
 function parsePassrate(value: string | number | null | undefined, lineNumber: number): number {

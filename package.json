@@ -17,6 +17,8 @@
     "strategy:validate": "npx tsx tools/run-strategy.ts --validate",
     "strategy:plan": "npx tsx tools/run-strategy.ts",
     "strategy:run": "npx tsx tools/run-strategy.ts --run",
+    "tile-explorer:plan": "npx tsx tools/run-tile-explorer-production.ts",
+    "tile-explorer:run": "npx tsx tools/run-tile-explorer-production.ts --run",
     "strategy:rust:build": "cargo build --release --manifest-path rust/strategy-sim/Cargo.toml",
     "replay:check": "npx tsx cli/replay-selection.ts check",
     "replay:build": "npx tsx cli/replay-selection.ts build"
