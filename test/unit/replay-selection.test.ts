@@ -94,10 +94,10 @@ describe('Replay 候选 CSV', () => {
     assert.equal(checkReplaySelections(csvPath).rowsRead, 1);
   });
 
-  it('拒绝 0-5 以外的非空 grade', () => {
+  it('拒绝 0-99 以外的非空 grade（对齐 MAX_REPLAY_GRADE=99 的 1 字节资源区间）', () => {
     assert.throws(
-      () => createReplaySelectionRow({ levelResId: 1, ReplayCode: 'code', grade: 6, ElementCount: 8 }),
-      /grade 必须是 0-5 的整数/,
+      () => createReplaySelectionRow({ levelResId: 1, ReplayCode: 'code', grade: 100, ElementCount: 8 }),
+      /grade 必须是 0-99 的整数/,
     );
   });
 });
@@ -170,10 +170,10 @@ describe('Replay JSON 构建', () => {
     mkdirSync(generatedDir);
     writeFileSync(join(generatedDir, 'old.json'), '{"old":true}\n');
     const row = createReplaySelectionRow({ levelResId: 1, ReplayCode: 'code', grade: 1, ElementCount: 8 });
-    const invalidCsv = serializeReplaySelectionCsv([row]).replace(',1,0,8,', ',9,0,8,');
+    const invalidCsv = serializeReplaySelectionCsv([row]).replace(',1,0,8,', ',100,0,8,');
     writeFileSync(csvPath, invalidCsv, 'utf8');
 
-    assert.throws(() => buildReplaySelections(csvPath, generatedDir), /第 2 行 grade 必须是 0-5 的整数/);
+    assert.throws(() => buildReplaySelections(csvPath, generatedDir), /第 2 行 grade 必须是 0-99 的整数/);
     assert.equal(readFileSync(join(generatedDir, 'old.json'), 'utf8'), '{"old":true}\n');
   });
 });

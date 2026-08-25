@@ -196,7 +196,11 @@ export function computeVisibleMatchGroups(game: OfflineGame): MatchGroup[] {
         const aDock = a.pileType === PileType.Dock ? 0 : 1;
         const bDock = b.pileType === PileType.Dock ? 0 : 1;
         if (aDock !== bDock) return aDock - bDock;
-        return a.runtimeDependencies.size - b.runtimeDependencies.size;
+        if (a.runtimeDependencies.size !== b.runtimeDependencies.size) {
+          return a.runtimeDependencies.size - b.runtimeDependencies.size;
+        }
+        // 深度并列用 ID 破平（对齐 Unity _getAllMatchs 的确定性修复）→ 全序
+        return a.id - b.id;
       })
       .slice(0, 9);
 
@@ -249,7 +253,11 @@ export function computeAnalyzerMatchGroups(game: OfflineGame): MatchGroup[] {
         const aDock = a.pileType === PileType.Dock ? 0 : 1;
         const bDock = b.pileType === PileType.Dock ? 0 : 1;
         if (aDock !== bDock) return aDock - bDock;
-        return a.runtimeDependencies.size - b.runtimeDependencies.size;
+        if (a.runtimeDependencies.size !== b.runtimeDependencies.size) {
+          return a.runtimeDependencies.size - b.runtimeDependencies.size;
+        }
+        // 深度并列用 ID 破平（对齐 Unity 确定性修复）→ 全序
+        return a.id - b.id;
       })
       .slice(0, 9);
 

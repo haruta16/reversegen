@@ -117,9 +117,11 @@ Fisher-Yates 共享同一随机流——reversegen `shuffleBoard` 逐位一致�
 - **死亡阈值跟随槽位上限**：`isDead`/`remainSlotCount` 使用 `maxSlotCount`
   （对齐 Unity `Dock.IsMax`，礼盒加槽后为 8）。
 - 泡泡种子叠加"轮次数"项，使其各轮收集数不同（Unity 原全局随机天然不同）。
-- **排序稳定性**：Unity `List<T>.Sort` 不稳定 vs JS `Array.sort` 稳定——仅当比较键
-  精确并列（analyzer 同深度 top-9 截断、礼盒转化组 (cost,minId) 并列、分配器随机键碰撞）
-  时才可能出现不同顺序，属极低概率边界，记录不修。
+- **排序稳定性**：**分析器深度排序已改为全序**——`(Dock, 深度, ID)` 破平，Unity
+  `_getAllMatchs` 与 reversegen `computeAnalyzerMatchGroups` 同步修改。此前
+  `List<T>.Sort` 不稳定 + top-9 截断使深度并列时候选池不确定，是"同输入、首轮泡泡牌
+  跨次不一致"的根因（已修复，见 §4.3 第 3 条 Unity diff）。其余不稳定排序
+  （分配器随机键碰撞等）仍属极低概率边界，记录不修。
 - **礼盒加权滚动遍历序**：Unity `SelectRandomEffect` 的累计阈值遍历依赖 .NET
   `Dictionary` 枚举序（当前实现遵循插入序、与 reversegen 固定数组序一致）；语言规范
   不保证该序，属 Unity 侧未来健壮性风险，reversegen 用固定权重数组序（更确定）。
@@ -224,6 +226,10 @@ reversegen 没有该系统，**约定**：调用方以地形 `ConstElementValue`
 ### 4.3 其它记录
 - 泡泡/蒲公英/礼盒/洗牌的确定性随机修复已提交 Unity 侧（`_InnerCode` 与 `_InnerTileMatchAlgo` 仓库），
   见提交信息"…（與 ReverseGen 跑關對齊）"
+- **Unity 侧第 3 个真实 diff（待用户提交）**：`TileMatchBattleAnalyzerMgr._getAllMatchs`
+  深度排序补 ID 破平（`depthA.CompareTo(depthB)` → 并列时 `a.ID.CompareTo(b.ID)`），
+  使 top-9 候选池与 C(9,3) 组集合逐次确定——修复"同输入首轮泡泡牌跨次不一致"。
+  reversegen `computeAnalyzerMatchGroups` 已镜像同一规则。
 - 新增 `ExtraDeterministicRandom.cs` 未带 `.meta`：Unity 下次打开工程自动生成 GUID，不影响功能
 - 帧级表现（动画/音效/TA 埋点）全部不在 reversegen 建模范围内，只对齐逻辑
 
