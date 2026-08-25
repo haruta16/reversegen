@@ -230,6 +230,11 @@ reversegen 没有该系统，**约定**：调用方以地形 `ConstElementValue`
   深度排序补 ID 破平（`depthA.CompareTo(depthB)` → 并列时 `a.ID.CompareTo(b.ID)`），
   使 top-9 候选池与 C(9,3) 组集合逐次确定——修复"同输入首轮泡泡牌跨次不一致"。
   reversegen `computeAnalyzerMatchGroups` 已镜像同一规则。
+- **Unity 侧第 4 个真实 diff（待用户提交）**：`FixedReplayCodeAlgorithm.AssignTileTypes`
+  对 `availableColors` 做升序规范化后再建 norm→real 映射。battle 传入的取色列表是
+  `UnityEngine.Random` 加权抽取的（顺序每局不同），此前固定 replay 的真实花色因此
+  跨次漂移（无 const 钉死时整盘花色重排）。升序规范化与 reversegen 编码侧
+  sortedValues 升序归一化闭环：同 ReplayCode → 同花色。
 - 新增 `ExtraDeterministicRandom.cs` 未带 `.meta`：Unity 下次打开工程自动生成 GUID，不影响功能
 - 帧级表现（动画/音效/TA 埋点）全部不在 reversegen 建模范围内，只对齐逻辑
 
