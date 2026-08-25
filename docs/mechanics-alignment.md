@@ -235,6 +235,8 @@ reversegen 没有该系统，**约定**：调用方以地形 `ConstElementValue`
   ReplayCode 归一化花色写入 `LogicalElementValue`，所有逻辑（泡泡候选排序、魔药索敌
   分组与洗牌种子、洗牌种子折叠）改用逻辑键——**同一 ReplayCode 的逻辑牌局跨次逐位一致，
   表现贴图可随机**。reversegen 的 elementValue 本就是归一化键，无需改动。
+  配套：洗牌重分配时逻辑键随花色包一起搬移（`_internalShuffle2` 包结构增加逻辑值）；
+  快照 `TileSnapData` 持久化逻辑键（旧快照缺字段回退真实花色）。
 - 新增 `ExtraDeterministicRandom.cs` 未带 `.meta`：Unity 下次打开工程自动生成 GUID，不影响功能
 - 帧级表现（动画/音效/TA 埋点）全部不在 reversegen 建模范围内，只对齐逻辑
 
