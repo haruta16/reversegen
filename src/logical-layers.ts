@@ -48,13 +48,13 @@ export function computeDependencyDepth(
 }
 
 /**
- * 合并普通依赖层与特殊地形结构。
+ * 合并普通物理层与特殊地形结构（对齐 Tile Explorer 真机）。
  *
- * - 普通牌保留原 Dependencies 深度。
+ * - 层数 = 地形物理层数（Shell layers），普通牌按 Shell Layer（0=顶）入层，
+ *   不使用 Dependencies 深度（Dependencies 只用于遮挡/可点，不用于分层）。
  * - transfer 全部并入第 1 层。
- * - falling 第 1 层放首批 viewLength 张；后续每层放 1 张；
- *   普通棋盘最后一层吸收尚未放入的 falling。
- * - 普通棋盘没有有效的多层依赖时，由最长 falling 建立简单逻辑层。
+ * - falling 展示牌（前 viewLength 张）并入第 1 层；
+ *   隐藏牌逐层下探：第 k 张在第 k+1 层，超过物理层数后由最后一层吸收剩余隐藏牌。
  */
 export function buildGenerationLogicalLayers(terrain: TerrainData): GenerationLogicalLayers {
   const allTiles = getAllTiles(terrain);
@@ -79,7 +79,6 @@ export function buildGenerationLogicalLayers(terrain: TerrainData): GenerationLo
   }
 
   const structuredIds = new Set<number>();
-  let maxFallingDepth = 1;
   for (const structure of structures) {
     if (structure.tileNum != null && structure.tileNum !== structure.tileIds.length) {
       throw new Error(
@@ -107,10 +106,6 @@ export function buildGenerationLogicalLayers(terrain: TerrainData): GenerationLo
           `falling#${structure.id ?? '?'} 的 viewLength 必须在 1..${structure.tileIds.length} 之间`,
         );
       }
-      maxFallingDepth = Math.max(
-        maxFallingDepth,
-        structure.tileIds.length - structure.viewLength + 1,
-      );
     }
   }
 
@@ -119,9 +114,8 @@ export function buildGenerationLogicalLayers(terrain: TerrainData): GenerationLo
   const ordinaryDepthCount = ordinaryTiles.length
     ? Math.max(...ordinaryTiles.map(tile => dependencyDepth.get(tile.id) ?? 1))
     : 0;
-  const depthCount = ordinaryDepthCount > 1
-    ? ordinaryDepthCount
-    : Math.max(ordinaryDepthCount, maxFallingDepth, 1);
+  // 物理层基准：层数 = 地形物理层数（Shell layers），对齐 Tile Explorer 的 OriginTileLayerList。
+  const depthCount = Math.max(1, terrain.layers.length);
   const layers = Array.from({ length: depthCount }, () => [] as TerrainTile[]);
   const depthById = new Map<number, number>();
 
@@ -133,7 +127,8 @@ export function buildGenerationLogicalLayers(terrain: TerrainData): GenerationLo
     depthById.set(tileId, normalizedDepth);
   }
 
-  for (const tile of ordinaryTiles) add(tile.id, dependencyDepth.get(tile.id) ?? 1);
+  // 普通牌按 Shell Layer 入层（0=顶 → 逻辑深度 1）。
+  for (const tile of ordinaryTiles) add(tile.id, tile.layer + 1);
 
   for (const structure of structures) {
     if (structure.type === 'transfer') {

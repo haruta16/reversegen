@@ -21,7 +21,7 @@ function structuredTerrainJson(): string {
   return JSON.stringify({
     levelResId: 500041,
     LevelHash: '5a97ffd0d6892d16',
-    layers: [{ tiles }],
+    layers: [{ tiles }, { tiles: [] }, { tiles: [] }, { tiles: [] }, { tiles: [] }],
     terrainStructures: [
       {
         type: 'transfer',
@@ -41,7 +41,7 @@ function structuredTerrainJson(): string {
 }
 
 describe('特殊结构生成逻辑层', () => {
-  it('无普通依赖时由 falling 建立简单逻辑层', () => {
+  it('falling 分布在地形物理层上：展示顶层、隐藏逐层下探、最底层收尾', () => {
     const terrain = loadTerrainFromJson(structuredTerrainJson());
     const logical = buildGenerationLogicalLayers(terrain);
 
@@ -53,6 +53,27 @@ describe('特殊结构生成逻辑层', () => {
     assert.equal(logical.depthById.get(21), 2);
     assert.equal(logical.depthById.get(24), 5);
     assert.equal(new Set(logical.layers.flat().map(entry => entry.id)).size, 42);
+  });
+
+  it('普通牌按 Shell 物理层入层，而非依赖深度', () => {
+    const terrain = loadTerrainFromJson(JSON.stringify({
+      layers: [
+        { tiles: [tile(100, 0), tile(10, 0), tile(11, 0)] },   // layer 0: 普通 100（顶）+ falling 占位 10/11
+        { tiles: [tile(200, 1)] },                // layer 1: 普通 200 无依赖 → 依赖深度=1，但 Shell 物理层=1
+        { tiles: [tile(300, 2, [200])] },         // layer 2: 普通 300
+      ],
+      terrainStructures: [
+        { type: 'falling', id: 1, tileIds: [10, 11], tileNum: 2, viewLength: 1 },
+      ],
+    }));
+
+    const logical = buildGenerationLogicalLayers(terrain);
+    assert.equal(logical.layers.length, 3);
+    assert.deepEqual(logical.layers.map(layer => layer.map(entry => entry.id)), [
+      [100, 10],      // 普通 100 在物理层 0（顶），falling 展示 10 也在顶
+      [200, 11],      // 普通 200 在物理层 1（非依赖深度 1），falling 隐藏 11 下探到第 2 层
+      [300],          // 普通 300 在物理层 2
+    ]);
   });
 
   it('混合普通牌时使用普通深度，并由尾层吸收剩余 falling', () => {
