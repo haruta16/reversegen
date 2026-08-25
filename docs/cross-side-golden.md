@@ -39,9 +39,9 @@
 约定：
 - `extras` 编码 = `enum(countdown.isDone.isConsumed)` 用 `+` 串联（与 Unity
   `CrossSideTraceExporter.ExtraState` 同口径：非衰减挂件缺失 countdown 时写 0）；
-- **`elementValue` 两侧必须同为归一化花色**：Unity 固定 replay 装载后花色是真实色表值
-  （升序规范映射），reversegen 是归一化 1..K——导出器对每张牌的真实花色按全局首次出现
-  顺序重新归一化为 1..K 后再写入 `elementValue`，否则逐位比对必然误报；
+- **`elementValue` 一律写逻辑花色键 `LogicalElementValue`**（固定 replay 装载时 =
+  ReplayCode 归一化花色 1..K，与 reversegen 逐位同口径）。真实花色值（贴图）是表现层、
+  允许跨次随机，绝不写入追踪，否则逐位比对必然误报；
 - `mechanicSteps` 只含 Unity 会 `AppendStep` 的步骤类型（魔药清除 / 魔法棒 / 泡泡吸取 / 洗牌）；
   泡泡指派不是 Unity 步骤，其效果经 `bubble.active` 体现；
 - 冷却（0.5s）是帧时间量，不参与比对（reversegen 以 tick 近似）。
@@ -120,12 +120,12 @@ namespace DGuo.Client.TileMatch
                 ["desk"] = battle.Desk.DeskTiles.OrderBy(t => t.ID)
                     .Select(t => (object)new Dictionary<string, object>
                     {
-                        ["id"] = t.ID, ["elementValue"] = t.ElementValue,
+                        ["id"] = t.ID, ["elementValue"] = t.LogicalElementValue,
                         ["extras"] = string.Join("+", t.Extras.Select(ExtraState)),
                     }).ToList(),
                 ["dock"] = battle.Dock.dockTiles.Select(t => (object)new Dictionary<string, object>
                 {
-                    ["id"] = t.ID, ["elementValue"] = t.ElementValue,
+                    ["id"] = t.ID, ["elementValue"] = t.LogicalElementValue,
                     ["extras"] = string.Join("+", t.Extras.Select(ExtraState)),
                 }).ToList(),
                 ["discardCount"] = battle.AllTiles.Values.Count(t => t.PileType == PileType.Discard),
