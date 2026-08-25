@@ -19,6 +19,21 @@ import { buildGameFromReplay, json, parseBody } from './runtime.js';
 
 type RobotStrategy = 'normal' | 'shortest' | 'risky' | 'costcap' | 'mistake' | 'mistake-mechanic';
 
+/**
+ * 机器人种子（FNV-1a，逐字符低 8 位，与 assigner 同口径）：
+ * 未显式指定时由 ReplayCode+策略派生——同一关、同一策略、同一参数 ⇒ 同一动作序列 ⇒
+ * 同一泡泡/机制时间线（可复现）。显式 robotSeed 覆盖之。
+ */
+function stableRobotSeed(replayCode: string, strategy: RobotStrategy): number {
+  let h = 0x811c9dc5;
+  const text = `${replayCode}|${strategy}`;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i) & 0xff;
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h | 0) & 0x7fffffff;
+}
+
 /** 机器人策略 → 跑关 picks（与模拟面板五个画像同实现同参数）。 */
 function robotPicks(
   game: Parameters<typeof solvePlayer>[0],
@@ -51,7 +66,7 @@ export async function handleRunSequence(req: IncomingMessage, res: ServerRespons
   try {
     const {
       replayCode, levelId, levelsDir, terrainPath, mechanics, mechanicSeed, actions,
-      strategy, riskThreshold, maxCost, mistakeRate,
+      strategy, riskThreshold, maxCost, mistakeRate, robotSeed,
     } = body as {
       replayCode?: string;
       levelId?: string;
@@ -64,6 +79,7 @@ export async function handleRunSequence(req: IncomingMessage, res: ServerRespons
       riskThreshold?: number;
       maxCost?: number;
       mistakeRate?: number;
+      robotSeed?: number;
     };
     if (!replayCode) throw new Error('缺少 replayCode');
 
@@ -72,15 +88,20 @@ export async function handleRunSequence(req: IncomingMessage, res: ServerRespons
     // 机器人 = 模拟面板当前策略（各画像内部自带 clone，不污染本次跑关的 game）
     let sequence: number[];
     let robot = false;
+    let usedSeed: number | undefined;
     if (Array.isArray(actions) && actions.length > 0) {
       sequence = actions;
     } else {
       robot = true;
       const robotStrategy: RobotStrategy = strategy ?? 'mistake';
+      // 默认种子由 ReplayCode+策略派生 → 同关同策略每次结果一致（可复现）
+      usedSeed = (robotSeed !== undefined && Number.isInteger(robotSeed))
+        ? robotSeed
+        : stableRobotSeed(replayCode, robotStrategy);
       sequence = robotPicks(
         game,
         robotStrategy,
-        Date.now() & 0x7fffffff,
+        usedSeed,
         riskThreshold,
         maxCost,
         mistakeRate,
@@ -92,6 +113,7 @@ export async function handleRunSequence(req: IncomingMessage, res: ServerRespons
       ok: true,
       robot,
       strategy: strategy ?? 'mistake',
+      robotSeed: usedSeed,
       actions: sequence,
       win: result.win,
       dead: result.dead,

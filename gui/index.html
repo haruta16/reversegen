@@ -660,6 +660,8 @@ kbd{
       <div class="panel-bd">
         <label>操作序列（tileId 逗号分隔；留空 = 机器人自动跑）</label>
         <input type="text" id="runActions" placeholder="如 1,4,7,2（留空自动）" style="font-size:11px;font-family:var(--mono)">
+        <label style="margin-top:6px">机器人种子（留空 = 由 ReplayCode+策略自动派生，同关同策略每次结果一致）</label>
+        <input type="text" id="runSeed" placeholder="留空自动" style="font-size:11px;font-family:var(--mono)">
         <div class="row" style="margin-top:6px">
           <button class="btn btn-primary" onclick="runSequence(false)" style="flex:1">▶ 按序列跑关</button>
           <button class="btn btn-outline" onclick="runSequence(true)" style="flex:1">机器人跑关</button>
@@ -952,9 +954,11 @@ async function runSequence(auto){
     if(!actions.length){setMsg(note,'请填写操作序列（tileId 逗号分隔），或点「机器人跑关」','err');return}
     body.actions=actions;
   }else{
-    // 机器人跟随模拟面板当前策略与参数
+    // 机器人跟随模拟面板当前策略与参数；种子默认由 ReplayCode+策略派生（可复现），可显式覆盖
     var strategy=document.getElementById('simStrategy').value;
     body.strategy=strategy;
+    var seedValue=(document.getElementById('runSeed').value||'').trim();
+    if(seedValue)body.robotSeed=Number(seedValue);
     if(strategy==='risky')body.riskThreshold=Number(document.getElementById('simRiskThreshold').value);
     if(strategy==='costcap')body.maxCost=Number(document.getElementById('simMaxCost').value);
     if(strategy==='mistake'||strategy==='mistake-mechanic')body.mistakeRate=Number(document.getElementById('simMistakeRate').value);
@@ -967,7 +971,8 @@ async function runSequence(auto){
     if(!data.ok){setMsg(note,data.error||'跑关失败','err');return}
     _runLogText=data.lines.join('\n');
     log.innerHTML=renderRunLog(data.entries||[]);
-    setMsg(note,(data.robot?('🤖 '+(RUN_STRATEGY_LABEL[data.strategy]||data.strategy)+'策略：'):'✅ 按序列：')+'共 '+data.actions.length+' 次动作 · '+(data.win?'通关':data.dead?'死亡':'未通关'),data.win?'ok':data.dead?'err':'');
+    var seedSuffix=(data.robot&&data.robotSeed!==undefined)?(' · 种子 '+data.robotSeed):'';
+    setMsg(note,(data.robot?('🤖 '+(RUN_STRATEGY_LABEL[data.strategy]||data.strategy)+'策略'+seedSuffix+'：'):'✅ 按序列：')+'共 '+data.actions.length+' 次动作 · '+(data.win?'通关':data.dead?'死亡':'未通关'),data.win?'ok':data.dead?'err':'');
   }catch(e){
     setMsg(note,'跑关失败: '+(e&&e.message||e),'err');
   }
