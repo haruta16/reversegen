@@ -104,7 +104,7 @@ function assignPhysical(
   let easyLeft = Math.max(0, Math.trunc(easyLayerCount));
 
   while (current >= 0 || pool.length) {
-    if (pool.length <= 2 && current >= 0) {
+    if (pool.length < 3 && current >= 0) {
       const batch = Math.max(1, layerBatchSize(
         strategy, current, generationLayers.length, difficulty,
         firstBatch, easyLeft, limitFullFirst,
@@ -117,10 +117,14 @@ function assignPhysical(
       firstBatch = false;
       if (strategy === 'default' && easyLeft > 0) easyLeft -= 1;
     }
-    const take = Math.min(3, pool.length);
-    if (!take) continue;
+    if (pool.length < 3) {
+      if (current >= 0) continue;
+      // 走到这里说明 current < 0 且剩余不足 3 张。由于 candidateCount % 3 === 0 且
+      // 每次只取完整三元组，剩余必然 ≡ 0 (mod 3)；出现 < 3 即补池/取牌逻辑被破坏。
+      throw new Error(`内部错误: 剩余 ${pool.length} 张自由牌无法组成完整三元组`);
+    }
     const suit = cycle[groupIndex % cycle.length];
-    for (let count = 0; count < take; count++) {
+    for (let count = 0; count < 3; count++) {
       const [tile] = pool.splice(rng.next(pool.length), 1);
       tile.suit = suit;
       tile.group = groupIndex;
@@ -150,13 +154,15 @@ function assignSlidingWindow(
   for (let count = 0; count < Math.max(1, difficulty); count++) addNextLayer();
 
   while (pool.length || current >= 0) {
-    if (!pool.length) {
-      addNextLayer();
-      continue;
+    if (pool.length < 3) {
+      if (current >= 0) {
+        addNextLayer();
+        continue;
+      }
+      throw new Error(`内部错误: 剩余 ${pool.length} 张自由牌无法组成完整三元组`);
     }
     const suit = cycle[groupIndex % cycle.length];
-    const take = Math.min(3, pool.length);
-    for (let count = 0; count < take; count++) {
+    for (let count = 0; count < 3; count++) {
       const [tile] = pool.splice(rng.next(pool.length), 1);
       tile.suit = suit;
       tile.group = groupIndex;
@@ -165,9 +171,9 @@ function assignSlidingWindow(
 
     const remainingLayers = new Set(pool.map(tile => tile.physicalLayer));
     const exhausted = [...activeLayers].filter(layer => !remainingLayers.has(layer));
-    if (current >= 0 && (exhausted.length || pool.length <= 2)) {
+    if (current >= 0 && (exhausted.length || pool.length < 3)) {
       for (const layer of exhausted) activeLayers.delete(layer);
-      const slideCount = Math.max(exhausted.length, pool.length <= 2 ? 1 : 0);
+      const slideCount = Math.max(exhausted.length, pool.length < 3 ? 1 : 0);
       for (let count = 0; count < slideCount; count++) addNextLayer();
     }
   }
@@ -219,7 +225,7 @@ function assignSolvability(
   let current = viewLayers.length - 1;
   const batchSize = Math.max(1, difficulty + fallbackExtraLayers);
   while (current >= 0 || pool.length) {
-    if (pool.length <= 2 && current >= 0) {
+    if (pool.length < 3 && current >= 0) {
       for (let count = 0; count < batchSize; count++) {
         if (current < 0) break;
         pool.push(...viewLayers[current]
@@ -228,10 +234,12 @@ function assignSolvability(
         current -= 1;
       }
     }
-    if (!pool.length) continue;
+    if (pool.length < 3) {
+      if (current >= 0) continue;
+      throw new Error(`内部错误: 剩余 ${pool.length} 张自由牌无法组成完整三元组`);
+    }
     const suit = cycle[groupIndex % cycle.length];
-    const take = Math.min(3, pool.length);
-    for (let count = 0; count < take; count++) {
+    for (let count = 0; count < 3; count++) {
       const [tile] = pool.splice(rng.next(pool.length), 1);
       tile.suit = suit;
       tile.group = groupIndex;
@@ -407,6 +415,21 @@ export function runTileExplorerGen(input: TileExplorerInput): TileExplorerOutput
       groups.set(tile.id, tile.group);
     }
   }
+
+  // ── 硬门槛: 每个花色的分配数必须为 3 的倍数（完整三元组不变量）──
+  // 防止任何分配策略/未来改动破坏"花色 = 完整三元组 × N"约束。
+  // 一旦违反说明分配逻辑存在缺陷，直接抛错终止，而不是静默产出非法牌局。
+  const perSuit = new Map<number, number>();
+  for (const suit of assignments.values()) perSuit.set(suit, (perSuit.get(suit) ?? 0) + 1);
+  for (const [suit, count] of perSuit) {
+    if (count % 3 !== 0) {
+      throw new Error(
+        `花色分配不变量被破坏: 花色 ${suit} 的 tile 数 ${count} 不是 3 的倍数`
+        + `（strategy=${strategy} difficulty=${difficulty} sequenceSeed=${sequenceSeed} placementSeed=${placementSeed}）`,
+      );
+    }
+  }
+
   return {
     assignments,
     groups,

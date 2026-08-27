@@ -212,6 +212,18 @@ async function runWorker(job: WorkerJob): Promise<void> {
         if (decoded.elementCount > task.color_count) {
           throw new Error(`Replay ElementCount ${decoded.elementCount} exceeds requested color_count ${task.color_count}`);
         }
+        // 硬门槛: 序列化后的 ReplayCode 中每个花色（6bit 元素索引）的 tile 数必须为 3 的倍数。
+        // 即使生成器层面已保证，也在产出侧再次校验，防止序列化/后续改动引入非法牌局。
+        const perElement = new Map<number, number>();
+        for (const byte of decoded.instanceArray) {
+          const element = byte & 0x3f;
+          perElement.set(element, (perElement.get(element) ?? 0) + 1);
+        }
+        for (const [element, count] of perElement) {
+          if (count % 3 !== 0) {
+            throw new Error(`Replay 花色 ${element} 的 tile 数 ${count} 不是 3 的倍数`);
+          }
+        }
         if (replayCodes.has(result.replayCode)) {
           duplicateAttempts++;
           continue;

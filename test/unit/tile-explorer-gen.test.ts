@@ -14,6 +14,7 @@ import {
   setLogLevel,
   validateStrategyDefinition,
   type TileExplorerStrategy,
+  type TerrainData,
 } from '../../src/index.js';
 import { strategyRecordToBatchRow } from '../../src/strategy/web-adapter.js';
 
@@ -100,6 +101,73 @@ test('invalid dependency direction is rejected before generation', () => {
   const terrain = structuredClone(loadTerrainFromFile(terrainPath));
   terrain.layers[0].tiles[0].dependencies = [terrain.layers[0].tiles[1].id];
   assert.throws(() => buildTileExplorerTerrainView(terrain), /不在更高物理层/);
+});
+
+/**
+ * 回归测试: 含 1 张牌物理层的地形在低难度(difficulty=1)下,
+ * 所有花色计数必须保持 3 的倍数 —— 复现并锁定
+ * 600056/600070/1100118 等关卡的"非 3 倍数花色"缺陷。
+ *
+ * 根因: 原补池循环用 `take = min(3, pool.length)` 取牌成组,
+ * 当补池批次较小(低难度)且某层只有 1~2 张自由牌时, 会取走 1~2 张
+ * 组成不完整"组", 使该花色总数偏离 3 的倍数。
+ * 修复后: 池中不足 3 张时必须先补池, 每次只取完整三元组。
+ */
+test('complete-triple invariant holds with 1-tile layers at difficulty 1 (regression: partial takes)', () => {
+  // 600070-like: 顶层 4 层各 1 张, 总牌数 69 (3 的倍数)
+  const counts = [1, 1, 1, 1, 8, 7, 8, 9, 8, 9, 7, 9];
+  const terrain: TerrainData = {
+    levelResId: 999901,
+    levelHash: '0000000000000000',
+    LevelWidth: 100,
+    LevelHeight: 100,
+    layers: counts.map((n, layerIndex) => ({
+      tiles: Array.from({ length: n }, (_, i) => ({
+        id: 0,
+        layer: layerIndex,
+        dependencies: [],
+        isConst: false,
+        constElementValue: 0,
+        posX: 0,
+        posY: 0,
+        extraEnum: 0,
+        extraParam: '',
+      })),
+    })),
+  };
+  let nextId = 1;
+  for (const layer of terrain.layers) {
+    for (const tile of layer.tiles) tile.id = nextId++;
+  }
+
+  const strategies: TileExplorerStrategy[] = [
+    'default', 'top_two_easy', 'sliding_window', 'limit_layer_random', 'easy_hard_easy',
+    'solvability_coefficient', 'solvability_coefficient_v2', 'solvability_coefficient_v3',
+  ];
+  for (const strategy of strategies) {
+    for (const seq of [1, 2, 3]) {
+      for (const plc of [1, 2, 3]) {
+        const result = runTileExplorerGen({
+          terrain,
+          strategy,
+          difficulty: 1,
+          colorCount: 10,
+          tileTypesCanUse: 10,
+          tileTypeWeights: Array.from({ length: 10 }, () => 1),
+          sequenceSeed: seq,
+          placementSeed: plc,
+          easyLayerCount: 0,
+        });
+        // 每个花色必须是 3 的倍数
+        const per = new Map<number, number>();
+        for (const [, suit] of result.assignments) per.set(suit, (per.get(suit) ?? 0) + 1);
+        assert.equal(result.assignments.size, 69, `${strategy} s${seq} p${plc}`);
+        for (const [suit, count] of per) {
+          assert.equal(count % 3, 0, `${strategy} s${seq} p${plc}: suit ${suit} count ${count}`);
+        }
+      }
+    }
+  }
 });
 
 test('tile_explorer is a first-class strategy-v2 generator and enters grading pipeline', () => {

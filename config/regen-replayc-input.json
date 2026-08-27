@@ -1,0 +1,387 @@
+{
+  "schema_version": 1,
+  "production_id": "regen_replayc_fixed_2026-08-27",
+  "strategy": "default",
+  "levels_dir": "/mnt/e/workspace/tilematch/TileMatchShell/Tools/Config/Json",
+  "root_seed": 20260827,
+  "target_count_per_variant": 30,
+  "max_attempts_per_task": 120,
+  "levels": [
+    {
+      "output_level_id": 1100118,
+      "terrain_id": 1100118,
+      "terrain_path": "/mnt/e/workspace/tilematch/TileMatchShell/Tools/Config/Json/Levels/1100118.json",
+      "variants": [
+        {
+          "difficulty": 2,
+          "color_count": 14,
+          "tile_type_weights": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "target_count": 30,
+          "bad_count_found": 30,
+          "sample_replay_code": "DcSpEYBADADA5PLeJaEAPBaFYYaycPQGDVAUrFg+pve59mVeb6JSxIj/MtMwaOABrJg1KtKpYzdulI2rk6i620CLIQLb+QE="
+        }
+      ]
+    },
+    {
+      "output_level_id": 1100125,
+      "terrain_id": 1100125,
+      "terrain_path": "/mnt/e/workspace/tilematch/TileMatchShell/Tools/Config/Json/Levels/1100125.json",
+      "variants": [
+        {
+          "difficulty": 2,
+          "color_count": 13,
+          "tile_type_weights": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "target_count": 30,
+          "bad_count_found": 30,
+          "sample_replay_code": "DcY7EYBADAXAl1wun0toUYEBZqCjwAIKcIMVLMJWK9u07sfyzs9dxappnDACg0j/G2WpFZiGNB/Wu/TKxgj3HBGkGpCG6/wA"
+        }
+      ]
+    },
+    {
+      "output_level_id": 1100135,
+      "terrain_id": 1100135,
+      "terrain_path": "/mnt/e/workspace/tilematch/TileMatchShell/Tools/Config/Json/Levels/1100135.json",
+      "variants": [
+        {
+          "difficulty": 2,
+          "color_count": 14,
+          "tile_type_weights": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "target_count": 30,
+          "bad_count_found": 30,
+          "sample_replay_code": "Dcs7AYAwDAXAtPk0L03RUgcIwgwTftgwwIAUNrj9ZF0unPM53tvUdYSEWKabZyggGKO17D07c6GkUlmLVaqq7mIC+wvgEbTtHw=="
+        }
+      ]
+    },
+    {
+      "output_level_id": 1100227,
+      "terrain_id": 1100227,
+      "terrain_path": "/mnt/e/workspace/tilematch/TileMatchShell/Tools/Config/Json/Levels/1100227.json",
+      "variants": [
+        {
+          "difficulty": 2,
+          "color_count": 9,
+          "tile_type_weights": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "target_count": 30,
+          "bad_count_found": 30,
+          "sample_replay_code": "DcqhAYAADAOwde268REKgeQmvsDxAE8iIDral/Nej7qesYEGqz2JVDuCkwFaPdWJahWYlv8Uf2LA0aI0zeLEu30="
+        }
+      ]
+    },
+    {
+      "output_level_id": 1100298,
+      "terrain_id": 1100298,
+      "terrain_path": "/mnt/e/workspace/tilematch/TileMatchShell/Tools/Config/Json/Levels/1100298.json",
+      "variants": [
+        {
+          "difficulty": 2,
+          "color_count": 17,
+          "tile_type_weights": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "target_count": 30,
+          "bad_count_found": 30,
+          "sample_replay_code": "Y3EVPOFwpSVAM3oBBwcfAycnH7cAO5BmF2BnEGBkZuPlYuZh5GNl4WVhZmFlY+Tm5ucS4OVi4mdi5eFnY+JhZeDj5GNn4BDg5ASR7BwMUvcB"
+        }
+      ]
+    },
+    {
+      "output_level_id": 1100482,
+      "terrain_id": 1100482,
+      "terrain_path": "/mnt/e/workspace/tilematch/TileMatchShell/Tools/Config/Json/Levels/1100482.json",
+      "variants": [
+        {
+          "difficulty": 2,
+          "color_count": 14,
+          "tile_type_weights": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "target_count": 30,
+          "bad_count_found": 30,
+          "sample_replay_code": "BcGxAYAwCARAIB8CBKxcxmFcxA3cxImsbNzDwjtsyyfHe+7X485sZqMrpM3i2SZJBbXIAlJI+9AeI90jOWCODDMGrfcP"
+        }
+      ]
+    },
+    {
+      "output_level_id": 1100505,
+      "terrain_id": 1100505,
+      "terrain_path": "/mnt/e/workspace/tilematch/TileMatchShell/Tools/Config/Json/Levels/1100505.json",
+      "variants": [
+        {
+          "difficulty": 2,
+          "color_count": 7,
+          "tile_type_weights": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "target_count": 30,
+          "bad_count_found": 30,
+          "sample_replay_code": "BcFLDYQAFAPA9vWDGhJOyMAGGlbLJmgi3HDDjPfl2p73/h2rlMRhUBicKBxVHcecgmJHiFxjaNMlzv8H"
+        }
+      ]
+    },
+    {
+      "output_level_id": 1100549,
+      "terrain_id": 1100549,
+      "terrain_path": "/mnt/e/workspace/tilematch/TileMatchShell/Tools/Config/Json/Levels/1100549.json",
+      "variants": [
+        {
+          "difficulty": 2,
+          "color_count": 11,
+          "tile_type_weights": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "target_count": 30,
+          "bad_count_found": 30,
+          "sample_replay_code": "FcnLEUBQDAXQ3PwToxVby1eNlQb0YoYq9IezPTqm9Xrmczt2kSpN1kxmLWExRjR1moE8XItCAuB0tQprc9TXhD+J7uUF"
+        }
+      ]
+    },
+    {
+      "output_level_id": 1100735,
+      "terrain_id": 1100735,
+      "terrain_path": "/mnt/e/workspace/tilematch/TileMatchShell/Tools/Config/Json/Levels/1100735.json",
+      "variants": [
+        {
+          "difficulty": 2,
+          "color_count": 17,
+          "tile_type_weights": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "target_count": 30,
+          "bad_count_found": 30,
+          "sample_replay_code": "DcLBDYAgDABAKG1pCxT8+jV+/Zs4gDu5my7gUJo7PKb3ufZ13m5Ed0niQikF+rF7bEW1FqzoSlCG9N4ix1xzM6CekcYwBgvL+QE="
+        }
+      ]
+    },
+    {
+      "output_level_id": 1100736,
+      "terrain_id": 1100736,
+      "terrain_path": "/mnt/e/workspace/tilematch/TileMatchShell/Tools/Config/Json/Levels/1100736.json",
+      "variants": [
+        {
+          "difficulty": 2,
+          "color_count": 12,
+          "tile_type_weights": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "target_count": 30,
+          "bad_count_found": 30,
+          "sample_replay_code": "BcHBEYAwCATAIxyQgBX495u/Mxbgx4rsTRuwKHd5LN9779s6HzMtEA5llTo9sjfCotglRcbQRGjRPQXNqkVE1yHmguv8AQ=="
+        }
+      ]
+    },
+    {
+      "output_level_id": 1100738,
+      "terrain_id": 1100738,
+      "terrain_path": "/mnt/e/workspace/tilematch/TileMatchShell/Tools/Config/Json/Levels/1100738.json",
+      "variants": [
+        {
+          "difficulty": 2,
+          "color_count": 14,
+          "tile_type_weights": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "target_count": 30,
+          "bad_count_found": 30,
+          "sample_replay_code": "BcG7DYAwDAVAx37+xEkoMwWiR4KOAdiCbViFFbnDsezntX7zfVQ53SEQFuJES3Mz6YKsI8FGRUNQvBFHH70oh6fXobXRvf0="
+        }
+      ]
+    },
+    {
+      "output_level_id": 1100795,
+      "terrain_id": 1100795,
+      "terrain_path": "/mnt/e/workspace/tilematch/TileMatchShell/Tools/Config/Json/Levels/1100795.json",
+      "variants": [
+        {
+          "difficulty": 2,
+          "color_count": 14,
+          "tile_type_weights": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "target_count": 30,
+          "bad_count_found": 30,
+          "sample_replay_code": "BcFJEYAwDADA3GlzYKdP1PDCAF6YwQVicMOu7Nt63r6P62ROV09yVaI0yBhtnmUCU4R0ziBNNPbm0Cob6FWAzVaDAD75AQ=="
+        }
+      ]
+    },
+    {
+      "output_level_id": 1100796,
+      "terrain_id": 1100796,
+      "terrain_path": "/mnt/e/workspace/tilematch/TileMatchShell/Tools/Config/Json/Levels/1100796.json",
+      "variants": [
+        {
+          "difficulty": 2,
+          "color_count": 12,
+          "tile_type_weights": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "target_count": 30,
+          "bad_count_found": 30,
+          "sample_replay_code": "HcZLEUBQFADQ+/+Sx/LFkMBKAV3MaKGQJIzVOTKm5brnczt2APdMcSKSDxFDKVcoZsJGwNamYM6I1sQ2Bvobxo4Fz/oC"
+        }
+      ]
+    }
+  ]
+}
