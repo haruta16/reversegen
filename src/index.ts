@@ -71,10 +71,10 @@ export interface GenerateBoardLayerClosureInput {
   debtPersistenceWeight?: number;
   /**
    * 花色配额方式（默认 'balanced'）。
-   * 'balanced' = 均匀分配 / 'single-heavy' = 单色极重（一个主花色集中，其余各 1 组）。
+   * 'balanced' = 均匀分配 / 'single-heavy' = 最大花色生成后按整组三元组改色。
    */
   colorAllocationMode?: ColorAllocationMode;
-  /** single-heavy 主色占总 triplet 的比例上限。 */
+  /** single-heavy 主色占总 triplet 的目标比例。 */
   colorAllocationMaxRatio?: number;
   /** 花色配额随机源；批量任务可传入种子 RNG。 */
   colorAllocationRng?: () => number;
@@ -266,7 +266,12 @@ export { TileState } from './types.js';
 
 // 算法
 export { runReverseGen } from './reverse-gen.js';
-export { runLayerClosureGen, computeDependencyDepth, assignColorTotals } from './layer-closure-gen.js';
+export {
+  runLayerClosureGen,
+  computeDependencyDepth,
+  assignColorTotals,
+  buildSingleHeavyTripletPlan,
+} from './layer-closure-gen.js';
 export { buildGenerationLogicalLayers } from './logical-layers.js';
 export type { GenerationLogicalLayers } from './logical-layers.js';
 export { runTileExplorerGen, colorGradientLayerGroups } from './tile-explorer/generator.js';

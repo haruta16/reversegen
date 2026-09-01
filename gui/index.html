@@ -403,11 +403,11 @@ kbd{
         </div>
         <div style="margin-top:4px">
           <label>花色配额 <button type="button" class="param-help" data-param-help="colorAllocation" aria-label="解释花色配额">?</button></label>
-          <select id="colorAllocation" style="width:100%">
+          <select id="colorAllocation" style="width:100%" onchange="syncColorAllocationMode()">
             <option value="balanced">均匀分配</option>
             <option value="single-heavy">单色极重</option>
           </select>
-          <label style="margin-top:4px">主色最大占比 <button type="button" class="param-help" data-param-help="heavyColorRatio" aria-label="解释主色最大占比">?</button></label>
+          <label style="margin-top:4px">主色目标占比 <button type="button" class="param-help" data-param-help="heavyColorRatio" aria-label="解释主色目标占比">?</button></label>
           <input type="number" id="heavyColorMaxRatio" value="0.50" min="0.01" max="1" step="0.01">
           <div id="colorAllocNote" style="font-size:9px;color:var(--dim);margin-top:2px;display:none"></div>
         </div>
@@ -784,7 +784,7 @@ var PARAM_HELP={
   dock:{title:'Dock 容量',copy:'卡槽能暂存的牌数，只参与暴露债务、OI 等分析指标，不改变花色如何摆放。',caution:'应与实际游戏规则保持一致。'},
   colorCount:{title:'花色数',copy:'本局使用多少种图案。',effect:'花色多时通常更容易同时积攒多种散牌，但最终难度还受地形和其他参数影响。'},
   colorAllocation:{title:'花色配额',copy:'“均匀分配”让各花色牌量接近；“单色极重”让一个主色占较多牌，其他颜色较少。'},
-  heavyColorRatio:{title:'主色最大占比',copy:'仅在“单色极重”时生效，限制主色最多占全部三连组的比例。',effect:'0.50 表示主色最多约占一半。'},
+  heavyColorRatio:{title:'主色目标占比',copy:'仅在“单色极重”时生效。生成器先按“自由牌数÷3”的最大花色数生成，再随机整组三元组改色，并收敛到设置的总花色数。',effect:'0.50 表示主色目标约占一半；若该比例与总花色数冲突，会优先保留目标花色数。'},
   spread:{title:'同色分布',copy:'控制同花色的三张牌彼此靠近还是分散。',effect:'靠左更容易连续拿到；靠右更容易跨层等待。'},
   debt:{title:'债务持续权重',copy:'“债务”是当前还凑不齐三张的散牌。',effect:'靠左优先清旧散牌；靠右让同一批散牌跨更多层延续，持续占用卡槽。'},
   teStrategy:{title:'TileExplorer 生成策略',copy:'决定按物理层、玩家可见层或花色阶段组织牌面。切换策略后，页面只保留实际生效的参数。',effect:'当前策略的具体效果会显示在选择框下方。'},
@@ -1794,6 +1794,7 @@ async function generate(){
   var btn=document.getElementById('btnGen');
   if(!S.level){toast('请先加载关卡','err');return}
   var body=collectGenerationParams();
+  var singleHeavy=document.getElementById('colorAllocation').value==='single-heavy';
   var compatibility=inspectTerrainCompatibility(body,S.level);
   if(compatibility.error){
     setMsg(document.getElementById('genErr'),compatibility.error,'err');
@@ -1814,10 +1815,24 @@ async function generate(){
     document.getElementById('emptyState').style.display='none';
     document.getElementById('verifyEmpty').style.display='none';
     showResult(d);showVerify(d);
-    toast('牌局生成成功','ok');
+    toast(singleHeavy?'单色极重牌局生成成功':'牌局生成成功','ok');
     document.getElementById('resultCard').scrollIntoView({behavior:'smooth',block:'start'});
   }catch(e){if(e.name!=='AbortError')setMsg(document.getElementById('genErr'),e.message,'err')}
-  finally{endRequest(ctrl);btn.innerHTML='⚡ 生成牌局 <kbd>⌘↵</kbd>';btn.disabled=false}
+  finally{endRequest(ctrl);syncColorAllocationMode();btn.disabled=false}
+}
+
+function syncColorAllocationMode(){
+  var singleHeavy=document.getElementById('colorAllocation').value==='single-heavy';
+  var btn=document.getElementById('btnGen');
+  var note=document.getElementById('colorAllocNote');
+  if(singleHeavy){
+    note.textContent='先以每组三元组一个花色生成，再随机整组改色到目标主色比例和总花色数。';
+    note.style.display='';
+    btn.innerHTML='⚡ 生成单色极重牌局 <kbd>⌘↵</kbd>';
+  }else{
+    note.style.display='none';
+    btn.innerHTML='⚡ 生成牌局 <kbd>⌘↵</kbd>';
+  }
 }
 
 // ═══════════════════════════════════
@@ -2144,7 +2159,7 @@ function generationParamShapeError(params){
     if(!Number.isFinite(dock)||dock<1||dock>20)return'Dock 容量必须在 1–20 之间';
     if(!Number.isFinite(spread)||spread<0||spread>1)return'同色分布必须在 0–1 之间';
     if(!Number.isFinite(debt)||debt<0||debt>1)return'债务持续权重必须在 0–1 之间';
-    if(!Number.isFinite(ratio)||ratio<.01||ratio>1)return'主色最大占比必须在 0.01–1 之间';
+    if(!Number.isFinite(ratio)||ratio<.01||ratio>1)return'主色目标占比必须在 0.01–1 之间';
   }
   if(params.algorithm==='tile-explorer'){
     var difficulty=parseInt(params.difficulty),sequenceSeed=Number(params.sequenceSeed),placementSeed=Number(params.placementSeed);

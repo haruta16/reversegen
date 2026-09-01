@@ -23,10 +23,10 @@ export interface LayerClosureInput {
   /**
    * 花色配额方式。
    * - 'balanced': 均匀分配（默认，保持旧行为）
-   * - 'single-heavy': 随机选一个主花色集中分配，其余花色各 1 组
+   * - 'single-heavy': 先按每组三元组一个花色生成，再整组改色到目标主色比例和花色数
    */
   colorAllocationMode?: ColorAllocationMode;
-  /** single-heavy 主色最多占总 triplet 的比例；未设置时保持旧的极端分配。 */
+  /** single-heavy 主色目标占总 triplet 的比例；未设置时取满足目标花色数的可行最大值。 */
   colorAllocationMaxRatio?: number;
   /** 花色配额随机源；批量任务传入种子 RNG，默认使用 Math.random。 */
   colorAllocationRng?: () => number;

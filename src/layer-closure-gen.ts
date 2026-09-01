@@ -31,7 +31,7 @@
 import type { LayerClosureInput, LayerClosureOutput } from './types.js';
 import { getAllTiles } from './terrain-loader.js';
 import { buildGenerationLogicalLayers } from './logical-layers.js';
-import { assignColorTotals } from './layer-closure/quota.js';
+import { assignColorTotals, buildSingleHeavyTripletPlan } from './layer-closure/quota.js';
 import { buildMatrixByCloseRates } from './layer-closure/matrix.js';
 import { computeTileDepSets, placeSuitsFromMatrixWithSpread } from './layer-closure/placement.js';
 import {
@@ -44,6 +44,7 @@ import {
 // ── 向后兼容 re-export（保持原有导入路径与公共 API 不变）──
 export { computeDependencyDepth } from './logical-layers.js';
 export { assignColorTotals } from './layer-closure/quota.js';
+export { buildSingleHeavyTripletPlan } from './layer-closure/quota.js';
 export { buildMatrixByCloseRates } from './layer-closure/matrix.js';
 export { computeTileDepSets, placeSuitsFromMatrixWithSpread } from './layer-closure/placement.js';
 export {
@@ -84,20 +85,40 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
   const freeTilesPerDepth = depthLayers.map(l => l.filter(t => !t.isConst).length);
   const allTilesPerDepth = depthLayers.map(l => l.length);
   const totalTriplets = freeTiles.length / 3;
-  const colorTotalTiles = assignColorTotals(totalTriplets, colorCount, colorAllocationMode, rng, colorAllocationMaxRatio);
-  const heavyColor = colorAllocationMode === 'single-heavy'
-    ? colorTotalTiles.indexOf(Math.max(...colorTotalTiles)) + 1
-    : 0;
+  const isSingleHeavy = colorAllocationMode === 'single-heavy';
+  // single-heavy 先按最大花色生成：每个三元组拥有唯一源花色。完成落位后再
+  // 整组三元组改色，避免主色配额提前干扰 LayerClosure 的初始生成过程。
+  const generationColorTotalTiles = isSingleHeavy
+    ? Array.from({ length: totalTriplets }, () => 3)
+    : assignColorTotals(totalTriplets, colorCount, 'balanced', rng);
 
   // ── 3. 逐层约束满足 → 矩阵 M[c][d] ──
   const { matrix } = buildMatrixByCloseRates(
-    colorTotalTiles, freeTilesPerDepth, allTilesPerDepth, closeRates, p,
+    generationColorTotalTiles, freeTilesPerDepth, allTilesPerDepth, closeRates, p,
   );
 
   // ── 4. 矩阵 → 具体方块贴花色（仅自由牌参与选择）──
   const sp = spreadParam ?? 0.5;
   const tileDepSets = computeTileDepSets(allTiles, tileMap);
   const assignments = placeSuitsFromMatrixWithSpread(matrix, depthLayers, tileDepSets, sp, rng);
+
+  let heavyColor = 0;
+  let colorTotalTiles = generationColorTotalTiles;
+  if (isSingleHeavy) {
+    const plan = buildSingleHeavyTripletPlan(
+      totalTriplets,
+      colorCount,
+      colorAllocationMaxRatio ?? 1,
+      rng,
+    );
+    for (const [tileId, sourceColor] of assignments) {
+      const targetColor = plan.colorBySourceTriplet[sourceColor - 1];
+      if (targetColor == null) throw new Error(`缺少源花色 ${sourceColor} 的单色改色映射`);
+      assignments.set(tileId, targetColor);
+    }
+    heavyColor = plan.heavyColor;
+    colorTotalTiles = plan.colorTripletCounts.map(count => count * 3);
+  }
 
   // ── 5. 真实闭合率（const 花色参与累积）──
   const actualCloseRates = computeCloseRatesFromAssignments(assignments, depthLayers);
