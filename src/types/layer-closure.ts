@@ -172,6 +172,14 @@ export interface DebtMetrics {
   heavyColor?: number;
   /** 各花色 triplet 组数 */
   colorTripletCounts?: number[];
+  /** single-heavy 后处理路径；存在时表示按已生成的全局完整三元组随机改色。 */
+  singleHeavyRecolorStrategy?: 'global-triplet-random';
+  /** 改色前的全局源花色数，应等于自由牌数 / 3。 */
+  singleHeavySourceColorCount?: number;
+  /** 目标比例换算出的主色三元组数。 */
+  singleHeavyRequestedTriplets?: number;
+  /** 为保留目标总花色数后实际覆盖为主色的三元组数。 */
+  singleHeavyAppliedTriplets?: number;
 }
 
 /** LayerClosure 算法输出 */

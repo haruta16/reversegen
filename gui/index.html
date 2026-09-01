@@ -784,7 +784,7 @@ var PARAM_HELP={
   dock:{title:'Dock 容量',copy:'卡槽能暂存的牌数，只参与暴露债务、OI 等分析指标，不改变花色如何摆放。',caution:'应与实际游戏规则保持一致。'},
   colorCount:{title:'花色数',copy:'本局使用多少种图案。',effect:'花色多时通常更容易同时积攒多种散牌，但最终难度还受地形和其他参数影响。'},
   colorAllocation:{title:'花色配额',copy:'“均匀分配”让各花色牌量接近；“单色极重”让一个主色占较多牌，其他颜色较少。'},
-  heavyColorRatio:{title:'主色目标占比',copy:'仅在“单色极重”时生效。生成器先按“自由牌数÷3”的最大花色数生成，再随机整组三元组改色，并收敛到设置的总花色数。',effect:'0.50 表示主色目标约占一半；若该比例与总花色数冲突，会优先保留目标花色数。'},
+  heavyColorRatio:{title:'主色目标占比',copy:'仅在“单色极重”时生效。生成器先按“自由牌数÷3”的最大花色数完成落位，再从全局完整三元组中随机选主色组和锚点花色，逐组随机替换。',effect:'只保证主色目标、最终总花色数和三倍数；改色后的闭合率不要求继续命中。'},
   spread:{title:'同色分布',copy:'控制同花色的三张牌彼此靠近还是分散。',effect:'靠左更容易连续拿到；靠右更容易跨层等待。'},
   debt:{title:'债务持续权重',copy:'“债务”是当前还凑不齐三张的散牌。',effect:'靠左优先清旧散牌；靠右让同一批散牌跨更多层延续，持续占用卡槽。'},
   teStrategy:{title:'TileExplorer 生成策略',copy:'决定按物理层、玩家可见层或花色阶段组织牌面。切换策略后，页面只保留实际生效的参数。',effect:'当前策略的具体效果会显示在选择框下方。'},
@@ -1826,7 +1826,7 @@ function syncColorAllocationMode(){
   var btn=document.getElementById('btnGen');
   var note=document.getElementById('colorAllocNote');
   if(singleHeavy){
-    note.textContent='先以每组三元组一个花色生成，再随机整组改色到目标主色比例和总花色数。';
+    note.textContent='最大花色落位后，按全局完整三元组随机选主色和锚点花色；不约束改色后的闭合率。';
     note.style.display='';
     btn.innerHTML='⚡ 生成单色极重牌局 <kbd>⌘↵</kbd>';
   }else{
@@ -1915,7 +1915,7 @@ function showClosure(d){
   document.getElementById('stepSection').style.display='none';
   document.getElementById('chartTitle').textContent=hasTargets?'闭合率 设定 vs 实际':'闭合率';
   var allocLabel=m.colorAllocationMode==='single-heavy'
-    ?' · 单色极重(主色#'+(m.heavyColor||'?')+') · 组数['+(m.colorTripletCounts||[]).join(',')+']'
+    ?' · 单色极重(主色#'+(m.heavyColor||'?')+') · 全局三元组随机改色 '+(m.singleHeavySourceColorCount||'?')+'→'+(m.colorCount||'?')+'色 · 组数['+(m.colorTripletCounts||[]).join(',')+']'
     :'';
   document.getElementById('chartLegend').innerHTML=
     '<span style="color:'+(hasTargets?'#d4a853':'#7ec99c')+'">▮ '+(hasTargets?'目标':'实际')+'</span>'+

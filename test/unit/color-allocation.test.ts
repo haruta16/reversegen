@@ -36,18 +36,25 @@ describe('single-heavy 最大花色后改色', () => {
     assert.equal(new Set(plan.colorBySourceTriplet).size, 4);
   });
 
+  it('非主色按全局三元组逐组随机替换，不再均匀摊配', () => {
+    const plan = buildSingleHeavyTripletPlan(20, 6, 0.4, () => 0);
+    const sorted = [...plan.colorTripletCounts].sort((a, b) => b - a);
+    assert.deepEqual(sorted, [8, 8, 1, 1, 1, 1]);
+  });
+
   it('LayerClosure 最终花色数、主色比例和三倍数约束都命中', () => {
     const terrain = loadTerrainFromFile(FIXTURE);
     const freeTileCount = getAllTiles(terrain).filter(tile => !tile.isConst).length;
     const depthCount = buildGenerationLogicalLayers(terrain).layers.length;
+    const targetCloseRates = Array.from({ length: Math.max(0, depthCount - 1) }, (_, index) => (
+      (index + 1) / depthCount
+    ));
     const result = runLayerClosureGen({
       terrain,
       colorCount: 8,
       colorAllocationMode: 'single-heavy',
       colorAllocationMaxRatio: 0.4,
-      closeRates: Array.from({ length: Math.max(0, depthCount - 1) }, (_, index) => (
-        (index + 1) / depthCount
-      )),
+      closeRates: targetCloseRates,
       dock: 7,
       rng: sequenceRng(),
     });
@@ -63,5 +70,12 @@ describe('single-heavy 最大花色后改色', () => {
       result.metrics.colorTripletCounts?.[result.metrics.heavyColor! - 1],
       Math.min(Math.ceil(totalTriplets * 0.4), totalTriplets - 8 + 1),
     );
+    assert.equal(result.metrics.singleHeavyRecolorStrategy, 'global-triplet-random');
+    assert.equal(result.metrics.singleHeavySourceColorCount, totalTriplets);
+    assert.equal(result.metrics.singleHeavyRequestedTriplets, Math.ceil(totalTriplets * 0.4));
+    assert.equal(result.metrics.singleHeavyAppliedTriplets, Math.ceil(totalTriplets * 0.4));
+    assert.ok(targetCloseRates.some((target, index) => (
+      Math.abs((result.metrics.actualCloseRates[index] ?? 0) - target) > 1e-9
+    )), '全局随机改色后不应再次强制闭合率命中目标');
   });
 });

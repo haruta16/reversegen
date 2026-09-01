@@ -32,8 +32,9 @@ function shuffleInPlace<T>(values: T[], rng: () => number): void {
  * 为最大花色牌局生成整组三元组改色计划。
  *
  * 初始牌局中每个三元组各用一种花色（共 totalTriplets 种）。先随机挑选
- * 目标比例的三元组覆盖为主色，再把剩余三元组随机、均衡地归并到其余目标
- * 花色。这样既保留“随机覆盖整组三元组”的语义，也能保证最终恰好使用
+ * 目标比例的三元组覆盖为主色，再从剩余三元组随机保留 K-1 个锚点花色，
+ * 其余三元组随机替换为某个锚点花色。这样既保留“全局随机选三元组/花色”
+ * 的语义，也能保证最终恰好使用
  * colorCount 种花色，且每种花色牌数仍为 3 的倍数。
  */
 export function buildSingleHeavyTripletPlan(
@@ -76,15 +77,17 @@ export function buildSingleHeavyTripletPlan(
   colorTripletCounts[heavyColor - 1] = heavyTriplets;
 
   if (otherColors.length > 0) {
-    const remainingTriplets = totalTriplets - heavyTriplets;
-    const base = Math.floor(remainingTriplets / otherColors.length);
-    let extra = remainingTriplets % otherColors.length;
+    // 每个非主色先随机保留一个锚点三元组，确保最终花色数精确命中。
     for (const color of otherColors) {
-      const count = base + (extra-- > 0 ? 1 : 0);
-      colorTripletCounts[color - 1] = count;
-      for (let index = 0; index < count; index++, sourceOffset++) {
-        colorBySourceTriplet[sourceColors[sourceOffset] - 1] = color;
-      }
+      colorTripletCounts[color - 1] = 1;
+      colorBySourceTriplet[sourceColors[sourceOffset++] - 1] = color;
+    }
+    // 剩余三元组不再均衡摊配，而是逐组随机替换到某个已保留的非主色。
+    while (sourceOffset < sourceColors.length) {
+      const sample = Math.max(0, Math.min(0.9999999999999999, rng()));
+      const color = otherColors[Math.floor(sample * otherColors.length)];
+      colorBySourceTriplet[sourceColors[sourceOffset++] - 1] = color;
+      colorTripletCounts[color - 1] += 1;
     }
   }
 
@@ -101,7 +104,7 @@ export function buildSingleHeavyTripletPlan(
  * 将 totalTriplets 组牌按 mode 分配给 colorCount 种花色。
  *
  * - balanced: 均匀分配，每色约 totalTriplets / colorCount 组，余数摊给前几个花色。
- * - single-heavy: 按目标比例随机选主花色，剩余组数均衡归并到其他花色。
+ * - single-heavy: 按目标比例随机选主花色，剩余三元组随机归并到其他花色。
  *
  * 返回值是每色 tile 数（triplet 数 × 3）。
  */

@@ -104,7 +104,18 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
 
   let heavyColor = 0;
   let colorTotalTiles = generationColorTotalTiles;
+  let singleHeavyRequestedTriplets = 0;
+  let singleHeavyAppliedTriplets = 0;
   if (isSingleHeavy) {
+    // 从已经完成落位的全局 assignments 重新按源花色收集三元组。这里明确
+    // 不使用闭合率矩阵重新求最终配额；后续改色只认完整的全局三元组。
+    const sourceGroupCounts = new Map<number, number>();
+    for (const sourceColor of assignments.values()) {
+      sourceGroupCounts.set(sourceColor, (sourceGroupCounts.get(sourceColor) ?? 0) + 1);
+    }
+    if (sourceGroupCounts.size !== totalTriplets || [...sourceGroupCounts.values()].some(count => count !== 3)) {
+      throw new Error('single-heavy 最大花色生成结果不是“每个全局源花色恰好一个三元组”');
+    }
     const plan = buildSingleHeavyTripletPlan(
       totalTriplets,
       colorCount,
@@ -118,6 +129,8 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
     }
     heavyColor = plan.heavyColor;
     colorTotalTiles = plan.colorTripletCounts.map(count => count * 3);
+    singleHeavyRequestedTriplets = plan.requestedHeavyTriplets;
+    singleHeavyAppliedTriplets = plan.heavyTriplets;
   }
 
   // ── 5. 真实闭合率（const 花色参与累积）──
@@ -142,6 +155,12 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
     heavyColor,
     colorTotalTiles,
   });
+  if (isSingleHeavy) {
+    metrics.singleHeavyRecolorStrategy = 'global-triplet-random';
+    metrics.singleHeavySourceColorCount = totalTriplets;
+    metrics.singleHeavyRequestedTriplets = singleHeavyRequestedTriplets;
+    metrics.singleHeavyAppliedTriplets = singleHeavyAppliedTriplets;
+  }
 
   return { assignments, triplets, metrics };
 }
