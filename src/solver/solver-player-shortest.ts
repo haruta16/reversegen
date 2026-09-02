@@ -100,6 +100,7 @@ export function solvePlayerShortest(
   const rng = mulberry32(seed);
   let forcedRandomPickCount = 0;
   let colorStarvationCount = 0;
+  let completedActions = 0;
 
   for (let step = 0; step < maxSteps; step++) {
     if (g.isWin) break;
@@ -133,6 +134,7 @@ export function solvePlayerShortest(
     if (usedFallback) forcedRandomPickCount++;
     g.collect(tile);
     picks?.push(tile.id);
+    completedActions++;
   }
 
   return {
@@ -143,7 +145,9 @@ export function solvePlayerShortest(
         ? 'Dock full'
         : `Max steps (${maxSteps}) reached`,
     picks: picks ?? [],
-    stepCount: picks?.length ?? maxSteps,
+    // Mechanic chains may append internal steps; track player actions directly
+    // so no-trace runs neither report maxSteps nor count automatic operations.
+    stepCount: picks?.length ?? completedActions,
     seed,
     forcedRandomPickCount,
     colorStarvationCount,

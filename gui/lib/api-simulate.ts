@@ -10,6 +10,7 @@ import {
   solvePlayerMistakeBatch,
   solvePlayerMistakeMechanicBatch,
   solvePlayerShortestBatch,
+  analyzeWinningPaths,
 } from '../../src/solver/index.js';
 import { buildGameFromReplay, json, parseBody } from './runtime.js';
 
@@ -64,6 +65,7 @@ export async function handlePlayerSimShortest(req: IncomingMessage, res: ServerR
       const simRuns = runs ?? 100;
       const baseSeed = Date.now() & 0x7fffffff;
       const result = solvePlayerShortestBatch(game, simRuns, baseSeed);
+      const winningPathAnalysis = analyzeWinningPaths(result.results ?? [], simRuns);
       const remainingTilesOnLoss = result.losses > 0
         ? Math.max(0, totalTiles - result.stepsOnLoss)
         : null;
@@ -106,6 +108,7 @@ export async function handlePlayerSimShortest(req: IncomingMessage, res: ServerR
         remainingTilesOnLoss,
         remainingRatioOnLoss,
         optimalMetrics,
+        winningPathAnalysis,
         sampleResults: (result.results ?? []).slice(0, 10).map(r => ({
           win: r.win,
           failReason: r.failReason,
@@ -212,6 +215,7 @@ export async function handlePlayerSimMistakeMechanic(req: IncomingMessage, res: 
       const baseSeed = Date.now() & 0x7fffffff;
 
       const result = solvePlayerMistakeMechanicBatch(game, simRuns, baseSeed, { mistakeRate });
+      const winningPathAnalysis = analyzeWinningPaths(result.results ?? [], simRuns);
 
       json(res, {
         ok: true,
@@ -224,6 +228,7 @@ export async function handlePlayerSimMistakeMechanic(req: IncomingMessage, res: 
         avgStepsOnWin: result.avgStepsOnWin,
         avgStepsOnLoss: result.avgStepsOnLoss,
         elapsedMs: Math.round(result.elapsedMs),
+        winningPathAnalysis,
         sampleResults: (result.results ?? []).slice(0, 10).map(r => ({
           win: r.win,
           failReason: r.failReason,
@@ -253,6 +258,7 @@ export async function handlePlayerSimMistake(req: IncomingMessage, res: ServerRe
       const baseSeed = Date.now() & 0x7fffffff;
 
       const result = solvePlayerMistakeBatch(game, simRuns, baseSeed, { mistakeRate });
+      const winningPathAnalysis = analyzeWinningPaths(result.results ?? [], simRuns);
 
       json(res, {
         ok: true,
@@ -265,6 +271,7 @@ export async function handlePlayerSimMistake(req: IncomingMessage, res: ServerRe
         avgStepsOnWin: result.avgStepsOnWin,
         avgStepsOnLoss: result.avgStepsOnLoss,
         elapsedMs: Math.round(result.elapsedMs),
+        winningPathAnalysis,
         sampleResults: (result.results ?? []).slice(0, 10).map(r => ({
           win: r.win,
           failReason: r.failReason,
