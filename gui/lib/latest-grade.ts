@@ -11,6 +11,7 @@ export interface LatestGradeEvaluation {
   sim1: SimulationSummary;
   optimal: SimulationSummary;
   optimalLossRemainingRatio: number;
+  remainingRatioLimit: number;
   verdict: LatestReplayGradeVerdict;
 }
 
@@ -23,6 +24,7 @@ export async function evaluateLatestGrade(
   totalTiles: number,
   runs: number = 100,
   requestPrefix: string = 'latest-grade',
+  remainingRatioLimit: number = 0.25,
 ): Promise<LatestGradeEvaluation> {
   if (!Number.isInteger(runs) || runs <= 0 || runs > 5000) {
     throw new Error('runs 必须是 1-5000 的整数');
@@ -57,10 +59,12 @@ export async function evaluateLatestGrade(
     sim1: sim1Result.summary,
     optimal: optimalResult.summary,
     optimalLossRemainingRatio,
+    remainingRatioLimit,
     verdict: gradeLatestReplayPolicy(
       sim1Result.summary.win_rate,
       optimalResult.summary.win_rate,
       optimalLossRemainingRatio,
+      remainingRatioLimit,
     ),
   };
 }

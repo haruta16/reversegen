@@ -18,6 +18,7 @@ export async function handleReplaySearchEvaluate(
       targetGrade,
       mechanics,
       mechanicSeed,
+      remainingRatioLimit,
     } = body as {
       replayCode?: string;
       levelId?: string;
@@ -26,6 +27,7 @@ export async function handleReplaySearchEvaluate(
       targetGrade?: number;
       mechanics?: string;
       mechanicSeed?: number;
+      remainingRatioLimit?: number;
     };
     if (!replayCode) throw new Error('缺少 replayCode');
     if (typeof targetGrade !== 'number' || !Number.isInteger(targetGrade) || targetGrade < 1 || targetGrade > 11) {
@@ -44,6 +46,7 @@ export async function handleReplaySearchEvaluate(
       built.totalTiles,
       100,
       `replay-search:g${targetGrade}`,
+      remainingRatioLimit,
     );
     json(res, {
       ok: true,
@@ -53,6 +56,7 @@ export async function handleReplaySearchEvaluate(
       sim1: evaluation.sim1,
       optimal: evaluation.optimal,
       optimalLossRemainingRatio: evaluation.optimalLossRemainingRatio,
+      remainingRatioLimit: evaluation.remainingRatioLimit,
       grade: evaluation.verdict,
     });
   } catch (error) {

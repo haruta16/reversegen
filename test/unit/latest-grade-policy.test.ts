@@ -27,3 +27,12 @@ test('latest policy requires G5-G11 to have remaining ratio below 25%', () => {
   assert.equal(gradeLatestReplayPolicy(0.60, 0.60, 0.90).grade, 4);
   assert.equal(gradeLatestReplayPolicy(0.60, 0.60, 0.90).passed, true);
 });
+
+test('latest policy accepts an adjustable shared remaining-ratio limit', () => {
+  assert.equal(gradeLatestReplayPolicy(0.50, 0.40, 0.30, 0.31).passed, true);
+  const rejected = gradeLatestReplayPolicy(0.50, 0.40, 0.30, 0.30);
+  assert.equal(rejected.passed, false);
+  assert.equal(rejected.remainingRatioLimit, 0.30);
+  assert.match(rejected.reason ?? '', /<30%/);
+  assert.throws(() => gradeLatestReplayPolicy(0.50, 0.40, 0.20, 0));
+});

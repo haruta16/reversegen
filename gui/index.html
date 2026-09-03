@@ -698,8 +698,13 @@ kbd{
             <option value="8">G8 · sim1 20-30%</option>
             <option value="9">G9 · sim1 10-20%</option>
             <option value="10">G10 · sim1 0-10%</option>
-            <option value="11">G11 · Optimal≤5% / sim1≤20% / 败余&lt;25%</option>
+            <option value="11">G11 · Optimal≤5% / sim1≤20%</option>
           </select>
+        </div>
+        <div class="row" style="margin-bottom:6px;align-items:center">
+          <label style="margin:0">通用败余上限 <button type="button" class="param-help" data-param-help="gradeRemainingLimit" aria-label="解释通用败余上限">?</button></label>
+          <input type="number" id="gradeRemainingLimit" value="25" min="1" max="100" step="1" style="width:66px;text-align:center;font-family:var(--mono)">
+          <span style="font-size:10px;color:var(--faint)">% · G5-G11 严格低于此值</span>
         </div>
         <div class="row" style="margin-top:6px">
           <label style="margin:0">模拟次数 <button type="button" class="param-help" data-param-help="gradeRuns" aria-label="解释分档模拟次数">?</button></label>
@@ -729,7 +734,7 @@ kbd{
           </div>
           <button class="btn btn-primary" onclick="runReplaySearch()" id="btnReplaySearch" style="flex:0;padding:8px 14px">▶ 检索</button>
         </div>
-        <div style="font-size:9px;color:var(--faint);margin-top:6px">每个候选固定运行 sim1 100 次 + Optimal 100 次；G5-G11 均要求 Optimal 败局剩余率 &lt;25%；未命中则按当前算法、生成方法及花色配置重新生成。</div>
+        <div style="font-size:9px;color:var(--faint);margin-top:6px">每个候选固定运行 sim1 100 次 + Optimal 100 次；G5-G11 使用上方可调的通用败余上限；未命中则按当前算法、生成方法及花色配置重新生成。</div>
         <div class="msg" id="replaySearchResult"></div>
       </div>
     </div>
@@ -843,6 +848,7 @@ var PARAM_HELP={
   simRuns:{title:'模拟次数',copy:'同一牌局重复挑战多少次。',effect:'次数越多，胜率越稳定，但计算时间越长。'},
   gradeStrategy:{title:'分档策略',copy:'默认最新策略使用 sim1 与 Optimal，把牌局分为 G1～G11。',caution:'不同策略算出的 Grade 不宜直接混用。'},
   gradeTarget:{title:'目标档位',copy:'“仅分档”只报告结果；选择档位后还会检查是否命中目标。',effect:'最新策略中 G1 最易，G11 为特殊极难档。'},
+  gradeRemainingLimit:{title:'通用败余上限',copy:'G5～G11 的 Optimal 败局平均剩余率必须严格低于该百分比。',effect:'数值越小，高难档验收越严格；一键分档和 Replay 检索共用此值。'},
   gradeRuns:{title:'分档模拟次数',copy:'每类分档机器人重复挑战的次数。',effect:'次数越多，档位受随机波动的影响越小，但计算更久。'},
   resultDebtPeak:{title:'债务峰 / 暴露峰',copy:'左边是逐层累计时，未凑满三张的花色数峰值；右边进一步考虑遮挡解锁和自动消除。',caution:'这是结构统计，不是实际卡槽占用，也不用于判断胜负。'},
   resultDebtRetention:{title:'债务保留率',copy:'相邻层推进时，上一层未凑齐的旧散牌仍未闭合的加权比例。',effect:'越高表示同一批散牌持续得越久。'},
@@ -2595,11 +2601,20 @@ function updateGradeTargets(){
   var strategy=document.getElementById('gradeStrategy').value;
   var target=document.getElementById('gradeTarget');
   var options=strategy==='latest'
-    ? Array.from({length:11},function(_,i){var g=i+1;return[String(g),g===11?'G11 · Optimal≤5% / sim1≤20% / 败余<25%':'G'+g+' · sim1 '+(100-g*10)+'-'+(g===1?100:110-g*10)+'%']})
+    ? Array.from({length:11},function(_,i){var g=i+1;return[String(g),g===11?'G11 · Optimal≤5% / sim1≤20%':'G'+g+' · sim1 '+(100-g*10)+'-'+(g===1?100:110-g*10)+'%']})
     :(strategy==='strategy1'||strategy==='strategy2')
       ? [['0','档0 · 极易候选 (90-100%)'],['1','档1 · 简单 (60-90%)'],['2','档2 · 中等偏易 (40-60%)'],['3','档3 · 中等偏难 (20-40%)'],['4','档4 · 困难 (10-20%)'],['5','档5 · 极难 (0-10%)']]
       : [['0','档0 · 极简 (90-100%)'],['1','档1 · 简单 (60-90%)'],['2','档2 · 中等偏易 (40-60%)'],['3','档3 · 中等 (25-40%)'],['4','档4 · 中等偏难 (20-25%)'],['5','档5 · 困难 (10-20%)'],['6','档6 · 很难 (5-10%)'],['7','档7 · 极难 (0-5%)']];
   target.innerHTML='<option value="-1">仅分档（不校验）</option>'+options.map(function(o){return'<option value="'+o[0]+'">'+o[1]+'</option>'}).join('');
+}
+
+function readGradeRemainingRatioLimit(out){
+  var pct=parseFloat(document.getElementById('gradeRemainingLimit').value);
+  if(!Number.isFinite(pct)||pct<=0||pct>100){
+    if(out)setMsg(out,'通用败余上限必须在 1%-100% 之间','err');
+    return null;
+  }
+  return pct/100;
 }
 
 async function runGrade(){
@@ -2608,8 +2623,11 @@ async function runGrade(){
   var target=parseInt(document.getElementById('gradeTarget').value);
   var strategy=document.getElementById('gradeStrategy').value;
   var runs=parseInt(document.getElementById('gradeRuns').value)||100;
+  var remainingRatioLimit=readGradeRemainingRatioLimit(out);
+  if(strategy==='latest'&&remainingRatioLimit==null)return;
   var endpoint=target>=0?'/api/grade/validate':'/api/grade/calculate';
   var body={replayCode:d.replayCode,levelId:document.getElementById('levelId').value,terrainPath:S.terrainPath,runs:runs,strategy:strategy,mechanics:(document.getElementById('mechanics').value||'').trim()||undefined};
+  if(strategy==='latest')body.remainingRatioLimit=remainingRatioLimit;
   if(target>=0)body.targetGrade=target;
 
   btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;setMsg(out,'');
@@ -2632,6 +2650,7 @@ function renderGradeResult(v,out){
     htmlLatest+='<span style="color:var(--dim)">sim1:</span><b>'+(s1Latest.winRate*100).toFixed(1)+'%</b>';
     htmlLatest+='<span style="color:var(--dim)">Optimal:</span><b>'+(optLatest.winRate*100).toFixed(1)+'%</b>';
     htmlLatest+='<span style="color:var(--dim)">败余:</span><b>'+((v.optimalLossRemainingRatio||0)*100).toFixed(1)+'%</b>';
+    htmlLatest+='<span style="color:var(--dim)">上限:</span><b>&lt;'+((v.remainingRatioLimit==null ? 0.25 : v.remainingRatioLimit)*100).toFixed(1)+'%</b>';
     htmlLatest+='<span style="color:var(--faint);margin-left:auto">各 '+v.runs+' 次</span></div>';
     htmlLatest+='<div style="padding:7px 9px;background:var(--paper);border-radius:6px;border:1px solid '+latestCls+';margin-bottom:4px">';
     htmlLatest+='<span style="color:var(--faint);font-size:9px">最新十一档策略</span> ';
@@ -2771,7 +2790,8 @@ function replaySearchMetric(evaluation){
   return 'G'+evaluation.grade.grade
     +' · sim1 '+(evaluation.sim1.win_rate*100).toFixed(0)+'%'
     +' · Optimal '+(evaluation.optimal.win_rate*100).toFixed(0)+'%'
-    +' · 败余 '+(evaluation.optimalLossRemainingRatio*100).toFixed(0)+'%';
+    +' · 败余 '+(evaluation.optimalLossRemainingRatio*100).toFixed(0)+'%'
+    +' / <'+((evaluation.remainingRatioLimit==null ? 0.25 : evaluation.remainingRatioLimit)*100).toFixed(0)+'%';
 }
 
 async function runReplaySearch(){
@@ -2780,8 +2800,10 @@ async function runReplaySearch(){
   if(!S.level){toast('请先加载关卡','err');return}
   var target=parseInt(document.getElementById('replaySearchGrade').value,10);
   var maxAttempts=parseInt(document.getElementById('replaySearchAttempts').value,10);
+  var remainingRatioLimit=readGradeRemainingRatioLimit(out);
   if(!Number.isInteger(target)||target<1||target>11){setMsg(out,'需求 Grade 必须是 G1-G11','err');return}
   if(!Number.isInteger(maxAttempts)||maxAttempts<1||maxAttempts>1000){setMsg(out,'最大搜索次数必须是 1-1000','err');return}
+  if(remainingRatioLimit==null)return;
   var compatibility=inspectTerrainCompatibility(collectGenerationParams(),S.level);
   if(compatibility.error){setMsg(out,compatibility.error,'err');return}
 
@@ -2807,7 +2829,8 @@ async function runReplaySearch(){
         levelsDir:generationBody.levelsDir,
         terrainPath:generationBody.terrainPath,
         mechanics:generationBody.mechanics,
-        targetGrade:target
+        targetGrade:target,
+        remainingRatioLimit:remainingRatioLimit
       }),signal:ctrl.signal});
       var evaluation=await evaluationResponse.json();
       if(!evaluation.ok)throw new Error(evaluation.error||'机器人评估失败');
