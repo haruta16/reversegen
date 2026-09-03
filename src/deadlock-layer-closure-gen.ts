@@ -153,7 +153,11 @@ export function runDeadlockLayerClosureGen(input: DeadlockLayerClosureInput): De
     descendants,
     ancestors,
     depthById,
-  }, { searchLimit, enumerationSeed });
+  }, {
+    searchLimit,
+    enumerationSeed,
+    guide: depthPreference !== 'neutral' ? depthPreference : densityPreference,
+  });
   if (cores.length === 0) {
     throw new Error(
       `未在地形中找到 ${t}t${l}l 最小 dagT（${variant.id}）的可达包含；`

@@ -14,7 +14,9 @@ import {
   searchDeadlockCores,
   searchGenericCoresImpl,
   verifyFullEmbedding,
+  weightedSampleOrder,
 } from '../../src/deadlock/search.js';
+import { mulberry32 } from '../../src/random-utils.js';
 import { selectDeadlockEmbedding, type SelectionContext } from '../../src/deadlock/selection.js';
 import type { DagTVariant } from '../../src/deadlock/types.js';
 import { computeDependencyDepth } from '../../src/logical-layers.js';
@@ -353,4 +355,69 @@ test('枚举种子确定性：同 seed 两次结果逐位一致', () => {
     ancestors: wide.ancestors,
   }, { searchLimit: 8, enumerationSeed: seed }).map(c => c.coreTileIds));
   assert.notEqual(runWide(0), runWide(1), '大候选集下不同种子应产生不同采样');
+});
+
+test('weightedSampleOrder：确定性 + 首位概率 ≈ 1 − bias', () => {
+  // 确定性：同 seed 同序
+  const order1 = weightedSampleOrder([1, 2, 3, 4, 5], id => id, 1, mulberry32(7), 0.5);
+  const order2 = weightedSampleOrder([1, 2, 3, 4, 5], id => id, 1, mulberry32(7), 0.5);
+  assert.deepEqual(order1, order2);
+  // 首位 = 得分最高者（dir=1 时 5）的频率 ≈ 1 − bias
+  let top = 0;
+  const N = 5000;
+  for (let i = 0; i < N; i++) {
+    const order = weightedSampleOrder([1, 2, 3, 4, 5], id => id, 1, mulberry32(i), 0.1);
+    if (order[0] === 5) top++;
+  }
+  const rate = top / N;
+  assert.ok(rate > 0.85 && rate < 0.95, `首位频率 ${rate.toFixed(3)} 应在 [0.85, 0.95]`);
+});
+
+test('引导枚举 deepest：深骨架优先命中（bias=0.05, 64 种子 ≥ 50 次）', () => {
+  const variant = canonicalVariant(12, 3);
+  // 深骨架：offset 100，底座与 wildcard 下探到 130（深度 2-4，均值 ≈2.7）
+  const bSpecs = identitySkeleton(100);
+  for (const s of bSpecs) {
+    if (s.id <= 106 || s.id === 102 || s.id === 109) {
+      s.deps = [...(s.deps ?? []), 130];
+    }
+  }
+  bSpecs.push({ id: 130, deps: [], pos: [1010, 50] });
+  const terrain = buildTerrain([...identitySkeleton(), ...bSpecs]);
+  let deepHits = 0;
+  for (let seed = 0; seed < 64; seed++) {
+    const cores = searchDeadlockCores({
+      variant,
+      candidateTiles: terrain.tiles,
+      depsOf: terrain.depsOf,
+      descendants: terrain.descendants,
+      ancestors: terrain.ancestors,
+    }, { searchLimit: 1, enumerationSeed: seed, guide: 'deepest', guideBias: 0.05 });
+    assert.ok(cores.length >= 1, `seed=${seed} 引导枚举不得丢包含`);
+    const embedding = selectDeadlockEmbedding(variant, cores, terrain.depsOf, ctx(terrain));
+    assert.ok(embedding);
+    if (embedding.depthScore >= 2.4) deepHits++;
+  }
+  assert.ok(deepHits >= 50, `deepest 引导应显著偏向深骨架（实际 ${deepHits}/64）`);
+});
+
+test('引导枚举 densest：同簇命中（bias=0.05, 64 种子 ≥ 50 次）', () => {
+  const variant = canonicalVariant(12, 3);
+  // 两个骨架相距 1000；密度得分：同簇 ≈ 2860，跨簇 ≥ 20000
+  const terrain = buildTerrain([...identitySkeleton(), ...identitySkeleton(100)]);
+  let denseHits = 0;
+  for (let seed = 0; seed < 64; seed++) {
+    const cores = searchDeadlockCores({
+      variant,
+      candidateTiles: terrain.tiles,
+      depsOf: terrain.depsOf,
+      descendants: terrain.descendants,
+      ancestors: terrain.ancestors,
+    }, { searchLimit: 1, enumerationSeed: seed, guide: 'densest', guideBias: 0.05 });
+    assert.ok(cores.length >= 1, `seed=${seed} 引导枚举不得丢包含`);
+    const embedding = selectDeadlockEmbedding(variant, cores, terrain.depsOf, ctx(terrain, { densityPreference: 'densest' }));
+    assert.ok(embedding);
+    if (embedding.densityScore < 8000) denseHits++;
+  }
+  assert.ok(denseHits >= 50, `densest 引导应显著偏向同簇（实际 ${denseHits}/64）`);
 });

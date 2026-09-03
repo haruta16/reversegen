@@ -19,6 +19,8 @@
 import type {
   DeadlockCoreMatch,
   DagTVariant,
+  DepthPreference,
+  DensityPreference,
   WildcardConstraint,
 } from './types.js';
 import { colorClosures, coreMeetsThreshold } from './closures.js';
@@ -48,6 +50,14 @@ export interface ContainmentSearchOptions {
    * 等价于从全部包含中做带种子的随机采样。默认 0。
    */
   enumerationSeed?: number;
+  /**
+   * 枚举引导（偏好前移）：A/B 候选按方向做几何加权随机序，
+   * 使样本偏向更深/更浅/更密/更疏的区域（首位概率 ≈ 1 − guideBias）。
+   * 未设置 = 均匀随机采样。事后打分排序仍是最终裁决。
+   */
+  guide?: DepthPreference | DensityPreference;
+  /** 引导强度 = 非首位候选的相对权重（几何衰减）。默认 0.5，范围 (0,1)。 */
+  guideBias?: number;
 }
 
 /** Fisher–Yates 洗牌（rng 决定顺序，确定性）。 */
@@ -56,6 +66,38 @@ function shuffled<T>(arr: T[], rng: () => number): T[] {
   for (let i = out.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+/**
+ * 按得分方向做几何加权无放回采样序：候选按得分排序后，名次 i 的权重 =
+ * bias^i（首位抽中概率 = 1 − bias），逐次抽取。确定性（rng）。
+ */
+export function weightedSampleOrder(
+  candidates: number[],
+  scoreOf: (id: number) => number,
+  dir: 1 | -1,
+  rng: () => number,
+  bias: number,
+): number[] {
+  const remaining = [...candidates].sort((a, b) =>
+    (dir * (scoreOf(b) - scoreOf(a))) || (a - b));
+  const out: number[] = [];
+  while (remaining.length > 0) {
+    let total = 0;
+    for (let i = 0; i < remaining.length; i++) total += Math.pow(bias, i);
+    let r = rng() * total;
+    let idx = remaining.length - 1;
+    for (let i = 0; i < remaining.length; i++) {
+      r -= Math.pow(bias, i);
+      if (r <= 0) {
+        idx = i;
+        break;
+      }
+    }
+    out.push(remaining[idx]);
+    remaining.splice(idx, 1);
   }
   return out;
 }
@@ -73,7 +115,7 @@ export function searchDeadlockCores(
   const rng = mulberry32(opts.enumerationSeed ?? 0);
   const limit = Math.max(1, opts.searchLimit ?? 256);
   if (variant.tileCount === 12 && variant.layerLimit === 3 && isCanonical12tShape(variant)) {
-    return searchCanonicalJoin(input, limit, rng);
+    return searchCanonicalJoin(input, limit, rng, opts.guide, opts.guideBias);
   }
   return searchGenericCoresImpl(input, limit, rng);
 }
@@ -210,10 +252,33 @@ function capBridgeConstraint(
   return null;
 }
 
+/** 逻辑依赖深度（底=1）：外部提供优先，缺省在 depsOf 全图上自算（环守护）。 */
+function resolveDepthMap(
+  depsOf: Map<number, number[]>,
+  provided?: Map<number, number>,
+): Map<number, number> {
+  const map = new Map<number, number>();
+  for (const [id, d] of provided ?? []) map.set(id, d);
+  const compute = (id: number): number => {
+    const cached = map.get(id);
+    if (cached !== undefined && cached >= 0) return cached;
+    map.set(id, -1);
+    let maxDep = 0;
+    for (const d of depsOf.get(id) ?? []) maxDep = Math.max(maxDep, compute(d));
+    const depth = maxDep + 1;
+    map.set(id, depth);
+    return depth;
+  };
+  for (const id of depsOf.keys()) compute(id);
+  return map;
+}
+
 function searchCanonicalJoin(
   input: ContainmentSearchInput,
   searchLimit?: number,
   rng: () => number = mulberry32(0),
+  guide?: DepthPreference | DensityPreference,
+  guideBias?: number,
 ): DeadlockCoreMatch[] {
   const { variant, candidateTiles, depsOf, descendants, ancestors } = input;
   const plan = buildRolePlan(variant);
@@ -244,6 +309,29 @@ function searchCanonicalJoin(
   }
 
   const limit = Math.max(1, searchLimit ?? 256);
+  const bias = Math.min(0.95, Math.max(0.02, guideBias ?? 0.5));
+  const depthOf = resolveDepthMap(depsOf, input.depthById);
+  const posOf = new Map<number, { x: number; y: number }>();
+  for (const t of candidateTiles) posOf.set(t.id, { x: t.posX, y: t.posY });
+  const chebDist = (a: number, b: number): number => {
+    const p = posOf.get(a);
+    const q = posOf.get(b);
+    if (!p || !q) return 0;
+    return Math.max(Math.abs(p.x - q.x), Math.abs(p.y - q.y));
+  };
+  const depthScoreOf = (id: number): number => depthOf.get(id) ?? 1;
+  const guideA = (pool: number[]): number[] => {
+    if (guide === 'deepest') return weightedSampleOrder(pool, depthScoreOf, 1, rng, bias);
+    if (guide === 'shallowest') return weightedSampleOrder(pool, depthScoreOf, -1, rng, bias);
+    return shuffled(pool, rng);
+  };
+  const guideB = (pool: number[], tileA: number): number[] => {
+    if (guide === 'deepest') return weightedSampleOrder(pool, depthScoreOf, 1, rng, bias);
+    if (guide === 'shallowest') return weightedSampleOrder(pool, depthScoreOf, -1, rng, bias);
+    if (guide === 'densest') return weightedSampleOrder(pool, id => -chebDist(tileA, id), 1, rng, bias);
+    if (guide === 'sparsest') return weightedSampleOrder(pool, id => chebDist(tileA, id), 1, rng, bias);
+    return shuffled(pool, rng);
+  };
   const matches: DeadlockCoreMatch[] = [];
   const seenSets = new Set<string>();
   const wildcardNodes = plan.wildcardNodes;
@@ -359,16 +447,16 @@ function searchCanonicalJoin(
 
   // ── A 候选：4 底座（2 跳内）+ 上邻可承载 cap ──
   // 种子随机序：取前 searchLimit 个匹配 ≈ 从全部包含中随机采样
-  const aCands = shuffled(poolIds, rng).filter(id => reach2.get(id)!.length >= 4 && upArr.get(id)!.length > 0);
+  const aPool = poolIds.filter(id => reach2.get(id)!.length >= 4 && upArr.get(id)!.length > 0);
+  const aCands = guideA(aPool);
   for (const tileA of aCands) {
     if (matches.length >= limit) break;
     const r2A = reach2.get(tileA)!;
     const upA = new Set(upArr.get(tileA)!);
-    for (const tileB of shuffled(poolIds, rng)) {
+    const bPool = poolIds.filter(id => id !== tileA && reach2.get(id)!.length > 0);
+    for (const tileB of guideB(bPool, tileA)) {
       if (matches.length >= limit) break;
-      if (tileB === tileA) continue;
       const r2B = reach2.get(tileB)!;
-      if (r2B.length === 0) continue;
       const upB = new Set(upArr.get(tileB)!);
 
       // cap 候选：直接依赖优先（真实地形直接依赖 ≤ 数张），不足再桥接补齐
@@ -799,19 +887,7 @@ export function searchGenericCoresImpl(
   const matches: DeadlockCoreMatch[] = [];
   const seenSets = new Set<string>();
 
-  const resolvedDepth = new Map<number, number>();
-  for (const [id, depth] of input.depthById ?? []) resolvedDepth.set(id, depth);
-  const computeDepth = (id: number): number => {
-    const cached = resolvedDepth.get(id);
-    if (cached !== undefined) return cached;
-    resolvedDepth.set(id, -1);
-    let maxDep = 0;
-    for (const d of depsOf.get(id) ?? []) maxDep = Math.max(maxDep, computeDepth(d));
-    const depth = maxDep + 1;
-    resolvedDepth.set(id, depth);
-    return depth;
-  };
-  for (const id of depsOf.keys()) computeDepth(id);
+  const resolvedDepth = resolveDepthMap(depsOf, input.depthById);
   const depthOf = (id: number): number => resolvedDepth.get(id) ?? 1;
 
   const depsSet = new Map<number, Set<number>>();
