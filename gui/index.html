@@ -417,11 +417,11 @@ kbd{
           <input class="slider" type="range" id="spreadParam" min="0" max="100" value="50" step="1" oninput="updateSpreadLabel()">
           <span class="sl-l" style="text-align:left">分散</span>
         </div>
-        <label style="margin-top:6px">债务持续权重 <span style="font-weight:400;font-size:9px" id="debtLabel">— 0.00</span> <button type="button" class="param-help" data-param-help="debt" aria-label="解释债务持续权重">?</button></label>
+        <label style="margin-top:6px">债务跨层上限 <span style="font-weight:400;font-size:9px" id="debtLabel">— 0层</span> <button type="button" class="param-help" data-param-help="debt" aria-label="解释债务跨层上限">?</button></label>
         <div class="slider-row">
-          <span class="sl-l">清旧债</span>
-          <input class="slider" type="range" id="debtPersistence" min="0" max="100" value="0" step="1" oninput="updateDebtLabel()">
-          <span class="sl-l" style="text-align:left">延旧债</span>
+          <span class="sl-l">不跨层</span>
+          <input class="slider" type="range" id="debtPersistence" min="0" max="1" value="0" step="1" oninput="updateDebtLabel()">
+          <span class="sl-l" style="text-align:left" id="debtMaxLabel">加载后确定</span>
         </div>
       </div>
 
@@ -821,7 +821,7 @@ var PARAM_HELP={
   colorAllocation:{title:'花色配额',copy:'“均匀分配”让各花色牌量接近；“单色极重”让一个主色占较多牌，其他颜色较少。'},
   heavyColorRatio:{title:'主色目标占比',copy:'仅在“单色极重”时生效。生成器先按“自由牌数÷3”的最大花色数完成落位，再从全局完整三元组中随机选主色组和锚点花色，逐组随机替换。',effect:'只保证主色目标、最终总花色数和三倍数；改色后的闭合率不要求继续命中。'},
   spread:{title:'同色分布',copy:'控制同花色的三张牌彼此靠近还是分散。',effect:'靠左更容易连续拿到；靠右更容易跨层等待。'},
-  debt:{title:'债务持续权重',copy:'“债务”是当前还凑不齐三张的散牌。',effect:'靠左优先清旧散牌；靠右让同一批散牌跨更多层延续，持续占用卡槽。'},
+  debt:{title:'债务跨层上限',copy:'“债务”是当前还凑不齐三张的散牌；该参数限制同一批散牌最多跨过多少个后续逻辑层。',effect:'0 表示下一层优先闭合；数值越大，允许同一批散牌跨更多层延续。实际生成仍会优先保证每层牌全部落位。'},
   teStrategy:{title:'TileExplorer 生成策略',copy:'决定按物理层、玩家可见层或花色阶段组织牌面。切换策略后，页面只保留实际生效的参数。',effect:'当前策略的具体效果会显示在选择框下方。'},
   teDifficulty:{title:'混层范围（Difficulty）',copy:'每次把多少个相邻层放进同一个花色分配池。',effect:'数值越大，跨层混合通常越强；它不是最终 Grade。'},
   teColorCount:{title:'花色数',copy:'没有指定花色循环时，本局使用的图案种类数。',effect:'更多花色通常更容易产生同时等待的散牌。'},
@@ -1205,6 +1205,7 @@ async function loadLevel(source){
     if(!d.ok){toast(d.error,'err');return false}
     S.level=d;
     S.terrainPath=d.resolvedPath;
+    updateDebtPersistenceRange(d);
     document.getElementById('levelId').value=String(d.levelResId||id||'');
 
     var info=document.getElementById('levelInfo');
@@ -1343,8 +1344,19 @@ function updateSpreadLabel(){
 }
 
 function updateDebtLabel(){
-  var v=parseInt(document.getElementById('debtPersistence').value)/100;
-  document.getElementById('debtLabel').textContent='— '+v.toFixed(2);
+  var v=parseInt(document.getElementById('debtPersistence').value,10)||0;
+  document.getElementById('debtLabel').textContent='— '+v+'层';
+}
+
+function updateDebtPersistenceRange(level){
+  var input=document.getElementById('debtPersistence');
+  var max=Math.max(0,Math.trunc(Number(level&&level.depthCount)||1)-1);
+  input.max=String(max);
+  if((parseInt(input.value,10)||0)>max)input.value=String(max);
+  var maxLabel=document.getElementById('debtMaxLabel');
+  if(maxLabel)maxLabel.textContent='最多 '+max+'层';
+  input.title='当前关卡可选范围：0-'+max+' 个后续逻辑层';
+  updateDebtLabel();
 }
 
 function isTeSolvabilityStrategy(strategy){
@@ -1439,7 +1451,7 @@ function collectGenerationParams(){
     body.closeRates=document.getElementById('closeRates').value.trim();
     body.dock=document.getElementById('dock').value;
     body.spreadParam=(parseInt(document.getElementById('spreadParam').value)/100).toFixed(2);
-    body.debtPersistenceWeight=(parseInt(document.getElementById('debtPersistence').value)/100).toFixed(2);
+    body.debtPersistenceLayers=String(parseInt(document.getElementById('debtPersistence').value,10)||0);
     body.colorAllocationMode=document.getElementById('colorAllocation').value;
     body.colorAllocationMaxRatio=parseFloat(document.getElementById('heavyColorMaxRatio').value).toFixed(2);
   }else if(S.algo==='tile-explorer'){
@@ -1526,7 +1538,7 @@ function encodeGenerationParamString(params){
       String(params.levelId||''),
     ].join(':'),params);
   }
-  if(params.algorithm==='tile-explorer'){
+  if(params.algorithm==='closure'||params.algorithm==='tile-explorer'||params.algorithm==='checkpoint'){
     var bytes=new TextEncoder().encode(JSON.stringify(params)),binary='';
     for(var i=0;i<bytes.length;i++)binary+=String.fromCharCode(bytes[i]);
     return'RGP1.'+btoa(binary).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1613,7 +1625,9 @@ function decodeReadableGenerationParamString(raw){
     params.closeRates=rates.join(',');
     params.dock=Object.prototype.hasOwnProperty.call(fields,'Dock')?fields.Dock:(current.dock||'7');
     params.spreadParam=Object.prototype.hasOwnProperty.call(fields,'分布')?String(parseFloat(fields['分布'])/100):(current.spreadParam||'0.50');
-    params.debtPersistenceWeight=Object.prototype.hasOwnProperty.call(fields,'债务')?String(parseFloat(fields['债务'])/100):(current.debtPersistenceWeight||'0.00');
+    params.debtPersistenceLayers=Object.prototype.hasOwnProperty.call(fields,'债务')
+      ?String(Math.max(0,parseInt(fields['债务'],10)||0))
+      :String(current.debtPersistenceLayers||'0');
     params.colorAllocationMode=Object.prototype.hasOwnProperty.call(fields,'配额')
       ?(fields['配额']==='单色极重'?'single-heavy':'balanced')
       :(current.colorAllocationMode||'balanced');
@@ -2192,9 +2206,13 @@ function generationParamShapeError(params){
   if(!Number.isFinite(colorCount)||colorCount<1||colorCount>99)return'花色数必须在 1–99 之间';
   if(params.algorithm==='closure'){
     var dock=parseInt(params.dock),spread=parseFloat(params.spreadParam),debt=parseFloat(params.debtPersistenceWeight),ratio=parseFloat(params.colorAllocationMaxRatio);
+    if(params.debtPersistenceLayers!=null){
+      var debtLayers=parseInt(params.debtPersistenceLayers,10);
+      if(!Number.isInteger(debtLayers)||debtLayers<0)return'债务跨层上限必须是非负整数';
+    }
     if(!Number.isFinite(dock)||dock<1||dock>20)return'Dock 容量必须在 1–20 之间';
     if(!Number.isFinite(spread)||spread<0||spread>1)return'同色分布必须在 0–1 之间';
-    if(!Number.isFinite(debt)||debt<0||debt>1)return'债务持续权重必须在 0–1 之间';
+    if(params.debtPersistenceLayers==null && (!Number.isFinite(debt)||debt<0||debt>1))return'债务持续权重必须在 0–1 之间';
     if(!Number.isFinite(ratio)||ratio<.01||ratio>1)return'主色目标占比必须在 0.01–1 之间';
   }
   if(params.algorithm==='tile-explorer'){
@@ -2249,6 +2267,10 @@ function inspectTerrainCompatibility(params,level){
 
   var rates=readParamCloseRates(params.closeRates);
   var depthCount=Number(level.depthCount)||0,expected=Math.max(0,depthCount-1);
+  if(params.debtPersistenceLayers!=null){
+    var debtLayers=parseInt(params.debtPersistenceLayers,10);
+    if(!Number.isInteger(debtLayers)||debtLayers<0||debtLayers>expected)return{error:'债务跨层上限必须在 0–'+expected+' 之间'};
+  }
   if(rates.length===depthCount&&Math.abs(rates[rates.length-1]-1)<.0001)rates=rates.slice(0,-1);
   if(!depthCount)return{error:'地形无法满足参数：缺少深度层信息'};
   if(rates.some(function(v){return!Number.isFinite(v)||v<0||v>1}))return{error:'闭合率必须是 0–1 之间的数字'};
@@ -2306,7 +2328,9 @@ async function applyGenerationParamString(code,out){
   if(params.algorithm==='closure'){
     document.getElementById('dock').value=String(parseInt(params.dock));
     document.getElementById('spreadParam').value=String(Math.round(parseFloat(params.spreadParam)*100));
-    document.getElementById('debtPersistence').value=String(Math.round(parseFloat(params.debtPersistenceWeight)*100));
+    document.getElementById('debtPersistence').value=params.debtPersistenceLayers!=null
+      ?String(parseInt(params.debtPersistenceLayers,10)||0)
+      :String(Math.round(parseFloat(params.debtPersistenceWeight)*100));
     document.getElementById('colorAllocation').value=params.colorAllocationMode==='single-heavy'?'single-heavy':'balanced';
     document.getElementById('heavyColorMaxRatio').value=String(parseFloat(params.colorAllocationMaxRatio));
     var sliders=document.querySelectorAll('#closeRateSliders .slider');
@@ -2773,10 +2797,47 @@ function replaySearchSeed(){
   return values[0]|0;
 }
 
+function replaySearchRandomInt(min,max){
+  var values=new Uint32Array(1);
+  crypto.getRandomValues(values);
+  return min+(values[0]%(max-min+1));
+}
+
+function replaySearchRandomClosureRates(body){
+  if(!S.level||!Array.isArray(S.level.tilesPerDepth)||S.level.tilesPerDepth.length<2)return;
+  var colorCount=Math.max(1,parseInt(body.colorCount,10)||8),cumulative=0,previousClosed=0,rates=[];
+  for(var i=0;i<S.level.tilesPerDepth.length-1;i++){
+    cumulative+=Number(S.level.tilesPerDepth[i])||0;
+    var maxClosed=Math.floor(cumulative/3)*3;
+    var minClosed=cumulative-Math.min(cumulative,2*colorCount);
+    while(minClosed%3!==0)minClosed++;
+    minClosed=Math.max(minClosed,previousClosed);
+    if(minClosed>maxClosed)minClosed=maxClosed;
+    var options=Math.floor((maxClosed-minClosed)/3)+1;
+    var closed=minClosed+3*replaySearchRandomInt(0,Math.max(0,options-1));
+    previousClosed=closed;
+    rates.push(cumulative>0?(closed/cumulative).toFixed(6):'0');
+  }
+  body.closeRates=rates.join(',');
+}
+
 function replaySearchGenerationParams(){
   var body=collectGenerationParams();
   if(body.algorithm==='cost-ladder')throw new Error('CostLadder 在相同参数下是确定性的，无法通过重试生成不同 ReplayCode；请切换到当前支持随机生成的算法');
-  if(body.algorithm==='tile-explorer'){
+  if(body.algorithm==='closure'){
+    // LC 仅继承花色配额；闭合率与 Dock 使用检索默认/随机值。
+    replaySearchRandomClosureRates(body);
+    body.dock='7';
+    var spreadMin=Math.max(0,Math.min(1,Number(body.spreadParam)||0));
+    var debtMin=Math.max(0,Math.min(Math.max(0,Math.trunc(Number(S.level&&S.level.depthCount)||1)-1),Number(body.debtPersistenceLayers)||0));
+    body.spreadParam=(spreadMin+(1-spreadMin)*replaySearchRandomInt(0,1000)/1000).toFixed(3);
+    var debtMax=Math.max(debtMin,Math.max(0,Math.trunc(Number(S.level&&S.level.depthCount)||1)-1));
+    body.debtPersistenceLayers=String(replaySearchRandomInt(debtMin,debtMax));
+  }else if(body.algorithm==='tile-explorer'){
+    var difficultyMax=Math.max(1,Math.trunc(Number(S.level&&S.level.depthCount)||1));
+    // 当前页面 Difficulty 作为检索下限，再在当前关卡允许的逻辑层范围内抽取。
+    var difficultyMin=Math.max(1,Math.min(difficultyMax,Math.trunc(Number(body.difficulty)||1)));
+    body.difficulty=String(replaySearchRandomInt(difficultyMin,difficultyMax));
     body.sequenceSeed=String(replaySearchSeed());
     body.placementSeed=String(replaySearchSeed());
     delete body.placementRandomState;
@@ -3126,6 +3187,8 @@ switchSimStrategy();
 updateTeStrategy();
 updateGenerationParamSummary();
 restoreParams();
+updateSpreadLabel();
+updateDebtLabel();
 initDefaultLevelsDir();
 </script>
 </body>

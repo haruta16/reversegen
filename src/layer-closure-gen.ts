@@ -61,9 +61,12 @@ export type { ComputeMetricsInput } from './layer-closure/metrics.js';
 // ═══════════════════════════════════════════════════════════
 
 export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput {
-  const { terrain, colorCount, dock, closeRates, spreadParam, debtPersistenceWeight, colorAllocationMode, colorAllocationMaxRatio, colorAllocationRng } = input;
+  const { terrain, colorCount, dock, closeRates, spreadParam, debtPersistenceWeight, debtPersistenceLayers, colorAllocationMode, colorAllocationMaxRatio, colorAllocationRng } = input;
   const rng = input.rng ?? colorAllocationRng ?? Math.random;
   const p = Math.max(0, Math.min(1, debtPersistenceWeight ?? 0));
+  const maxDebtLayers = debtPersistenceLayers == null
+    ? undefined
+    : Math.max(0, Math.trunc(debtPersistenceLayers));
 
   // ── 1. 提取全量牌，算依赖深度（const 也参与）──
   const allTiles = getAllTiles(terrain);
@@ -78,6 +81,9 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
   }
 
   const logicalTerrain = buildGenerationLogicalLayers(terrain);
+  if (maxDebtLayers != null && (!Number.isInteger(maxDebtLayers) || maxDebtLayers > Math.max(0, logicalTerrain.layers.length - 1))) {
+    throw new Error(`debtPersistenceLayers 必须是 0-${Math.max(0, logicalTerrain.layers.length - 1)} 的整数`);
+  }
   const depthMap = logicalTerrain.depthById;
   const depthLayers = logicalTerrain.layers;
 
@@ -94,7 +100,7 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
 
   // ── 3. 逐层约束满足 → 矩阵 M[c][d] ──
   const { matrix } = buildMatrixByCloseRates(
-    generationColorTotalTiles, freeTilesPerDepth, allTilesPerDepth, closeRates, p,
+    generationColorTotalTiles, freeTilesPerDepth, allTilesPerDepth, closeRates, p, maxDebtLayers,
   );
 
   // ── 4. 矩阵 → 具体方块贴花色（仅自由牌参与选择）──
@@ -151,6 +157,7 @@ export function runLayerClosureGen(input: LayerClosureInput): LayerClosureOutput
     colorCount,
     actualCloseRates,
     debtPersistenceWeight: p,
+    debtPersistenceLayers: maxDebtLayers,
     colorAllocationMode,
     heavyColor,
     colorTotalTiles,

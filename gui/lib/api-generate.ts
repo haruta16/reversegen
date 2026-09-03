@@ -189,19 +189,21 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
       const {
         algorithm,
         costArray, colorCount, // CostLadder params
-        closeRates, dock, spreadParam, debtPersistenceWeight, // LayerClosure params
+        closeRates, dock, spreadParam, debtPersistenceWeight, debtPersistenceLayers, // LayerClosure params
         colorAllocationMode, colorAllocationMaxRatio,        // LayerClosure
         teStrategy, difficulty, sequenceSeed, placementSeed, placementRandomState, typeCycle, typeWeights,
         easyLayerCount, hardTag, limitFullFirst, lowerCoefficient, topCoefficient,
         fallbackExtraLayers, solvabilityRandomMode, colorGradientTypeGroups,
         zenStrategy, seed,
+        checkpointPosition, checkpointCount, minCheckpointSpan,
         levelId, levelsDir, terrainPath, levelHash,
         mechanics,
       } = body as {
         algorithm?: string;
         costArray?: string; colorCount?: string;           // CostLadder
         closeRates?: string; dock?: string; spreadParam?: string; // LayerClosure
-        debtPersistenceWeight?: string;                    // LayerClosure
+        debtPersistenceWeight?: string;                    // LayerClosure 旧版兼容
+        debtPersistenceLayers?: string;                    // LayerClosure 新版：最大跨层数
         colorAllocationMode?: string;                      // LayerClosure
         colorAllocationMaxRatio?: string;                  // LayerClosure
         teStrategy?: string; difficulty?: string; sequenceSeed?: string; placementSeed?: string;
@@ -404,6 +406,13 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
         const spread = isNaN(sp) ? 0.5 : Math.max(0, Math.min(1, sp));
         const dpRaw = parseFloat(debtPersistenceWeight || '0');
         const dp = isNaN(dpRaw) ? 0 : Math.max(0, Math.min(1, dpRaw));
+        const layerRaw = debtPersistenceLayers == null || String(debtPersistenceLayers).trim() === ''
+          ? undefined
+          : Number(debtPersistenceLayers);
+        const depthCount = buildGenerationLogicalLayers(terrain).layers.length;
+        if (layerRaw != null && (!Number.isInteger(layerRaw) || layerRaw < 0 || layerRaw > Math.max(0, depthCount - 1))) {
+          throw new Error(`债务跨层上限必须是 0-${Math.max(0, depthCount - 1)} 的整数`);
+        }
 
         const allocMode = (colorAllocationMode === 'single-heavy' ? 'single-heavy' : 'balanced') as import('../../src/types.js').ColorAllocationMode;
         const allocRatioRaw = parseFloat(colorAllocationMaxRatio || '1');
@@ -411,7 +420,8 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
         const result = generateBoardLayerClosure({
           terrain, closeRates: rates, colorCount: k,
           dock: dk, levelHash, spreadParam: spread,
-          debtPersistenceWeight: dp,
+          debtPersistenceWeight: layerRaw == null ? dp : undefined,
+          debtPersistenceLayers: layerRaw,
           colorAllocationMode: allocMode,
           colorAllocationMaxRatio: allocRatio,
         });

@@ -14,10 +14,12 @@
  *
  * 闭合率的单位是 triplet（组），不是颜色。花色是手段，闭合率是结果。
  *
- * 债务持续权重 p 控制"下一层债务中保留多少旧债务 tile"：
+ * 兼容旧版的债务持续权重 p 控制"下一层债务中保留多少旧债务 tile"：
  *   目标保留 = round(p × min(本层旧债务 tile 数, 下一层债务 tile 数))
  *   p=0 → 优先闭合旧债务色（清旧债）；p=1 → 优先闭合非债务色（留旧债）。
  *   p 是软目标，closeRate(数量)与 mod3 闭合预算(硬约束)优先。
+ * 新版 debtPersistenceLayers 则按后续逻辑层数控制债务持续：达到上限后优先
+ * 在当前层闭合；若当层容量/闭合率目标与之冲突，以牌面完整落位为最终硬约束。
  *
  * @returns { matrix, actualCloseRates, retainedOldDebtTilesByLayer }
  */
@@ -27,10 +29,14 @@ export function buildMatrixByCloseRates(
   allTilesPerDepth: number[],
   closeRates: number[],
   debtPersistenceWeight: number,
+  debtPersistenceLayers?: number,
 ): { matrix: number[][]; actualCloseRates: number[]; retainedOldDebtTilesByLayer: number[] } {
   const C = colorTotalTiles.length;
   const D = freeTilesPerDepth.length;
   const p = debtPersistenceWeight;
+  const maxDebtLayers = debtPersistenceLayers == null
+    ? undefined
+    : Math.max(0, Math.trunc(debtPersistenceLayers));
 
   // 活跃颜色（有牌的）
   const active = new Set<number>();
@@ -48,6 +54,8 @@ export function buildMatrixByCloseRates(
   const M: number[][] = Array.from({ length: C }, () => new Array(D).fill(0));
   const actualCloseRates: number[] = [];
   const retainedOldDebtTilesByLayer: number[] = [];
+  // 债务年龄：刚在上一层产生的债务为 0；每跨过一层仍未闭合则 +1。
+  const debtAge = new Array(C).fill(0);
 
   // 全量累积牌数（用于 P = ⌊全量 ÷ 3⌋，闭合率分母包含 const）
   let allCumulative = 0;
@@ -70,16 +78,21 @@ export function buildMatrixByCloseRates(
     // 每关闭 1 个颜色 = 完成 1 个 triplet
     const toClose: number[] = []; // 需要完成 triplet 的颜色
     const toOpen: number[] = [];  // 需要"打开"的颜色（target < current 时极少触发）
+    const oldDebt = [...active].filter(c => cumulative[c] % 3 !== 0 && remaining[c] > 0);
+    const overdueDebt = maxDebtLayers == null
+      ? []
+      : oldDebt.filter(c => debtAge[c] >= maxDebtLayers);
+    const noReopen = new Set(overdueDebt);
+    if (maxDebtLayers != null) toClose.push(...overdueDebt);
 
     if (target > currentlyCompleted) {
-      const need = target - currentlyCompleted;
+      const need = Math.max(0, target - currentlyCompleted - toClose.length);
 
-      // ── 债务持续权重 p：决定本层闭合多少旧债务色 vs 非债务色 ──
+      // ── 债务持续限制/权重：决定本层闭合哪些旧债务色 ──
       // oldDebtTiles = 进入本层前的旧债务 tile 总数（Σ cum%3，非0项）
       // nextDebtTiles = 本层末债务 tile 总数（累计 tile − 已闭合 tile）
       // targetRetained = round(p × min(oldDebtTiles, nextDebtTiles))
       // oldDebtToClear = oldDebtTiles − targetRetained（本层应清掉的旧债务 tile 数）
-      const oldDebt = [...active].filter(c => cumulative[c] % 3 !== 0 && remaining[c] > 0);
       const oldDebtTiles = oldDebt.reduce((s, c) => s + (cumulative[c] % 3), 0);
       const nextDebtTiles = Math.max(0, allTilesAfter - target * 3);
       const targetRetained = Math.round(p * Math.min(oldDebtTiles, nextDebtTiles));
@@ -88,12 +101,14 @@ export function buildMatrixByCloseRates(
       // 旧债务色按 r=cum%3 降序（r=2 先清，单色清 2 tile 且只需 1 张牌，性价比高）
       oldDebt.sort((a, b) => (cumulative[b] % 3) - (cumulative[a] % 3));
 
-      // 1) 选旧债务色子集，Σ r_c ≈ oldDebtToClear，数量 ≤ need
+      // 新版先强制关闭达到最大跨层数的债务；旧版则按权重计算清理目标。
       const toCloseOld: number[] = [];
       let clearedTiles = 0;
-      for (const c of oldDebt) {
+      const oldDebtCandidates = (maxDebtLayers == null ? oldDebt : overdueDebt)
+        .filter(c => !toClose.includes(c));
+      for (const c of oldDebtCandidates) {
         if (toCloseOld.length >= need) break;
-        if (clearedTiles >= oldDebtToClear) break;
+        if (maxDebtLayers == null && clearedTiles >= oldDebtToClear) break;
         toCloseOld.push(c);
         clearedTiles += cumulative[c] % 3;
       }
@@ -101,7 +116,7 @@ export function buildMatrixByCloseRates(
       // 2) 补足 need：优先非债务色（cum%3=0，闭合不动旧债 → 保留旧债）
       //    非债务色需 remaining≥3 才能凑出一个 triplet
       const nonDebt = [...active].filter(c =>
-        cumulative[c] % 3 === 0 && remaining[c] >= 3 && !toCloseOld.includes(c));
+        cumulative[c] % 3 === 0 && remaining[c] >= 3 && !toClose.includes(c) && !toCloseOld.includes(c));
       const toCloseNew: number[] = [];
       for (const c of nonDebt) {
         if (toCloseOld.length + toCloseNew.length >= need) break;
@@ -111,7 +126,7 @@ export function buildMatrixByCloseRates(
       // 3) 仍不够（非债务色余量不足）→ 被迫从剩余旧债务色补（动旧债，实际保留 < 目标）
       if (toCloseOld.length + toCloseNew.length < need) {
         for (const c of oldDebt) {
-          if (toCloseOld.includes(c)) continue;
+          if (toClose.includes(c) || toCloseOld.includes(c)) continue;
           if (toCloseOld.length + toCloseNew.length >= need) break;
           toCloseOld.push(c);
         }
@@ -148,7 +163,7 @@ export function buildMatrixByCloseRates(
         for (const c of forceCloseCandidates) {
           if (excess <= 0) break;
           excess -= closeCost(cumulative[c]);
-          toClose.push(c);
+          if (!toClose.includes(c)) toClose.push(c);
         }
       }
     }
@@ -277,7 +292,7 @@ export function buildMatrixByCloseRates(
         // curMod=1: safe=[1]  （只有+1不跨边界）
         // curMod=2: safe=[]   （任何正数都跨边界，只能跳过）
         if (slack > 0) {
-          for (const c of byRemaining) {
+          for (const c of byRemaining.filter(c => !noReopen.has(c))) {
             if (slack <= 0) break;
             let maxAdd = remaining[c] - plan[c];
             if (maxAdd <= 0) continue;
@@ -302,6 +317,29 @@ export function buildMatrixByCloseRates(
       // ── 兜底：如果仍填不满，强制填满（闭合率是软目标，mod3 是硬约束）──
       if (slack > 0) {
         for (const c of byRemaining) {
+          if (noReopen.has(c)) continue;
+          if (slack <= 0) break;
+          const maxAdd = remaining[c] - plan[c];
+          if (maxAdd <= 0) continue;
+          const give = Math.min(maxAdd, slack);
+          plan[c] += give;
+          used += give;
+          slack -= give;
+        }
+        // 已达到跨层上限的债务色只允许继续添加完整三元组，避免同层重新开债。
+        for (const c of byRemaining) {
+          if (!noReopen.has(c) || slack <= 0) continue;
+          const maxAdd = remaining[c] - plan[c];
+          const give = Math.min(Math.floor(Math.max(0, maxAdd) / 3) * 3, slack);
+          if (give > 0) {
+            plan[c] += give;
+            used += give;
+            slack -= give;
+          }
+        }
+        // 若其他颜色没有足够的安全容量，仍需把本层牌全部落位；这是容量硬约束下
+        // 对跨层上限的最后让步，后续层仍会优先闭合该债务。
+        for (const c of byRemaining) {
           if (slack <= 0) break;
           const maxAdd = remaining[c] - plan[c];
           if (maxAdd <= 0) continue;
@@ -317,8 +355,13 @@ export function buildMatrixByCloseRates(
     for (let c = 0; c < C; c++) {
       const assign = Math.min(plan[c], remaining[c]);
       M[c][d] = assign;
+      const hadDebt = cumulative[c] % 3 !== 0;
       cumulative[c] += assign;
       remaining[c] -= assign;
+      const hasDebt = cumulative[c] % 3 !== 0;
+      if (!hasDebt) debtAge[c] = 0;
+      else if (!hadDebt) debtAge[c] = 0;
+      else debtAge[c] += 1;
     }
     allCumulative += allTilesPerDepth[d];
 

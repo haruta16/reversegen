@@ -70,6 +70,12 @@ export interface LayerClosureInput {
    * 闭合率仍负责"每层有多少债务"，此参数只负责"是不是同一批债务"。
    */
   debtPersistenceWeight?: number;
+  /**
+   * 新版债务跨层上限：不完整三元组最多允许跨过的后续逻辑层数。
+   * 0 表示下一层必须优先闭合；可选范围由当前地形逻辑深度决定。
+   * 当层容量与闭合率目标无法同时满足时，牌面完整落位优先。
+   */
+  debtPersistenceLayers?: number;
 }
 
 /** 层闭合算法的难度指标 */
@@ -129,6 +135,8 @@ export interface DebtMetrics {
   weightedDebtRetentionRate: number;
   /** 配置的债务持续权重 p（回显输入，默认 0） */
   configuredDebtPersistenceWeight: number;
+  /** 配置的债务最大跨层数（新版参数）。 */
+  configuredDebtPersistenceLayers?: number;
   /** 逐层实际保留的旧债务 tile 数，长度 = depthCount - 1 */
   retainedOldDebtTilesByLayer: number[];
   /** 全部相邻层实际保留旧债务 tile 的总和 */
