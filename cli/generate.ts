@@ -23,6 +23,7 @@
 import { parseArgs } from 'node:util';
 import {
   generateBoard,
+  generateBoardDeadlockLayerClosure,
   generateBoardLayerClosure,
   generateBoardTileExplorer,
   generateBoardZenMatch,
@@ -51,6 +52,14 @@ const { values } = parseArgs({
         'dock':         { type: 'string', default: String(MAX_DOCK_SLOTS) },
     'spread':       { type: 'string', default: '0.5' },
     'debt-persistence': { type: 'string', default: '0' },
+    // Deadlock + LayerClosure 算法专用参数
+    'deadlock-tiles':    { type: 'string', default: '12' },
+    'deadlock-layers':   { type: 'string', default: '3' },
+    'deadlock-depth-pref':   { type: 'string', default: 'neutral' },
+    'deadlock-density-pref': { type: 'string', default: 'neutral' },
+    'deadlock-selection-seed': { type: 'string', default: '0' },
+    'deadlock-search-limit': { type: 'string', default: '0' },
+    'deadlock-enumeration-seed': { type: 'string', default: '0' },
     // Tile Explorer 算法专用参数
     'te-strategy': { type: 'string', default: 'default' },
     difficulty: { type: 'string', default: '1' },
@@ -89,7 +98,8 @@ USAGE:
 
 OPTIONS:
   -t, --terrain <path>     Path to terrain JSON file (Unity level format) (required)
-  -a, --algorithm <name>   算法选择: cost-ladder (默认) | closure | tile-explorer | zen-match
+  -a, --algorithm <name>   算法选择: cost-ladder (默认) | closure | deadlock-layer-closure |
+                           tile-explorer | zen-match
   -k, --colors <n>         花色数量
   --hash <hex>             Level hash override (16-char hex)
   -j, --json               Output results as JSON
@@ -106,6 +116,16 @@ OPTIONS:
     --dock <n>            Dock容量 (默认: 7)
     --spread <n>          同色分布 [0-1] 0=紧密 0.5=随机 1=分散 (默认: 0.5)
     --debt-persistence <n> 债务持续权重 [0-1] 0=清旧债 1=延旧债 (默认: 0)
+
+  Deadlock + LayerClosure 算法参数 (-a deadlock-layer-closure):
+    沿用 closure 全部参数（--close-rates / --dock / --spread / --debt-persistence），另加：
+    --deadlock-tiles <n>    死锁 tile 数 t（3 的倍数，t/3=花色数 ≥4，默认 12）
+    --deadlock-layers <n>   死锁 dagT 层数限制 l（≥3，默认 3）
+    --deadlock-depth-pref <v>   多包含时深度偏好: deepest | shallowest | neutral (默认)
+    --deadlock-density-pref <v> 多包含时密度偏好: densest | sparsest | neutral (默认)
+    --deadlock-selection-seed <n> 同分破平种子 (默认 0)
+    --deadlock-search-limit <n>   骨架收集上限 (0=默认 256，带种子随机序取前 n)
+    --deadlock-enumeration-seed <n> 枚举顺序种子 (默认 0)
 
   Tile Explorer 算法参数 (-a tile-explorer):
     --te-strategy <name>   default / top_two_easy / sliding_window / limit_layer_random /
@@ -130,6 +150,11 @@ EXAMPLES:
   # LayerClosure
   npx tsx cli/generate.ts -t level.json -a closure \\
     --close-rates 0.3,0.5,0.8 -k 8 --style uniform
+
+  # Deadlock + LayerClosure（12t3l 最小死锁前缀 + 剩余牌 LayerClosure）
+  npx tsx cli/generate.ts -t level.json -a deadlock-layer-closure \\
+    --close-rates 0.3,0.5,0.8 -k 10 --deadlock-tiles 12 --deadlock-layers 3 \\
+    --deadlock-depth-pref deepest --deadlock-density-pref densest
 
   # Zen Match strategy 5
   npx tsx cli/generate.ts -t level.json -a zen-match \\
@@ -432,6 +457,169 @@ try {
       console.log(`  (length: ${result.replayCode.length} chars)`);
 
       // Element distribution
+      const elemDist = new Map<number, number>();
+      for (const [, ev] of result.assignments) {
+        elemDist.set(ev, (elemDist.get(ev) ?? 0) + 1);
+      }
+      console.log(`\n── Element Distribution ──`);
+      for (const [elem, count] of [...elemDist.entries()].sort((a, b) => a[0] - b[0])) {
+        const bar = '█'.repeat(Math.round(count / m.totalTiles * 40));
+        console.log(`  ${String(elem).padStart(4)}: ${String(count).padStart(3)} ${bar}`);
+      }
+    }
+  } else if (algorithm === 'deadlock-layer-closure') {
+    // ═══ Deadlock + LayerClosure 算法 ═══
+    const colorCount = parseInt(values.colors ?? '8', 10);
+    if (isNaN(colorCount) || colorCount < 1 || colorCount > 99) {
+      console.error('Error: --colors must be between 1 and 99');
+      process.exit(1);
+    }
+    if (!values['close-rates']) {
+      console.error('Error: --close-rates <csv> is required for deadlock-layer-closure algorithm');
+      console.error('Example: --close-rates 0.3,0.5,0.8');
+      process.exit(1);
+    }
+    const closeRates = values['close-rates'].split(',').map(s => {
+      const n = parseFloat(s.trim());
+      if (isNaN(n) || n < 0 || n > 1) {
+        console.error(`Error: invalid close rate '${s}' (must be 0-1)`);
+        process.exit(1);
+      }
+      return n;
+    });
+
+    const deadlockTiles = parseInt(values['deadlock-tiles']!, 10);
+    const deadlockLayers = parseInt(values['deadlock-layers']!, 10);
+    if (!Number.isInteger(deadlockTiles) || deadlockTiles % 3 !== 0 || deadlockTiles < 12) {
+      console.error('Error: --deadlock-tiles must be a multiple of 3 and >= 12');
+      process.exit(1);
+    }
+    if (!Number.isInteger(deadlockLayers) || deadlockLayers < 3) {
+      console.error('Error: --deadlock-layers must be >= 3');
+      process.exit(1);
+    }
+    const depthPref = values['deadlock-depth-pref']!;
+    if (!['deepest', 'shallowest', 'neutral'].includes(depthPref)) {
+      console.error('Error: --deadlock-depth-pref must be deepest | shallowest | neutral');
+      process.exit(1);
+    }
+    const densityPref = values['deadlock-density-pref']!;
+    if (!['densest', 'sparsest', 'neutral'].includes(densityPref)) {
+      console.error('Error: --deadlock-density-pref must be densest | sparsest | neutral');
+      process.exit(1);
+    }
+    const selectionSeed = parseInt(values['deadlock-selection-seed']!, 10) || 0;
+    const searchLimit = parseInt(values['deadlock-search-limit']!, 10) || undefined;
+    const enumerationSeed = parseInt(values['deadlock-enumeration-seed']!, 10) || 0;
+
+    const dock = parseInt(values['dock']!, 10) || 7;
+    const spread = parseFloat(values['spread']!);
+    const spreadParam = isNaN(spread) ? 0.5 : Math.max(0, Math.min(1, spread));
+    const dpRaw = parseFloat(values['debt-persistence']!);
+    const debtPersistenceWeight = isNaN(dpRaw) ? 0 : Math.max(0, Math.min(1, dpRaw));
+
+    const result = generateBoardDeadlockLayerClosure({
+      terrain,
+      closeRates,
+      colorCount,
+      dock,
+      levelHash: values.hash,
+      spreadParam,
+      debtPersistenceWeight,
+      deadlock: {
+        tileCount: deadlockTiles,
+        layerLimit: deadlockLayers,
+        depthPreference: depthPref as 'deepest' | 'shallowest' | 'neutral',
+        densityPreference: densityPref as 'densest' | 'sparsest' | 'neutral',
+        selectionSeed,
+        searchLimit,
+        enumerationSeed,
+      },
+    });
+
+    const m = result.metrics;
+    const report = result.deadlock;
+
+    if (values.quiet) {
+      console.log(result.replayCode);
+    } else if (values.json) {
+      const assignmentsObj: Record<string, number> = {};
+      for (const [k, v] of result.assignments) assignmentsObj[String(k)] = v;
+      const deadlockAssignmentsObj: Record<string, number> = {};
+      for (const [k, v] of report.assignments) deadlockAssignmentsObj[String(k)] = v;
+      const mappingObj: Record<string, number> = {};
+      for (const [k, v] of report.mapping) mappingObj[String(k)] = v;
+      console.log(JSON.stringify({
+        algorithm: 'deadlock-layer-closure',
+        replayCode: result.replayCode,
+        levelHash: result.levelHash,
+        assignments: assignmentsObj,
+        tripletCount: result.triplets.length,
+        deadlock: {
+          variantId: report.variantId,
+          tileCount: report.tileCount,
+          layerLimit: report.layerLimit,
+          deadlockColors: report.deadlockColors,
+          mapping: mappingObj,
+          assignments: deadlockAssignmentsObj,
+          closures: Object.fromEntries(report.closures),
+          depthScore: report.depthScore,
+          densityScore: report.densityScore,
+          remainingTileCount: report.remainingTileCount,
+          remainingColorCount: report.remainingColorCount,
+        },
+        metrics: {
+          depthCount: m.depthCount,
+          totalTiles: m.totalTiles,
+          tilesPerLayer: m.tilesPerLayer,
+          debtByLayer: m.debtByLayer,
+          expDebtByLayer: m.expDebtByLayer,
+          peakDebt: m.peakDebt,
+          peakExpDebt: m.peakExpDebt,
+          oi: m.oi,
+          consecutiveOI: m.consecutiveOI,
+          colorCount: m.colorCount,
+          actualCloseRates: m.actualCloseRates,
+          averageOcclusion: m.averageOcclusion,
+          allSuitsClosed: m.allSuitsClosed,
+          isDoomed: m.isDoomed,
+          suitSpread: m.suitSpread,
+          suitSpreadNorm: m.suitSpreadNorm,
+          configuredDebtPersistenceWeight: m.configuredDebtPersistenceWeight,
+          retainedOldDebtTilesByLayer: m.retainedOldDebtTilesByLayer,
+          totalRetainedOldDebtTiles: m.totalRetainedOldDebtTiles,
+          debtDurationHistogram: m.debtDurationHistogram,
+          debtRetentionRates: m.debtRetentionRates,
+          weightedDebtRetentionRate: m.weightedDebtRetentionRate,
+          colorUsageRates: m.colorUsageRates,
+        },
+      }, null, 2));
+    } else {
+      console.log(`\n── Deadlock + LayerClosure Results ──`);
+      console.log(`\n  ■ 死锁前缀（必死子牌局）`);
+      console.log(`    变体: ${report.variantId}  规格: ${report.tileCount}t${report.layerLimit}l`);
+      console.log(`    死锁花色: [${report.deadlockColors.join(', ')}]（每色 3 张）`);
+      console.log(`    逐色闭包: [${[...report.closures.values()].join(', ')}]（全部 ≥ 8 ⇒ 纯玩法必死）`);
+      console.log(`    深度得分: ${report.depthScore.toFixed(2)}  密度得分: ${report.densityScore.toFixed(1)}`);
+      const mappingStr = [...report.mapping.entries()].sort((a, b) => a[0] - b[0])
+        .map(([role, tile]) => `${role}→${tile}`).join(' ');
+      console.log(`    角色映射: ${mappingStr}`);
+
+      console.log(`\n  ■ 剩余 LayerClosure`);
+      console.log(`    剩余: ${report.remainingTileCount}张 / ${report.remainingColorCount}色`);
+      console.log(`    深度层数: ${m.depthCount}  花色: ${m.colorCount}`);
+      console.log(`    闭合率设定: [${closeRates.map(r => (r * 100).toFixed(0) + '%').join(', ')}]`);
+      console.log(`    闭合率实际: [${m.actualCloseRates.map(r => (r * 100).toFixed(0) + '%').join(', ')}]`);
+      console.log(`    峰值债务: ${m.peakDebt}  暴露峰值: ${m.peakExpDebt}  OI: ${m.oi}`);
+      console.log(`    平均遮挡: ${m.averageOcclusion}  花色*3: ${m.allSuitsClosed ? '✓' : '✗'}`);
+      console.log(`    花色离散率: ${(m.suitSpread * 100).toFixed(1)}%  归一离散率: ${(m.suitSpreadNorm * 100).toFixed(1)}%`);
+      console.log(`    债务持续权重 p=${m.configuredDebtPersistenceWeight}  保留旧债tile: [${m.retainedOldDebtTilesByLayer.join(', ')}]`);
+      console.log(`    Level hash: ${result.levelHash}`);
+
+      console.log(`\n── ReplayCode ──`);
+      console.log(`  ${result.replayCode}`);
+      console.log(`  (length: ${result.replayCode.length} chars)`);
+
       const elemDist = new Map<number, number>();
       for (const [, ev] of result.assignments) {
         elemDist.set(ev, (elemDist.get(ev) ?? 0) + 1);

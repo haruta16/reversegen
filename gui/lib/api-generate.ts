@@ -7,6 +7,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { basename } from 'node:path';
 import {
   generateBoard,
+  generateBoardDeadlockLayerClosure,
   generateBoardLayerClosure,
   generateBoardTileExplorer,
   generateBoardZenMatch,
@@ -191,6 +192,8 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
         costArray, colorCount, // CostLadder params
         closeRates, dock, spreadParam, debtPersistenceWeight, // LayerClosure params
         colorAllocationMode, colorAllocationMaxRatio,        // LayerClosure
+        deadlockTiles, deadlockLayers, deadlockDepthPref, deadlockDensityPref, // Deadlock 前置
+        deadlockSelectionSeed, deadlockSearchLimit, deadlockEnumerationSeed,
         teStrategy, difficulty, sequenceSeed, placementSeed, placementRandomState, typeCycle, typeWeights,
         easyLayerCount, hardTag, limitFullFirst, lowerCoefficient, topCoefficient,
         fallbackExtraLayers, solvabilityRandomMode, colorGradientTypeGroups,
@@ -204,6 +207,10 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
         debtPersistenceWeight?: string;                    // LayerClosure
         colorAllocationMode?: string;                      // LayerClosure
         colorAllocationMaxRatio?: string;                  // LayerClosure
+        deadlockTiles?: string; deadlockLayers?: string;   // Deadlock 前置
+        deadlockDepthPref?: string; deadlockDensityPref?: string;
+        deadlockSelectionSeed?: string; deadlockSearchLimit?: string;
+        deadlockEnumerationSeed?: string;
         teStrategy?: string; difficulty?: string; sequenceSeed?: string; placementSeed?: string;
         placementRandomState?: string | import('../../src/index.js').DotNetRandomState;
         typeCycle?: string; typeWeights?: string; easyLayerCount?: string; hardTag?: string;
@@ -436,6 +443,109 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
           tripletCount: result.triplets.length,
           metrics: result.metrics,
           colorCount: k,
+          mechanics: mechanicsSummary,
+          terrainSummary: {
+            layers: terrain.layers.length,
+            totalTiles: allTiles.length,
+            freeTiles: allTiles.filter(t => !t.isConst).length,
+            constTiles: allTiles.filter(t => t.isConst).length,
+            source: basename(path),
+          },
+          tiles: tileSummary,
+        });
+      } else if (algorithm === 'deadlock-layer-closure') {
+        // ═══ Deadlock + LayerClosure 算法 ═══
+        const k = parseInt(colorCount || '8', 10);
+
+        if (!closeRates || !closeRates.trim()) {
+          json(res, { ok: false, error: '请提供闭合率数组 (closeRates)' }, 400);
+          return true;
+        }
+        const rates = closeRates.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
+        if (rates.length === 0 || rates.some(r => r < 0 || r > 1)) {
+          json(res, { ok: false, error: '闭合率格式无效，需为 0-1 之间的数字' }, 400);
+          return true;
+        }
+
+        const dlTiles = parseInt(deadlockTiles || '12', 10);
+        if (!Number.isInteger(dlTiles) || dlTiles % 3 !== 0 || dlTiles < 12) {
+          json(res, { ok: false, error: '死锁牌数 t 须为 3 的倍数且 ≥ 12' }, 400);
+          return true;
+        }
+        const dlLayers = parseInt(deadlockLayers || '3', 10);
+        if (!Number.isInteger(dlLayers) || dlLayers < 3) {
+          json(res, { ok: false, error: 'dagT 层数 l 须 ≥ 3' }, 400);
+          return true;
+        }
+        const depthPref = (deadlockDepthPref === 'deepest' || deadlockDepthPref === 'shallowest')
+          ? deadlockDepthPref : 'neutral';
+        const densityPref = (deadlockDensityPref === 'densest' || deadlockDensityPref === 'sparsest')
+          ? deadlockDensityPref : 'neutral';
+        const dlSeed = parseInt(deadlockSelectionSeed || '0', 10) || 0;
+        const dlLimitRaw = parseInt(deadlockSearchLimit || '256', 10) || 0;
+        const dlLimit = dlLimitRaw > 0 ? dlLimitRaw : undefined;
+        const dlEnumSeed = parseInt(deadlockEnumerationSeed || '0', 10) || 0;
+
+        const dk = parseInt(dock || '7', 10) || 7;
+        const sp = parseFloat(spreadParam || '0.5');
+        const spread = isNaN(sp) ? 0.5 : Math.max(0, Math.min(1, sp));
+        const dpRaw = parseFloat(debtPersistenceWeight || '0');
+        const dp = isNaN(dpRaw) ? 0 : Math.max(0, Math.min(1, dpRaw));
+
+        const allocMode = (colorAllocationMode === 'single-heavy' ? 'single-heavy' : 'balanced') as import('../../src/types.js').ColorAllocationMode;
+        const allocRatioRaw = parseFloat(colorAllocationMaxRatio || '1');
+        const allocRatio = isNaN(allocRatioRaw) ? 1 : Math.max(0.01, Math.min(1, allocRatioRaw));
+        const result = generateBoardDeadlockLayerClosure({
+          terrain, closeRates: rates, colorCount: k,
+          dock: dk, levelHash, spreadParam: spread,
+          debtPersistenceWeight: dp,
+          colorAllocationMode: allocMode,
+          colorAllocationMaxRatio: allocRatio,
+          deadlock: {
+            tileCount: dlTiles,
+            layerLimit: dlLayers,
+            depthPreference: depthPref,
+            densityPreference: densityPref,
+            selectionSeed: dlSeed,
+            searchLimit: dlLimit,
+            enumerationSeed: dlEnumSeed,
+          },
+        });
+
+        const ordered = getCanonicalTileOrder(allTiles);
+        const tileSummary = ordered.map((t, i) => ({
+          index: i, id: t.id, layer: t.layer, isConst: t.isConst,
+          element: result.assignments.get(t.id) ?? t.constElementValue ?? 0,
+        }));
+
+        const assignmentsObj: Record<string, number> = {};
+        for (const [k2, v] of result.assignments) assignmentsObj[String(k2)] = v;
+
+        const report = result.deadlock;
+        json(res, {
+          ok: true,
+          algorithm: 'deadlock-layer-closure',
+          levelResId: terrain.levelResId,
+          replayCode: result.replayCode,
+          elementCount: decodeFromString(result.replayCode)?.elementCount ?? k,
+          levelHash: result.levelHash,
+          assignments: assignmentsObj,
+          tripletCount: result.triplets.length,
+          metrics: result.metrics,
+          colorCount: k,
+          deadlock: {
+            variantId: report.variantId,
+            tileCount: report.tileCount,
+            layerLimit: report.layerLimit,
+            deadlockColors: report.deadlockColors,
+            mapping: [...report.mapping.entries()],
+            assignments: Object.fromEntries(report.assignments),
+            closures: Object.fromEntries(report.closures),
+            depthScore: report.depthScore,
+            densityScore: report.densityScore,
+            remainingTileCount: report.remainingTileCount,
+            remainingColorCount: report.remainingColorCount,
+          },
           mechanics: mechanicsSummary,
           terrainSummary: {
             layers: terrain.layers.length,

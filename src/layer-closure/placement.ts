@@ -69,6 +69,7 @@ export function placeSuitsFromMatrixWithSpread(
   tileDepSets: Map<number, Set<number>>,
   spreadParam: number,
   rng: () => number,
+  excludedTileIds?: Set<number>,
 ): Map<number, number> {
   const assignments = new Map<number, number>();
   const D = depthLayers.length;
@@ -78,7 +79,9 @@ export function placeSuitsFromMatrixWithSpread(
   const territory = new Map<number, Set<number>>();
 
   for (let d = 0; d < D; d++) {
-    const pool = new Set(depthLayers[d].filter(t => !t.isConst && !assignments.has(t.id)).map(t => t.id));
+    const pool = new Set(depthLayers[d]
+      .filter(t => !t.isConst && !(excludedTileIds?.has(t.id) ?? false) && !assignments.has(t.id))
+      .map(t => t.id));
 
     // 本层各花色的配额
     const colorsNeeded: Array<{ color: number; count: number }> = [];

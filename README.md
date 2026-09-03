@@ -1,6 +1,8 @@
 # ReverseGen · 牌局生成器
 
-从 Unity TileMatch 项目中剥离的**独立牌局生成工具**。提供 CostLadder、LayerClosure、TileExplorer、ZenMatch 四个平级生成器，统一输出「牌局花色分配 + ReplayCode 序列化种子」。
+从 Unity TileMatch 项目中剥离的**独立牌局生成工具**。提供 CostLadder、LayerClosure、
+Deadlock+LayerClosure、TileExplorer、ZenMatch 五个平级生成器，统一输出
+「牌局花色分配 + ReplayCode 序列化种子」。
 
 与 Unity 零依赖。CLI / Web GUI / TypeScript API 三种使用方式。
 
@@ -40,6 +42,13 @@ npx tsx cli/generate.ts \
 npx tsx cli/generate.ts \
   --terrain /path/to/1200001.json --algorithm zen-match \
   --colors 5 --seed 12345 --zen-strategy 5
+
+# Deadlock + LayerClosure：12t3l 最小必死 dagT 前置 + 剩余牌 LayerClosure
+npx tsx cli/generate.ts \
+  --terrain /path/to/100075.json --algorithm deadlock-layer-closure \
+  --close-rates 0.3,0.5,0.8 --colors 10 \
+  --deadlock-tiles 12 --deadlock-layers 3 \
+  --deadlock-depth-pref deepest --deadlock-density-pref densest
 
 # 仅输出 ReplayCode（可管道）
 npx tsx cli/generate.ts -t level.json -c 3,3,2 -k 6 -q | pbcopy
@@ -136,6 +145,44 @@ result.replayCode;
 ZenMatch 保留固定牌、三张牌型队列、一步顶部候选扩展、策略 4
 全局随机铺牌和策略 5 分层铺牌的语义。它面向静态依赖地形，不支持
 transfer/falling；ReplayCode 会把 Zen 的抽象花色标签归一化为 `1..K`。
+
+### Deadlock + LayerClosure API
+
+在牌局中植入一个数学上保证必死的子牌局（最小必死 dagT 的可达包含，
+按变体表染色），剩余牌照常走 LayerClosure 且**不使用死锁花色**：
+
+```typescript
+import { generateBoardDeadlockLayerClosure } from 'reversegen';
+
+const result = generateBoardDeadlockLayerClosure({
+  terrain,
+  closeRates: [0.3, 0.5, 0.8],
+  colorCount: 10,
+  dock: 7,
+  deadlock: {
+    tileCount: 12,              // t = 3n（默认 12）
+    layerLimit: 3,              // dagT 层数限制 l（默认 3，≥3）
+    depthPreference: 'deepest',   // 多包含时选更深（deepest/shallowest/neutral）
+    densityPreference: 'densest', // 多包含时选更密（densest/sparsest/neutral）
+    selectionSeed: 0,           // 同分破平种子（确定性）
+    enumerationSeed: 0,         // 枚举顺序种子：从全部包含中随机采样（确定性）
+    searchLimit: 256,           // 随机采样的包含数量上限（存在包含且 ≥1 必有返回）
+  },
+});
+
+result.deadlock;          // DeadlockReport：变体 id、模板角色→地形牌映射、逐色闭包
+result.deadlock.closures; // Map<模板色, 闭包大小> —— 全部 ≥ 8 ⇒ 必死
+result.assignments;       // 全量 tileId → 花色（死锁色 1..n，剩余 n+1..K）
+result.metrics;           // LayerClosure 指标（闭合率/债务口径排除死锁牌）
+result.replayCode;
+```
+
+数学契约：每色「三消闭包」（3 张同色 + 直接依赖子图传递依赖）≥ 8 ⟺ 纯玩法
+第 7 张死锁牌入槽必死，与外部牌穿插无关；剩余牌不使用死锁花色则不破坏死锁。
+泡泡/魔药/礼盒等机制允许破局——这正是该生成器的设计用途。找不到最小 dagT
+的可达包含时直接报错（不静默回退）。地形包含量大时，搜索按 `enumerationSeed`
+洗牌顺序取前 `searchLimit` 个包含（默认 256），深浅/疏密偏好在该采样集上择优；
+采样不改变「是否有结果」。
 
 ### 难度分档策略1
 
@@ -240,6 +287,8 @@ reversegen/
 │   ├── reverse-gen.ts        # CostLadder 生成算法（历史生成器）
 │   ├── layer-closure-gen.ts  # LayerClosure 编排入口（实现拆在 layer-closure/）
 │   ├── layer-closure/        #   配额/矩阵/贴色/指标模块
+│   ├── deadlock-layer-closure-gen.ts # Deadlock+LayerClosure 编排入口（前置死锁 + 复用 layer-closure/）
+│   ├── deadlock/             #   必死 DAG 域：变体表/闭包验证/可达包含搜索/偏好选择
 │   ├── tile-explorer/        # Tile Explorer 策略、.NET RNG、view_layers
 │   ├── zen-match/            # Zen Match 静态策略 4/5
 │   ├── replay-serializer.ts  # ReplayCode v4 编解码（Deflate + CRC16）

@@ -8,7 +8,7 @@
 
 核心命题有二：
 
-1. **生成**：可解性、死亡点、决策分支等维度可被精确控制（ReverseGen / LayerClosure / TileExplorer / ZenMatch / strategy-v2）。
+1. **生成**：可解性、死亡点、决策分支等维度可被精确控制（ReverseGen / LayerClosure / Deadlock+LayerClosure / TileExplorer / ZenMatch / strategy-v2）。
 2. **复刻**：同一地形 + 同一 ReplayCode + 同一机制配置，在 reversegen 跑关与 Unity 客户端
    中产生**逐位一致**的机制行为（种子、索敌、消除序列）——见
    [docs/mechanics-alignment.md](./docs/mechanics-alignment.md)。
@@ -31,6 +31,9 @@ src/     （不依赖以上任何层）
 strategy  ──→ solver ──→ mechanics
    │            │            │
    └────────────┴──→ types / constants / replay-serializer / terrain-loader
+
+deadlock-layer-closure（编排）──→ layer-closure / deadlock / logical-layers / dependency-graph
+deadlock（必死 DAG 域）─────────→ types / dependency-graph（不依赖任何生成器）
 ```
 
 ---
@@ -79,6 +82,29 @@ strategy  ──→ solver ──→ mechanics
 `reverse-gen.ts`（CostLadder）、`layer-closure/`（配额/矩阵/贴色）、`tile-explorer/`、
 `zen-match/`。注意：CostLadder 的"贪心路径 = 最优路径"前提已被 DFS 反证，
 可解性与真实难度统一用 `src/solver/` 验证。
+
+### 4b. deadlock/ + deadlock-layer-closure-gen.ts — 死锁前缀生成器
+
+`deadlock-layer-closure-gen.ts` 是薄编排入口（镜像 layer-closure-gen.ts），流程：
+地形 → 在候选牌中搜索「最小必死 dagT」（t/l 入参，默认 12t3l）的可达包含并按其
+变体表染色 → 剩余 3m 张牌照常走 LayerClosure（花色配额 = K − n，死锁花色独占）。
+
+`deadlock/` 域分四模块，与 `layer-closure/` 平级同构：
+
+| 模块 | 职责 |
+|------|------|
+| `family.ts` | dagT 变体表（染色依据）：12t3l 最小族 24 变体、`minimal_y`（l=3 定理最优）、`minimal_y_deep`（l≥4 塔式/中继族）的参考实现移植 |
+| `closures.ts` | 三消闭包判据：逐色「直接依赖子图闭包」≥ 8 ⇔ 必死（含核心/wildcard 门槛） |
+| `search.ts` | 12t3l 连接式枚举引擎（结构口径、忽略花色、闭包谓词下推）：标准通道完整枚举 r_core ≥ 4 类 + 救援通道（wildcard 桥接底座，Q1 类，预算内）；枚举顺序按 enumerationSeed 洗牌、取前 searchLimit 个 ≈ 从全部包含随机采样（采样不改变「是否有结果」：存在包含且 limit ≥ 1 必有返回） |
+| `selection.ts` | 多包含选择：每核心取首个通过完整验证的 wildcard 完成（提示牌优先）→ 逻辑深度/空间密度打分 → 种子破平（确定性） |
+
+死锁不破坏性：死锁色与剩余色不相交 ⇒ 第 7 张死锁牌入槽必死，与外部牌穿插无关；
+泡泡/魔药/礼盒等机制允许破局（设计用途）。闭合率/债务指标口径默认排除死锁牌
+（`layer-closure/metrics.ts` 的 `excludedTileIds` 向后兼容开关）。
+
+采样语义：搜索上限默认 256（`searchLimit`），枚举种子默认 0（`enumerationSeed`）。
+深度/疏密偏好在采样到的 n 个包含上择优（非全局最优），n 越大越接近全局、时间线性增长；
+100075（84 牌）默认参数实测搜索+选择约 75–115ms（limit=64 时约 14ms）。
 
 ### 5. 序列化与数据
 
@@ -142,7 +168,8 @@ replayCode + 地形 + extraConfig
 
 - Undo / 复活（Revive）不在重放契约内；
 - .NET `List.Sort`（不稳定）vs JS `Array.sort`（稳定）在同 key 精确并列时可能产生不同顺序（极低概率）；
-- 帧级表现（动画/音效/TA 埋点）不建模，只对齐逻辑。
+- 帧级表现（动画/音效/TA 埋点）不建模，只对齐逻辑；
+- 死锁生成器（deadlock-layer-closure）：输出牌局**纯玩法必然不可通关**（设计意图，模拟胜率恒 0，需泡泡/魔药/礼盒等机制破局）；死锁候选牌排除 const / transfer / falling / 棋盘特殊物（51-53,55）；包含搜索用可达口径（传递闭包）、逐候选闭包验证用直接依赖子图口径；找不到最小 dagT 包含时生成报错。
 
 ---
 

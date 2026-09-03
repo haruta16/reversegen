@@ -7,18 +7,23 @@
 
 import type { TerrainTile, DebtMetrics, ColorAllocationMode } from '../types.js';
 
+/**
+ * 按层序重建三元组。契约：assignments 的牌必须全部出现在 depthLayers 中
+ * （生成路径满足：自由牌 ⊆ 逻辑层）；不在层内的赋值牌会被忽略。
+ */
 export function buildTriplets(
   assignments: Map<number, number>,
   depthLayers: TerrainTile[][],
+  excludedTileIds?: Set<number>,
 ): Array<{ suitIndex: number; depths: [number, number, number] }> {
   const depthOf = new Map<number, number>();
-  const allAssignments = new Map<number, number>(assignments);
+  const allAssignments = new Map<number, number>();
   for (let d = 0; d < depthLayers.length; d++) {
     for (const t of depthLayers[d]) {
       depthOf.set(t.id, d + 1);
-      if (t.isConst && t.constElementValue > 0) {
-        allAssignments.set(t.id, t.constElementValue);
-      }
+      if (excludedTileIds?.has(t.id)) continue;
+      const color = t.isConst && t.constElementValue > 0 ? t.constElementValue : assignments.get(t.id);
+      if (color !== undefined && color > 0) allAssignments.set(t.id, color);
     }
   }
 
@@ -61,13 +66,15 @@ export function buildTriplets(
 export function computeCloseRatesFromAssignments(
   assignments: Map<number, number>,
   depthLayers: TerrainTile[][],
+  excludedTileIds?: Set<number>,
 ): number[] {
   const cumByColor = new Map<number, number>();
   const closeRates: number[] = [];
 
   for (const layer of depthLayers) {
-    // 累加本层方块
+    // 累加本层方块（排除指定牌：如死锁牌，其 triplet 永不闭合，不计入口径）
     for (const tile of layer) {
+      if (excludedTileIds?.has(tile.id)) continue;
       const color = tile.isConst ? tile.constElementValue : (assignments.get(tile.id) ?? 0);
       if (color > 0) {
         cumByColor.set(color, (cumByColor.get(color) ?? 0) + 1);
@@ -135,6 +142,11 @@ export interface ComputeMetricsInput {
   heavyColor?: number;
   /** 各花色 triplet 组数（回显） */
   colorTotalTiles?: number[];
+  /**
+   * 闭合率/三元组/逐层进度口径排除的 tileId（如死锁牌：其 triplet 永不闭合）。
+   * 依赖结构（expDebt / 遮挡 / 离散率）仍按全量计算。缺省 = 不排除。
+   */
+  excludedTileIds?: Set<number>;
 }
 
 export function computeMetrics(input: ComputeMetricsInput): DebtMetrics {
@@ -152,6 +164,7 @@ export function computeMetrics(input: ComputeMetricsInput): DebtMetrics {
     colorAllocationMode,
     heavyColor,
     colorTotalTiles: colorTotalTilesArg,
+    excludedTileIds,
   } = input;
   const D = depthLayers.length;
   const totalTiles = tiles.length;
@@ -169,17 +182,18 @@ export function computeMetrics(input: ComputeMetricsInput): DebtMetrics {
   const { colorUsageRates, averageColorActivationLayer, debtTileCountsByLayer,
     debtRetentionRates, weightedDebtRetentionRate,
     retainedOldDebtTilesByLayer: metricsRetained, debtDurationHistogram } =
-    computeLayerProgressMetrics(allAssign, depthLayers);
+    computeLayerProgressMetrics(allAssign, depthLayers, excludedTileIds);
 
   // 逐层保留旧债务 tile 数必须采用落色后的事实统计。
   const retainedOldDebtTilesByLayer = metricsRetained;
   const totalRetainedOldDebtTiles = retainedOldDebtTilesByLayer.reduce((a, b) => a + b, 0);
 
-  // debtByLayer: 纯累计（含 const 花色）
+  // debtByLayer: 纯累计（含 const 花色；排除指定牌如死锁牌）
   const cumSuitCounts = new Map<number, number>();
   const debtByLayer: number[] = [];
   for (let d = 0; d < D; d++) {
     for (const tile of depthLayers[d]) {
+      if (excludedTileIds?.has(tile.id)) continue;
       const suit = allAssign.get(tile.id);
       if (suit !== undefined) {
         cumSuitCounts.set(suit, (cumSuitCounts.get(suit) ?? 0) + 1);
@@ -299,6 +313,7 @@ export function computeMetrics(input: ComputeMetricsInput): DebtMetrics {
 export function computeLayerProgressMetrics(
   assignments: Map<number, number>,
   depthLayers: TerrainTile[][],
+  excludedTileIds?: Set<number>,
 ): {
   colorUsageRates: number[];
   averageColorActivationLayer: number;
@@ -308,7 +323,11 @@ export function computeLayerProgressMetrics(
   retainedOldDebtTilesByLayer: number[];
   debtDurationHistogram: number[];
 } {
-  const allColors = new Set(assignments.values());
+  const allColors = new Set<number>();
+  for (const [tileId, color] of assignments) {
+    if (excludedTileIds?.has(tileId)) continue;
+    allColors.add(color);
+  }
   const totalColors = allColors.size;
   const D = depthLayers.length;
   const cumulative = new Map<number, number>();
@@ -327,6 +346,7 @@ export function computeLayerProgressMetrics(
   for (let d = 0; d < D; d++) {
     const additions = new Map<number, number>();
     for (const tile of depthLayers[d]) {
+      if (excludedTileIds?.has(tile.id)) continue;
       const color = assignments.get(tile.id);
       if (color === undefined) continue;
       additions.set(color, (additions.get(color) ?? 0) + 1);

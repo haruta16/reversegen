@@ -375,6 +375,7 @@ kbd{
       <div class="tabs" id="algoTabs">
         <button class="tab" data-algo="cost-ladder" onclick="switchAlgo('cost-ladder')">CostLadder</button>
         <button class="tab active" data-algo="closure" onclick="switchAlgo('closure')">LayerClosure</button>
+        <button class="tab" data-algo="deadlock-layer-closure" onclick="switchAlgo('deadlock-layer-closure')">Deadlock+Closure</button>
         <button class="tab" data-algo="tile-explorer" onclick="switchAlgo('tile-explorer')">TileExplorer</button>
         <button class="tab" data-algo="zen-match" onclick="switchAlgo('zen-match')">ZenMatch</button>
       </div>
@@ -422,6 +423,40 @@ kbd{
           <span class="sl-l">清旧债</span>
           <input class="slider" type="range" id="debtPersistence" min="0" max="100" value="0" step="1" oninput="updateDebtLabel()">
           <span class="sl-l" style="text-align:left">延旧债</span>
+        </div>
+      </div>
+
+      <!-- Deadlock 前置步骤参数（与 LayerClosure 面板共用闭合率等参数） -->
+      <div id="panelDeadlock" style="display:none">
+        <div class="row">
+          <div><label>死锁牌数 t (3n)</label><input type="number" id="deadlockTiles" value="12" min="12" step="3"></div>
+          <div><label>dagT 层数 l</label><input type="number" id="deadlockLayers" value="3" min="3"></div>
+        </div>
+        <div class="row" style="margin-top:4px">
+          <div><label>深度偏好</label><select id="deadlockDepthPref" style="width:100%">
+            <option value="neutral">中性</option>
+            <option value="deepest">更深</option>
+            <option value="shallowest">更浅</option>
+          </select></div>
+          <div><label>密度偏好</label><select id="deadlockDensityPref" style="width:100%">
+            <option value="neutral">中性</option>
+            <option value="densest">更密</option>
+            <option value="sparsest">更疏</option>
+          </select></div>
+        </div>
+        <div class="row" style="margin-top:4px">
+          <div><label>同分破平种子</label><input type="number" id="deadlockSelectionSeed" value="0"></div>
+          <div><label>枚举顺序种子</label><input type="number" id="deadlockEnumerationSeed" value="0"></div>
+        </div>
+        <div class="row" style="margin-top:4px">
+          <div><label>搜索收集上限</label><input type="number" id="deadlockSearchLimit" value="256" min="0"></div>
+          <div style="font-size:9px;color:var(--dim);padding-top:14px">随机序取前 n 个包含；0=默认 256</div>
+        </div>
+        <div class="info-block" style="margin-top:6px">
+          在依赖 DAG 中查找 <b>最小必死 dagT</b>（默认 12t3l）的可达包含，按其<b>变体表</b>染色：
+          死锁牌逐色闭包 ≥ 8 ⇒ <b>纯玩法必死</b>（泡泡/魔药等机制可破局）。
+          剩余牌照常走 LayerClosure，<b>不使用死锁花色</b>，闭合率/债务指标不计入死锁牌。
+          找不到包含时生成报错。t 须为 3 的倍数且 ≥ 12，l ≥ 3。
         </div>
       </div>
 
@@ -1399,13 +1434,22 @@ function collectGenerationParams(){
   if(mechanicsText)body.mechanics=mechanicsText;
   var dir=selectedLevelsDir();
   if(dir)body.levelsDir=dir;
-  if(S.algo==='closure'){
+  if(S.algo==='closure'||S.algo==='deadlock-layer-closure'){
     body.closeRates=document.getElementById('closeRates').value.trim();
     body.dock=document.getElementById('dock').value;
     body.spreadParam=(parseInt(document.getElementById('spreadParam').value)/100).toFixed(2);
     body.debtPersistenceWeight=(parseInt(document.getElementById('debtPersistence').value)/100).toFixed(2);
     body.colorAllocationMode=document.getElementById('colorAllocation').value;
     body.colorAllocationMaxRatio=parseFloat(document.getElementById('heavyColorMaxRatio').value).toFixed(2);
+    if(S.algo==='deadlock-layer-closure'){
+      body.deadlockTiles=document.getElementById('deadlockTiles').value;
+      body.deadlockLayers=document.getElementById('deadlockLayers').value;
+      body.deadlockDepthPref=document.getElementById('deadlockDepthPref').value;
+      body.deadlockDensityPref=document.getElementById('deadlockDensityPref').value;
+      body.deadlockSelectionSeed=document.getElementById('deadlockSelectionSeed').value;
+      body.deadlockEnumerationSeed=document.getElementById('deadlockEnumerationSeed').value;
+      body.deadlockSearchLimit=document.getElementById('deadlockSearchLimit').value;
+    }
   }else if(S.algo==='tile-explorer'){
     var strategy=document.getElementById('teStrategy').value;
     var solvability=isTeSolvabilityStrategy(strategy);
@@ -1494,6 +1538,11 @@ function encodeGenerationParamString(params){
     var bytes=new TextEncoder().encode(JSON.stringify(params)),binary='';
     for(var i=0;i<bytes.length;i++)binary+=String.fromCharCode(bytes[i]);
     return'RGP1.'+btoa(binary).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  }
+  if(params.algorithm==='deadlock-layer-closure'){
+    var dlBytes=new TextEncoder().encode(JSON.stringify(params)),dlBinary='';
+    for(var di=0;di<dlBytes.length;di++)dlBinary+=String.fromCharCode(dlBytes[di]);
+    return'RGP1.'+btoa(dlBinary).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
   }
   var closeRates=readParamCloseRates(params.closeRates).map(pct);
   if(!closeRates.length||Number(closeRates[closeRates.length-1])!==100)closeRates.push('100');
@@ -1680,7 +1729,7 @@ async function copyGenerationParams(){
   if(await copyTextWithFallback(text,field)==='copied')copied();
 }
 
-var GENERATION_PARAM_INPUTS='#levelId,#levelsDir,#dock,#colorCount,#colorAllocation,#heavyColorMaxRatio,#spreadParam,#debtPersistence,#targetStd,#costArray,#closeRateSliders .slider,#panelTileExplorer input,#panelTileExplorer select,#panelTileExplorer textarea,#panelZenMatch input,#panelZenMatch select,#mechanics';
+var GENERATION_PARAM_INPUTS='#levelId,#levelsDir,#dock,#colorCount,#colorAllocation,#heavyColorMaxRatio,#spreadParam,#debtPersistence,#targetStd,#costArray,#closeRateSliders .slider,#panelDeadlock input,#panelDeadlock select,#panelTileExplorer input,#panelTileExplorer select,#panelTileExplorer textarea,#panelZenMatch input,#panelZenMatch select,#mechanics';
 document.addEventListener('input',function(event){
   if(event.target&&event.target.matches&&event.target.matches(GENERATION_PARAM_INPUTS)){updateGenerationParamSummary();saveParamsDebounced()}
 });
@@ -1737,7 +1786,9 @@ function switchAlgo(algo){
   S.algo=algo;
   document.querySelectorAll('#algoTabs .tab').forEach(function(t){t.classList.toggle('active',t.dataset.algo===algo)});
   document.getElementById('panelCost').style.display=algo==='cost-ladder'?'':'none';
-  document.getElementById('panelClosure').style.display=algo==='closure'?'':'none';
+  var closureLike=algo==='closure'||algo==='deadlock-layer-closure';
+  document.getElementById('panelClosure').style.display=closureLike?'':'none';
+  document.getElementById('panelDeadlock').style.display=algo==='deadlock-layer-closure'?'':'none';
   document.getElementById('panelTileExplorer').style.display=algo==='tile-explorer'?'':'none';
   document.getElementById('panelZenMatch').style.display=algo==='zen-match'?'':'none';
   validateParams();
@@ -1843,13 +1894,16 @@ function showResult(d){
   document.getElementById('codeBox').textContent=d.replayCode;
   document.getElementById('resultAlgo').textContent=d.algorithm==='closure'
     ?'LayerClosure'
-    :d.algorithm==='tile-explorer'
-      ?'TileExplorer'
-      :d.algorithm==='zen-match'
-        ?'ZenMatch'
-        :'CostLadder';
+    :d.algorithm==='deadlock-layer-closure'
+      ?'Deadlock + LayerClosure'
+      :d.algorithm==='tile-explorer'
+        ?'TileExplorer'
+        :d.algorithm==='zen-match'
+          ?'ZenMatch'
+          :'CostLadder';
 
   if(d.algorithm==='closure')showClosure(d);
+  else if(d.algorithm==='deadlock-layer-closure')showDeadlockClosure(d);
   else if(d.algorithm==='tile-explorer')showTileExplorer(d);
   else if(d.algorithm==='zen-match')showZenMatch(d);
   else showCostLadder(d);
@@ -1899,8 +1953,8 @@ function showZenMatch(d){
 function showClosure(d){
   document.getElementById('chartPanel').style.display='';
   var m=d.metrics||{};
-  // 判断是否有目标闭合率（生成有、导入没有）
-  var hasTargets=d.algorithm==='closure'&&!!document.getElementById('closeRates').value.trim();
+  // 判断是否有目标闭合率（生成有、导入没有；死锁算法沿用 LayerClosure 目标）
+  var hasTargets=(d.algorithm==='closure'||d.algorithm==='deadlock-layer-closure')&&!!document.getElementById('closeRates').value.trim();
   var stats=document.getElementById('stats');
   stats.innerHTML=
     '<div class="stat"><div class="n n-warn">'+m.peakDebt+'/'+(m.peakExpDebt||0)+'</div>'+resultHelpLabel('债务峰 / 暴露峰','resultDebtPeak')+'</div>'+
@@ -1922,6 +1976,39 @@ function showClosure(d){
     (hasTargets?' <span style="color:#7ec99c">▮ 实际</span>':'')+
     ' · 花色<b>'+m.colorCount+'</b> · 深度<b>'+m.depthCount+'</b>层'+allocLabel;
   drawClosureChart(d,m,hasTargets);
+}
+
+function showDeadlockClosure(d){
+  showClosure(d);
+  var rep=d.deadlock||{};
+  document.getElementById('chartTitle').textContent='闭合率（死锁牌排除口径）· 死锁 '+rep.tileCount+'t'+rep.layerLimit+'l';
+  var sec=document.getElementById('stepSection');
+  sec.style.display='';
+  var closureObj=rep.closures||{};
+  var closureStr=Object.keys(closureObj).sort(function(a,b){return +a-+b})
+    .map(function(k){return k+':'+closureObj[k]}).join('  ');
+  var mapping=rep.mapping||{};
+  var mappingRows=(Array.isArray(mapping)?mapping:Object.entries(mapping))
+    .map(function(e){return [+e[0],+e[1]]})
+    .sort(function(a,b){return a[0]-b[0]});
+  var assign=rep.assignments||{};
+  var rowsHtml=mappingRows.map(function(e){
+    var tileId=e[1];
+    var color=assign[tileId]!=null?assign[tileId]:'?';
+    return '<tr><td>'+e[0]+'</td><td>'+tileId+'</td>'
+      +'<td><span class="swatch" style="background:'+cx(color)+'"></span> '+color+'</td>'
+      +'<td>死锁色 #'+color+'</td></tr>';
+  }).join('');
+  sec.innerHTML=
+    '<div class="panel-hd">死锁报告 <span style="font-weight:400;font-size:9px;color:var(--dim);margin-left:4px">'
+    +rep.variantId+' · 花色['+(rep.deadlockColors||[]).join(',')+'] · 深度得分 '+Number(rep.depthScore||0).toFixed(2)
+    +' · 密度得分 '+Math.round(rep.densityScore||0)+' · 剩余 '+(rep.remainingTileCount||0)+'张/'+(rep.remainingColorCount||0)+'色</span></div>'
+    +'<div class="panel-bd" style="padding:0"><div class="tbl-outer" style="border:none;border-radius:0;max-height:260px"><table>'
+    +'<thead><tr><th>模板角色</th><th>地形牌</th><th>花色</th><th>备注</th></tr></thead>'
+    +'<tbody>'
+    +'<tr><td colspan="4" style="font-size:10px;color:var(--dim)">逐色三消闭包（直接依赖子图）: <b>'+closureStr+'</b> —— 全部 ≥ 8 ⇒ 纯玩法第 7 张死锁牌入槽必死；剩余牌不使用死锁花色则不破坏死锁</td></tr>'
+    +rowsHtml
+    +'</tbody></table></div></div>';
 }
 
 function showCostLadder(d){
@@ -2150,16 +2237,23 @@ async function decodeCode(){
 
 function generationParamShapeError(params){
   if(!params||typeof params!=='object')return'参数串内容无效';
-  if(params.algorithm!=='closure'&&params.algorithm!=='cost-ladder'&&params.algorithm!=='tile-explorer'&&params.algorithm!=='zen-match')return'参数串缺少有效算法';
+  if(params.algorithm!=='closure'&&params.algorithm!=='deadlock-layer-closure'&&params.algorithm!=='cost-ladder'&&params.algorithm!=='tile-explorer'&&params.algorithm!=='zen-match')return'参数串缺少有效算法';
   if(!String(params.levelId||'').trim()&&!String(params.terrainPath||'').trim())return'参数串缺少地形信息';
   var colorCount=parseInt(params.colorCount);
   if(!Number.isFinite(colorCount)||colorCount<1||colorCount>99)return'花色数必须在 1–99 之间';
-  if(params.algorithm==='closure'){
+  if(params.algorithm==='closure'||params.algorithm==='deadlock-layer-closure'){
     var dock=parseInt(params.dock),spread=parseFloat(params.spreadParam),debt=parseFloat(params.debtPersistenceWeight),ratio=parseFloat(params.colorAllocationMaxRatio);
     if(!Number.isFinite(dock)||dock<1||dock>20)return'Dock 容量必须在 1–20 之间';
     if(!Number.isFinite(spread)||spread<0||spread>1)return'同色分布必须在 0–1 之间';
     if(!Number.isFinite(debt)||debt<0||debt>1)return'债务持续权重必须在 0–1 之间';
     if(!Number.isFinite(ratio)||ratio<.01||ratio>1)return'主色目标占比必须在 0.01–1 之间';
+    if(params.algorithm==='deadlock-layer-closure'){
+      var dlTiles=parseInt(params.deadlockTiles),dlLayers=parseInt(params.deadlockLayers);
+      if(!Number.isInteger(dlTiles)||dlTiles%3!==0||dlTiles<12)return'死锁牌数 t 须为 3 的倍数且 ≥12';
+      if(!Number.isInteger(dlLayers)||dlLayers<3)return'dagT 层数 l 须 ≥3';
+      if(['deepest','shallowest','neutral'].indexOf(params.deadlockDepthPref)<0)return'深度偏好无效';
+      if(['densest','sparsest','neutral'].indexOf(params.deadlockDensityPref)<0)return'密度偏好无效';
+    }
   }
   if(params.algorithm==='tile-explorer'){
     var difficulty=parseInt(params.difficulty),sequenceSeed=Number(params.sequenceSeed),placementSeed=Number(params.placementSeed);
@@ -2213,6 +2307,13 @@ function inspectTerrainCompatibility(params,level){
 
   var rates=readParamCloseRates(params.closeRates);
   var depthCount=Number(level.depthCount)||0,expected=Math.max(0,depthCount-1);
+  if(params.algorithm==='deadlock-layer-closure'){
+    var dlT=parseInt(params.deadlockTiles)||12;
+    var dlN=Math.floor(dlT/3);
+    var kk=parseInt(params.colorCount)||8;
+    if(dlN>=kk)return{error:'地形无法满足参数：花色数必须大于死锁花色数 n='+dlN};
+    if(Number(level.freeTiles)<dlT+3*(kk-dlN))return{error:'地形无法满足参数：自由牌不足以为剩余 '+(kk-dlN)+' 种花色各分配 3 张'};
+  }
   if(rates.length===depthCount&&Math.abs(rates[rates.length-1]-1)<.0001)rates=rates.slice(0,-1);
   if(!depthCount)return{error:'地形无法满足参数：缺少深度层信息'};
   if(rates.some(function(v){return!Number.isFinite(v)||v<0||v>1}))return{error:'闭合率必须是 0–1 之间的数字'};
@@ -2267,7 +2368,7 @@ async function applyGenerationParamString(code,out){
   var compatibility=inspectTerrainCompatibility(params,S.level);
   if(compatibility.error){out.textContent=compatibility.error;out.className='msg msg-err';toast('地形无法满足参数','err');return false}
 
-  if(params.algorithm==='closure'){
+  if(params.algorithm==='closure'||params.algorithm==='deadlock-layer-closure'){
     document.getElementById('dock').value=String(parseInt(params.dock));
     document.getElementById('spreadParam').value=String(Math.round(parseFloat(params.spreadParam)*100));
     document.getElementById('debtPersistence').value=String(Math.round(parseFloat(params.debtPersistenceWeight)*100));
@@ -2279,6 +2380,14 @@ async function applyGenerationParamString(code,out){
       slider.dataset.prevDc=String(Math.round(compatibility.rates[i]*Number(slider.dataset.total)/3)*3);
     });
     updateSpreadLabel();updateDebtLabel();syncCloseRates();
+    if(params.algorithm==='deadlock-layer-closure'){
+      document.getElementById('deadlockTiles').value=String(params.deadlockTiles||12);
+      document.getElementById('deadlockLayers').value=String(params.deadlockLayers||3);
+      document.getElementById('deadlockDepthPref').value=params.deadlockDepthPref||'neutral';
+      document.getElementById('deadlockDensityPref').value=params.deadlockDensityPref||'neutral';
+      document.getElementById('deadlockSelectionSeed').value=String(params.deadlockSelectionSeed==null?0:params.deadlockSelectionSeed);
+      document.getElementById('deadlockSearchLimit').value=String(params.deadlockSearchLimit||256);
+    }
   }else if(params.algorithm==='tile-explorer'){
     document.getElementById('teStrategy').value=params.teStrategy||'default';
     document.getElementById('teDifficulty').value=String(params.difficulty||1);

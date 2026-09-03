@@ -17,12 +17,21 @@ import { getAllTiles, getConstTiles } from './terrain-loader.js';
 import { MAX_DOCK_SLOTS } from './constants.js';
 import { runReverseGen } from './reverse-gen.js';
 import { runLayerClosureGen } from './layer-closure-gen.js';
+import { runDeadlockLayerClosureGen } from './deadlock-layer-closure-gen.js';
 import { runTileExplorerGen } from './tile-explorer/generator.js';
 import { runZenMatchGen } from './zen-match/generator.js';
 import { generateReplayCode, getCanonicalTileOrder } from './replay-serializer.js';
 import { logger } from './logger.js';
 import type { TileExplorerBoardOutput, TileExplorerInput } from './tile-explorer/types.js';
 import type { ZenMatchBoardOutput, ZenMatchInput } from './zen-match/types.js';
+import type {
+  DeadlockPrefixSpec,
+  DeadlockReport,
+} from './deadlock/types.js';
+import type {
+  DeadlockLayerClosureInput,
+  DeadlockLayerClosureOutput,
+} from './deadlock-layer-closure-gen.js';
 
 // ── 高层 API 类型 ──
 
@@ -84,6 +93,21 @@ export interface GenerateBoardLayerClosureInput {
 
 /** generateBoardLayerClosure 的输出 */
 export interface GenerateBoardLayerClosureOutput extends LayerClosureOutput {
+  replayCode: string;
+  levelHash: string;
+}
+
+/**
+ * generateBoardDeadlockLayerClosure 的输入：
+ * LayerClosure 入参原样保留（levelHash 覆盖同理）+ 前置死锁步骤配置。
+ */
+export interface GenerateBoardDeadlockLayerClosureInput extends GenerateBoardLayerClosureInput {
+  /** 前置死锁步骤配置（缺省 = 12t3l 最小 dagT、中性偏好、seed 0）。 */
+  deadlock?: DeadlockPrefixSpec;
+}
+
+/** generateBoardDeadlockLayerClosure 的输出 = 死锁报告 + 通用 ReplayCode。 */
+export interface GenerateBoardDeadlockLayerClosureOutput extends DeadlockLayerClosureOutput {
   replayCode: string;
   levelHash: string;
 }
@@ -198,6 +222,45 @@ export function generateBoardLayerClosure(
   logger.info(`  必输: ${m.isDoomed ? '是' : '否'}`);
 
   const replay = buildReplay(terrain, algoResult.assignments, hashOverride);
+
+  logger.info('═══════════════════════════════════════');
+
+  return { ...algoResult, ...replay };
+}
+
+/**
+ * 高层 API: Deadlock + LayerClosure 算法。
+ * 前置死锁步骤（t/l 入参，默认 12t3l）→ 剩余牌走 LayerClosure（花色排除死锁色）。
+ * 输出牌局纯玩法必然不可通关（每色死锁闭包 ≥ 8），泡泡等机制可破局。
+ */
+export function generateBoardDeadlockLayerClosure(
+  input: GenerateBoardDeadlockLayerClosureInput,
+): GenerateBoardDeadlockLayerClosureOutput {
+  const { levelHash: hashOverride, deadlock, ...closureInput } = input;
+
+  logger.info('═══════════════════════════════════════');
+  logger.info(`  Deadlock + LayerClosure 牌局生成 · ${deadlock?.tileCount ?? 12}t${deadlock?.layerLimit ?? 3}l`);
+  logger.info('═══════════════════════════════════════');
+
+  const algoResult = runDeadlockLayerClosureGen({
+    ...closureInput,
+    dock: closureInput.dock ?? MAX_DOCK_SLOTS,
+    deadlock,
+  });
+
+  const report = algoResult.deadlock;
+  logger.info(`  死锁命中: 变体:${report.variantId} 牌:${report.tileCount} 花色:1..${report.deadlockColors.length}`);
+  logger.info(`  死锁闭包: [${[...report.closures.values()].join(', ')}]（全部 ≥ 8 ⇒ 必死）`);
+  logger.info(`  剩余: ${report.remainingTileCount}张 / ${report.remainingColorCount}色`);
+  logger.info(`  深度得分: ${report.depthScore.toFixed(2)}  密度得分: ${report.densityScore.toFixed(1)}`);
+
+  const m = algoResult.metrics;
+  logger.info(`  层数:${m.depthCount} 花色:${m.colorCount}`);
+  logger.info(`  闭合率: [${m.actualCloseRates.map(r => (r * 100).toFixed(0) + '%').join(', ')}]`);
+  logger.info(`  债务保留率: [${m.debtRetentionRates.map(r => (r * 100).toFixed(0) + '%').join(', ')}]`);
+  logger.info(`  峰值债务:${m.peakDebt} 暴露峰值:${m.peakExpDebt} OI:${m.oi}`);
+
+  const replay = buildReplay(input.terrain, algoResult.assignments, hashOverride);
 
   logger.info('═══════════════════════════════════════');
 
@@ -322,6 +385,35 @@ export { generateCostArray, generateForTerrain } from './cost-generator.js';
 export { transitiveClosure, computeAllDependencies } from './dependency-graph.js';
 export { runPureGreedySimulation } from './greedy-sim.js';
 export { computeMetrics, computeExpDebt, computeTileDepSets, computeCloseRatesFromAssignments, computeLayerProgressMetrics } from './layer-closure-gen.js';
+
+// 死锁前缀生成器（deadlock-layer-closure）
+export { runDeadlockLayerClosureGen, eligibleDeadlockCandidates } from './deadlock-layer-closure-gen.js';
+export type {
+  DeadlockLayerClosureInput,
+  DeadlockLayerClosureOutput,
+} from './deadlock-layer-closure-gen.js';
+export {
+  buildDagTVariants,
+  canonicalVariant,
+  minimal12tVariants,
+  minimalYVariant,
+  minimalYDeepVariant,
+  minimalEdgeCount3L,
+} from './deadlock/family.js';
+export { colorClosures, isGuaranteedDead, coreMeetsThreshold } from './deadlock/closures.js';
+export { searchDeadlockCores, searchGenericCoresImpl, verifyFullEmbedding } from './deadlock/search.js';
+export { selectDeadlockEmbedding } from './deadlock/selection.js';
+export { DEADLOCK_CLOSURE_THRESHOLD, DEADLOCK_EXCLUDED_EXTRA_ENUMS } from './deadlock/types.js';
+export type {
+  DagTNode,
+  DagTVariant,
+  DeadlockPrefixSpec,
+  DeadlockCoreMatch,
+  DeadlockEmbedding,
+  DeadlockReport,
+  DepthPreference,
+  DensityPreference,
+} from './deadlock/types.js';
 
 // 分档
 export {
