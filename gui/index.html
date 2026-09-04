@@ -418,11 +418,11 @@ kbd{
           <input class="slider" type="range" id="spreadParam" min="0" max="100" value="50" step="1" oninput="updateSpreadLabel()">
           <span class="sl-l" style="text-align:left">分散</span>
         </div>
-        <label style="margin-top:6px">债务持续权重 <span style="font-weight:400;font-size:9px" id="debtLabel">— 0.00</span> <button type="button" class="param-help" data-param-help="debt" aria-label="解释债务持续权重">?</button></label>
+        <label style="margin-top:6px">债务跨层上限 <span style="font-weight:400;font-size:9px" id="debtLabel">— 0层</span> <button type="button" class="param-help" data-param-help="debt" aria-label="解释债务跨层上限">?</button></label>
         <div class="slider-row">
-          <span class="sl-l">清旧债</span>
-          <input class="slider" type="range" id="debtPersistence" min="0" max="100" value="0" step="1" oninput="updateDebtLabel()">
-          <span class="sl-l" style="text-align:left">延旧债</span>
+          <span class="sl-l">不跨层</span>
+          <input class="slider" type="range" id="debtPersistence" min="0" max="1" value="0" step="1" oninput="updateDebtLabel()">
+          <span class="sl-l" style="text-align:left" id="debtMaxLabel">加载后确定</span>
         </div>
       </div>
 
@@ -719,7 +719,8 @@ kbd{
         <div class="row" style="margin-bottom:6px;align-items:center">
           <label style="margin:0">分档策略 <button type="button" class="param-help" data-param-help="gradeStrategy" aria-label="解释分档策略">?</button></label>
           <select id="gradeStrategy" style="font-size:11px" onchange="updateGradeTargets()">
-            <option value="strategy1" selected>分档策略1 · 六档认证</option>
+            <option value="latest" selected>最新策略 · sim1 + Optimal 十一档</option>
+            <option value="strategy1">分档策略1 · 六档认证</option>
             <option value="strategy2">评估策略2 · 三率 passrate</option>
             <option value="legacy">旧版 · 标准/精筛八档</option>
           </select>
@@ -728,13 +729,23 @@ kbd{
           <label style="margin:0">目标档位 <button type="button" class="param-help" data-param-help="gradeTarget" aria-label="解释目标档位">?</button></label>
           <select id="gradeTarget" style="font-size:11px">
             <option value="-1">仅分档（不校验）</option>
-            <option value="0">档0 · 极易候选 (90-100%)</option>
-            <option value="1">档1 · 简单 (60-90%)</option>
-            <option value="2">档2 · 中等偏易 (40-60%)</option>
-            <option value="3">档3 · 中等偏难 (20-40%)</option>
-            <option value="4">档4 · 困难 (10-20%)</option>
-            <option value="5">档5 · 极难 (0-10%)</option>
+            <option value="1">G1 · sim1 90-100%</option>
+            <option value="2">G2 · sim1 80-90%</option>
+            <option value="3">G3 · sim1 70-80%</option>
+            <option value="4">G4 · sim1 60-70%</option>
+            <option value="5">G5 · sim1 50-60%</option>
+            <option value="6">G6 · sim1 40-50%</option>
+            <option value="7">G7 · sim1 30-40%</option>
+            <option value="8">G8 · sim1 20-30%</option>
+            <option value="9">G9 · sim1 10-20%</option>
+            <option value="10">G10 · sim1 0-10%</option>
+            <option value="11">G11 · Optimal≤5% / sim1≤20%</option>
           </select>
+        </div>
+        <div class="row" style="margin-bottom:6px;align-items:center">
+          <label style="margin:0">通用败余上限 <button type="button" class="param-help" data-param-help="gradeRemainingLimit" aria-label="解释通用败余上限">?</button></label>
+          <input type="number" id="gradeRemainingLimit" value="25" min="1" max="100" step="1" style="width:66px;text-align:center;font-family:var(--mono)">
+          <span style="font-size:10px;color:var(--faint)">% · G5-G11 严格低于此值</span>
         </div>
         <div class="row" style="margin-top:6px">
           <label style="margin:0">模拟次数 <button type="button" class="param-help" data-param-help="gradeRuns" aria-label="解释分档模拟次数">?</button></label>
@@ -744,6 +755,30 @@ kbd{
         <div class="msg" id="gradeResult"></div>
       </div>
     </div>
+
+    <div class="panel fade-in" style="margin-top:14px">
+      <div class="panel-hd"><span class="dot copper"></span> Replay 检索</div>
+      <div class="panel-bd">
+        <div class="row" style="align-items:end">
+          <div>
+            <label>需求 Grade</label>
+            <select id="replaySearchGrade" style="font-size:11px">
+              <option value="1">G1</option><option value="2">G2</option><option value="3">G3</option>
+              <option value="4">G4</option><option value="5">G5</option><option value="6">G6</option>
+              <option value="7">G7</option><option value="8">G8</option><option value="9">G9</option>
+              <option value="10">G10</option><option value="11">G11</option>
+            </select>
+          </div>
+          <div>
+            <label>最大搜索次数</label>
+            <input type="number" id="replaySearchAttempts" value="20" min="1" max="1000" step="1">
+          </div>
+          <button class="btn btn-primary" onclick="runReplaySearch()" id="btnReplaySearch" style="flex:0;padding:8px 14px">▶ 检索</button>
+        </div>
+        <div style="font-size:9px;color:var(--faint);margin-top:6px">每个候选固定运行 sim1 100 次 + Optimal 100 次；G5-G11 使用上方可调的通用败余上限；未命中则按当前算法、生成方法及花色配置重新生成。</div>
+        <div class="msg" id="replaySearchResult"></div>
+      </div>
+    </div>
   </div>
 
   <div class="panel fade-in" style="margin-top:14px">
@@ -751,7 +786,7 @@ kbd{
     <div class="panel-bd">
       <div class="row" style="margin-bottom:6px;align-items:center">
         <label style="margin:0">Grade <button type="button" class="param-help" data-param-help="selectionGrade" aria-label="解释候选 Grade">?</button></label>
-        <input type="number" id="selectionGrade" min="0" max="5" step="1" placeholder="未分档时留空" style="width:92px;flex:0;text-align:center;font-family:var(--mono)">
+        <input type="number" id="selectionGrade" min="1" max="11" step="1" placeholder="未分档时留空" style="width:92px;flex:0;text-align:center;font-family:var(--mono)">
       </div>
       <div id="selectionHint" style="font-size:9px;color:var(--faint);margin-bottom:7px">分档后会自动填入，也可以手动修改</div>
       <div class="row">
@@ -827,7 +862,7 @@ var PARAM_HELP={
   colorAllocation:{title:'花色配额',copy:'“均匀分配”让各花色牌量接近；“单色极重”让一个主色占较多牌，其他颜色较少。'},
   heavyColorRatio:{title:'主色目标占比',copy:'仅在“单色极重”时生效。生成器先按“自由牌数÷3”的最大花色数完成落位，再从全局完整三元组中随机选主色组和锚点花色，逐组随机替换。',effect:'只保证主色目标、最终总花色数和三倍数；改色后的闭合率不要求继续命中。'},
   spread:{title:'同色分布',copy:'控制同花色的三张牌彼此靠近还是分散。',effect:'靠左更容易连续拿到；靠右更容易跨层等待。'},
-  debt:{title:'债务持续权重',copy:'“债务”是当前还凑不齐三张的散牌。',effect:'靠左优先清旧散牌；靠右让同一批散牌跨更多层延续，持续占用卡槽。'},
+  debt:{title:'债务跨层上限',copy:'“债务”是当前还凑不齐三张的散牌；该参数限制同一批散牌最多跨过多少个后续逻辑层。',effect:'0 表示下一层优先闭合；数值越大，允许同一批散牌跨更多层延续。实际生成仍会优先保证每层牌全部落位。'},
   teStrategy:{title:'TileExplorer 生成策略',copy:'决定按物理层、玩家可见层或花色阶段组织牌面。切换策略后，页面只保留实际生效的参数。',effect:'当前策略的具体效果会显示在选择框下方。'},
   teDifficulty:{title:'混层范围（Difficulty）',copy:'每次把多少个相邻层放进同一个花色分配池。',effect:'数值越大，跨层混合通常越强；它不是最终 Grade。'},
   teColorCount:{title:'花色数',copy:'没有指定花色循环时，本局使用的图案种类数。',effect:'更多花色通常更容易产生同时等待的散牌。'},
@@ -852,8 +887,9 @@ var PARAM_HELP={
   simMaxCost:{title:'最大允许 Cost',copy:'仅成本上限策略使用；机器人不会选择超过该释放成本的三连组。',caution:'设得太低可能因为过度保守而无路可走。'},
   mistakeRate:{title:'失误概率',copy:'仅失误率策略使用。0.10 表示每次决策约有 10% 概率不按安全选择。'},
   simRuns:{title:'模拟次数',copy:'同一牌局重复挑战多少次。',effect:'次数越多，胜率越稳定，但计算时间越长。'},
-  gradeStrategy:{title:'分档策略',copy:'规定使用哪些机器人胜率和阈值，把牌局换算成 G0～G5。',caution:'不同策略算出的 Grade 不宜直接混用。'},
-  gradeTarget:{title:'目标档位',copy:'“仅分档”只报告结果；选择档位后还会检查是否命中目标。',effect:'G0 最易，G5 最难。'},
+  gradeStrategy:{title:'分档策略',copy:'默认最新策略使用 sim1 与 Optimal，把牌局分为 G1～G11。',caution:'不同策略算出的 Grade 不宜直接混用。'},
+  gradeTarget:{title:'目标档位',copy:'“仅分档”只报告结果；选择档位后还会检查是否命中目标。',effect:'最新策略中 G1 最易，G11 为特殊极难档。'},
+  gradeRemainingLimit:{title:'通用败余上限',copy:'G5～G11 的 Optimal 败局平均剩余率必须严格低于该百分比。',effect:'数值越小，高难档验收越严格；一键分档和 Replay 检索共用此值。'},
   gradeRuns:{title:'分档模拟次数',copy:'每类分档机器人重复挑战的次数。',effect:'次数越多，档位受随机波动的影响越小，但计算更久。'},
   resultDebtPeak:{title:'债务峰 / 暴露峰',copy:'左边是逐层累计时，未凑满三张的花色数峰值；右边进一步考虑遮挡解锁和自动消除。',caution:'这是结构统计，不是实际卡槽占用，也不用于判断胜负。'},
   resultDebtRetention:{title:'债务保留率',copy:'相邻层推进时，上一层未凑齐的旧散牌仍未闭合的加权比例。',effect:'越高表示同一批散牌持续得越久。'},
@@ -876,7 +912,7 @@ var PARAM_HELP={
   resultBanSet:{title:'黑名单数量',copy:'CostLadder 生成过程中被排除、不再作为候选的三元组数量。',caution:'这是算法内部过程量，不是玩家侧指标。'},
   resultTotalTiles:{title:'总牌数',copy:'地形中自由牌与固定牌的总数量。'},
   resultFreeConst:{title:'自由牌 / 固定牌',copy:'自由牌可以重新分配花色；固定牌保留地形预设花色。'},
-  selectionGrade:{title:'候选 Grade',copy:'保存这条候选牌局时使用的难度标签。分档后会自动填写。',caution:'手动修改只改变保存标签，不会改变牌局本身。'}
+  selectionGrade:{title:'候选 Grade',copy:'保存这条候选牌局时使用的 G1～G11 难度标签。分档后会自动填写。',caution:'手动修改只改变保存标签，不会改变牌局本身。'}
 };
 
 var activeParamHelp=null,paramHelpPinned=false,paramHelpHideTimer=null;
@@ -1210,6 +1246,7 @@ async function loadLevel(source){
     if(!d.ok){toast(d.error,'err');return false}
     S.level=d;
     S.terrainPath=d.resolvedPath;
+    updateDebtPersistenceRange(d);
     document.getElementById('levelId').value=String(d.levelResId||id||'');
 
     var info=document.getElementById('levelInfo');
@@ -1352,8 +1389,19 @@ function updateDeadlockStrengthLabel(){
 }
 
 function updateDebtLabel(){
-  var v=parseInt(document.getElementById('debtPersistence').value)/100;
-  document.getElementById('debtLabel').textContent='— '+v.toFixed(2);
+  var v=parseInt(document.getElementById('debtPersistence').value,10)||0;
+  document.getElementById('debtLabel').textContent='— '+v+'层';
+}
+
+function updateDebtPersistenceRange(level){
+  var input=document.getElementById('debtPersistence');
+  var max=Math.max(0,Math.trunc(Number(level&&level.depthCount)||1)-1);
+  input.max=String(max);
+  if((parseInt(input.value,10)||0)>max)input.value=String(max);
+  var maxLabel=document.getElementById('debtMaxLabel');
+  if(maxLabel)maxLabel.textContent='最多 '+max+'层';
+  input.title='当前关卡可选范围：0-'+max+' 个后续逻辑层';
+  updateDebtLabel();
 }
 
 function isTeSolvabilityStrategy(strategy){
@@ -1448,7 +1496,7 @@ function collectGenerationParams(){
     body.closeRates=document.getElementById('closeRates').value.trim();
     body.dock=document.getElementById('dock').value;
     body.spreadParam=(parseInt(document.getElementById('spreadParam').value)/100).toFixed(2);
-    body.debtPersistenceWeight=(parseInt(document.getElementById('debtPersistence').value)/100).toFixed(2);
+    body.debtPersistenceLayers=String(parseInt(document.getElementById('debtPersistence').value,10)||0);
     body.colorAllocationMode=document.getElementById('colorAllocation').value;
     body.colorAllocationMaxRatio=parseFloat(document.getElementById('heavyColorMaxRatio').value).toFixed(2);
     if(S.algo==='deadlock-layer-closure'){
@@ -1545,7 +1593,7 @@ function encodeGenerationParamString(params){
       String(params.levelId||''),
     ].join(':'),params);
   }
-  if(params.algorithm==='tile-explorer'){
+  if(params.algorithm==='closure'||params.algorithm==='tile-explorer'||params.algorithm==='checkpoint'){
     var bytes=new TextEncoder().encode(JSON.stringify(params)),binary='';
     for(var i=0;i<bytes.length;i++)binary+=String.fromCharCode(bytes[i]);
     return'RGP1.'+btoa(binary).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
@@ -1637,7 +1685,9 @@ function decodeReadableGenerationParamString(raw){
     params.closeRates=rates.join(',');
     params.dock=Object.prototype.hasOwnProperty.call(fields,'Dock')?fields.Dock:(current.dock||'7');
     params.spreadParam=Object.prototype.hasOwnProperty.call(fields,'分布')?String(parseFloat(fields['分布'])/100):(current.spreadParam||'0.50');
-    params.debtPersistenceWeight=Object.prototype.hasOwnProperty.call(fields,'债务')?String(parseFloat(fields['债务'])/100):(current.debtPersistenceWeight||'0.00');
+    params.debtPersistenceLayers=Object.prototype.hasOwnProperty.call(fields,'债务')
+      ?String(Math.max(0,parseInt(fields['债务'],10)||0))
+      :String(current.debtPersistenceLayers||'0');
     params.colorAllocationMode=Object.prototype.hasOwnProperty.call(fields,'配额')
       ?(fields['配额']==='单色极重'?'single-heavy':'balanced')
       :(current.colorAllocationMode||'balanced');
@@ -2254,9 +2304,13 @@ function generationParamShapeError(params){
   if(!Number.isFinite(colorCount)||colorCount<1||colorCount>99)return'花色数必须在 1–99 之间';
   if(params.algorithm==='closure'||params.algorithm==='deadlock-layer-closure'){
     var dock=parseInt(params.dock),spread=parseFloat(params.spreadParam),debt=parseFloat(params.debtPersistenceWeight),ratio=parseFloat(params.colorAllocationMaxRatio);
+    if(params.debtPersistenceLayers!=null){
+      var debtLayers=parseInt(params.debtPersistenceLayers,10);
+      if(!Number.isInteger(debtLayers)||debtLayers<0)return'债务跨层上限必须是非负整数';
+    }
     if(!Number.isFinite(dock)||dock<1||dock>20)return'Dock 容量必须在 1–20 之间';
     if(!Number.isFinite(spread)||spread<0||spread>1)return'同色分布必须在 0–1 之间';
-    if(!Number.isFinite(debt)||debt<0||debt>1)return'债务持续权重必须在 0–1 之间';
+    if(params.debtPersistenceLayers==null && (!Number.isFinite(debt)||debt<0||debt>1))return'债务持续权重必须在 0–1 之间';
     if(!Number.isFinite(ratio)||ratio<.01||ratio>1)return'主色目标占比必须在 0.01–1 之间';
     if(params.algorithm==='deadlock-layer-closure'){
       var dlTiles=parseInt(params.deadlockTiles),dlLayers=parseInt(params.deadlockLayers);
@@ -2327,6 +2381,10 @@ function inspectTerrainCompatibility(params,level){
     if(dlN>=kk)return{error:'地形无法满足参数：花色数必须大于死锁花色数 n='+dlN};
     if(Number(level.freeTiles)<dlT+3*(kk-dlN))return{error:'地形无法满足参数：自由牌不足以为剩余 '+(kk-dlN)+' 种花色各分配 3 张'};
   }
+  if(params.debtPersistenceLayers!=null){
+    var debtLayers=parseInt(params.debtPersistenceLayers,10);
+    if(!Number.isInteger(debtLayers)||debtLayers<0||debtLayers>expected)return{error:'债务跨层上限必须在 0–'+expected+' 之间'};
+  }
   if(rates.length===depthCount&&Math.abs(rates[rates.length-1]-1)<.0001)rates=rates.slice(0,-1);
   if(!depthCount)return{error:'地形无法满足参数：缺少深度层信息'};
   if(rates.some(function(v){return!Number.isFinite(v)||v<0||v>1}))return{error:'闭合率必须是 0–1 之间的数字'};
@@ -2384,7 +2442,9 @@ async function applyGenerationParamString(code,out){
   if(params.algorithm==='closure'||params.algorithm==='deadlock-layer-closure'){
     document.getElementById('dock').value=String(parseInt(params.dock));
     document.getElementById('spreadParam').value=String(Math.round(parseFloat(params.spreadParam)*100));
-    document.getElementById('debtPersistence').value=String(Math.round(parseFloat(params.debtPersistenceWeight)*100));
+    document.getElementById('debtPersistence').value=params.debtPersistenceLayers!=null
+      ?String(parseInt(params.debtPersistenceLayers,10)||0)
+      :String(Math.round(parseFloat(params.debtPersistenceWeight)*100));
     document.getElementById('colorAllocation').value=params.colorAllocationMode==='single-heavy'?'single-heavy':'balanced';
     document.getElementById('heavyColorMaxRatio').value=String(parseFloat(params.colorAllocationMaxRatio));
     var sliders=document.querySelectorAll('#closeRateSliders .slider');
@@ -2654,6 +2714,17 @@ async function runSim(){
       html+='</div>';
       params.optimalMetrics=om;
     }
+    if(v.winningPathAnalysis){
+      var pa=v.winningPathAnalysis;
+      var pathMetric=function(label,value){return'<div class="optimal-metric"><span>'+label+'</span><b>'+value+'</b></div>'};
+      html+='<div class="optimal-metrics">';
+      html+=pathMetric('完整过关路径',pa.uniqueWinningPaths+' 条');
+      (pa.intervals||[]).forEach(function(interval){
+        html+=pathMetric(interval.startProgress+'–'+interval.endProgress+'% 区间路径',interval.uniqueSegments+' 条');
+      });
+      html+='</div>';
+      params.winningPathAnalysis=pa;
+    }
     html+='<div class="pbar"><div class="pbar-fill" style="width:'+pct+'%;background:var(--'+(pct>=80?'ok':pct>=40?'warn':'bad')+')"></div></div>';
     out.innerHTML=html;out.className='msg '+cls;
 
@@ -2677,10 +2748,21 @@ var STRATEGY2_LABELS=['档0·极易候选','档1·简单','档2·中等偏易','
 function updateGradeTargets(){
   var strategy=document.getElementById('gradeStrategy').value;
   var target=document.getElementById('gradeTarget');
-  var options=(strategy==='strategy1'||strategy==='strategy2')
-    ? [['0','档0 · 极易候选 (90-100%)'],['1','档1 · 简单 (60-90%)'],['2','档2 · 中等偏易 (40-60%)'],['3','档3 · 中等偏难 (20-40%)'],['4','档4 · 困难 (10-20%)'],['5','档5 · 极难 (0-10%)']]
-    : [['0','档0 · 极简 (90-100%)'],['1','档1 · 简单 (60-90%)'],['2','档2 · 中等偏易 (40-60%)'],['3','档3 · 中等 (25-40%)'],['4','档4 · 中等偏难 (20-25%)'],['5','档5 · 困难 (10-20%)'],['6','档6 · 很难 (5-10%)'],['7','档7 · 极难 (0-5%)']];
+  var options=strategy==='latest'
+    ? Array.from({length:11},function(_,i){var g=i+1;return[String(g),g===11?'G11 · Optimal≤5% / sim1≤20%':'G'+g+' · sim1 '+(100-g*10)+'-'+(g===1?100:110-g*10)+'%']})
+    :(strategy==='strategy1'||strategy==='strategy2')
+      ? [['0','档0 · 极易候选 (90-100%)'],['1','档1 · 简单 (60-90%)'],['2','档2 · 中等偏易 (40-60%)'],['3','档3 · 中等偏难 (20-40%)'],['4','档4 · 困难 (10-20%)'],['5','档5 · 极难 (0-10%)']]
+      : [['0','档0 · 极简 (90-100%)'],['1','档1 · 简单 (60-90%)'],['2','档2 · 中等偏易 (40-60%)'],['3','档3 · 中等 (25-40%)'],['4','档4 · 中等偏难 (20-25%)'],['5','档5 · 困难 (10-20%)'],['6','档6 · 很难 (5-10%)'],['7','档7 · 极难 (0-5%)']];
   target.innerHTML='<option value="-1">仅分档（不校验）</option>'+options.map(function(o){return'<option value="'+o[0]+'">'+o[1]+'</option>'}).join('');
+}
+
+function readGradeRemainingRatioLimit(out){
+  var pct=parseFloat(document.getElementById('gradeRemainingLimit').value);
+  if(!Number.isFinite(pct)||pct<=0||pct>100){
+    if(out)setMsg(out,'通用败余上限必须在 1%-100% 之间','err');
+    return null;
+  }
+  return pct/100;
 }
 
 async function runGrade(){
@@ -2689,8 +2771,11 @@ async function runGrade(){
   var target=parseInt(document.getElementById('gradeTarget').value);
   var strategy=document.getElementById('gradeStrategy').value;
   var runs=parseInt(document.getElementById('gradeRuns').value)||100;
+  var remainingRatioLimit=readGradeRemainingRatioLimit(out);
+  if(strategy==='latest'&&remainingRatioLimit==null)return;
   var endpoint=target>=0?'/api/grade/validate':'/api/grade/calculate';
   var body={replayCode:d.replayCode,levelId:document.getElementById('levelId').value,terrainPath:S.terrainPath,runs:runs,strategy:strategy,mechanics:(document.getElementById('mechanics').value||'').trim()||undefined};
+  if(strategy==='latest')body.remainingRatioLimit=remainingRatioLimit;
   if(target>=0)body.targetGrade=target;
 
   btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;setMsg(out,'');
@@ -2705,9 +2790,36 @@ async function runGrade(){
 }
 
 function renderGradeResult(v,out){
+  applyGradeSuggestion(v);
+  if(v.strategy==='latest'){
+    var latest=v.grade.latest,s1Latest=v.simResults.sim1,optLatest=v.simResults.optimal;
+    var latestCls=latest.passed?'var(--ok)':'var(--bad)';
+    var htmlLatest='<div style="display:flex;gap:10px;margin-bottom:6px;font-size:11px;font-family:var(--mono)">';
+    htmlLatest+='<span style="color:var(--dim)">sim1:</span><b>'+(s1Latest.winRate*100).toFixed(1)+'%</b>';
+    htmlLatest+='<span style="color:var(--dim)">Optimal:</span><b>'+(optLatest.winRate*100).toFixed(1)+'%</b>';
+    htmlLatest+='<span style="color:var(--dim)">败余:</span><b>'+((v.optimalLossRemainingRatio||0)*100).toFixed(1)+'%</b>';
+    htmlLatest+='<span style="color:var(--dim)">上限:</span><b>&lt;'+((v.remainingRatioLimit==null ? 0.25 : v.remainingRatioLimit)*100).toFixed(1)+'%</b>';
+    htmlLatest+='<span style="color:var(--faint);margin-left:auto">各 '+v.runs+' 次</span></div>';
+    htmlLatest+='<div style="padding:7px 9px;background:var(--paper);border-radius:6px;border:1px solid '+latestCls+';margin-bottom:4px">';
+    htmlLatest+='<span style="color:var(--faint);font-size:9px">最新十一档策略</span> ';
+    htmlLatest+='<span style="font-weight:700;color:var(--text)">[G'+latest.grade+'] '+latest.label+'</span> ';
+    htmlLatest+='<span style="font-weight:700;color:'+latestCls+'">'+(latest.passed?'✓':'✗')+'</span>';
+    if(!latest.passed&&latest.reason)htmlLatest+='<div style="font-size:9px;color:var(--bad);margin-top:2px">'+latest.reason+'</div>';
+    htmlLatest+='</div>';
+    if(v.validation){
+      var lv=v.validation;
+      htmlLatest+='<div style="margin-top:6px;padding:6px 8px;background:var(--paper);border-radius:6px;border:1px solid '+(lv.latestMatch?'var(--ok)':'var(--bad)')+'">';
+      htmlLatest+='<span style="font-size:9px;color:var(--faint)">校验目标 G'+lv.targetGrade+':</span> ';
+      htmlLatest+=(lv.latestMatch?'<span style="color:var(--ok);font-weight:600">✓ 通过</span>':'<span style="color:var(--bad);font-weight:600">✗ 未通过</span>');
+      if(lv.reasons&&lv.reasons.length)htmlLatest+='<div style="font-size:9px;color:var(--bad);margin-top:2px">'+lv.reasons.join('；')+'</div>';
+      htmlLatest+='</div>';
+    }
+    out.innerHTML=htmlLatest;out.className='msg';
+    toast('最新策略: G'+latest.grade,latest.passed?'ok':'err');
+    return;
+  }
   var s1=v.simResults.sim1,s5=v.simResults.sim5,s15=v.simResults.sim15;
   var fmt=function(r){return(r.winRate*100).toFixed(1)+'%'};
-  applyGradeSuggestion(v);
 
   // sim 三率行
   var html='<div style="display:flex;gap:10px;margin-bottom:6px;font-size:11px;font-family:var(--mono)">';
@@ -2799,6 +2911,146 @@ function renderGradeResult(v,out){
 }
 
 // ═══════════════════════════════════
+//  Replay search
+// ═══════════════════════════════════
+var replaySearchRunning=false;
+
+function replaySearchSeed(){
+  var values=new Uint32Array(1);
+  crypto.getRandomValues(values);
+  return values[0]|0;
+}
+
+function replaySearchRandomInt(min,max){
+  var values=new Uint32Array(1);
+  crypto.getRandomValues(values);
+  return min+(values[0]%(max-min+1));
+}
+
+function replaySearchRandomClosureRates(body){
+  if(!S.level||!Array.isArray(S.level.tilesPerDepth)||S.level.tilesPerDepth.length<2)return;
+  var colorCount=Math.max(1,parseInt(body.colorCount,10)||8),cumulative=0,previousClosed=0,rates=[];
+  for(var i=0;i<S.level.tilesPerDepth.length-1;i++){
+    cumulative+=Number(S.level.tilesPerDepth[i])||0;
+    var maxClosed=Math.floor(cumulative/3)*3;
+    var minClosed=cumulative-Math.min(cumulative,2*colorCount);
+    while(minClosed%3!==0)minClosed++;
+    minClosed=Math.max(minClosed,previousClosed);
+    if(minClosed>maxClosed)minClosed=maxClosed;
+    var options=Math.floor((maxClosed-minClosed)/3)+1;
+    var closed=minClosed+3*replaySearchRandomInt(0,Math.max(0,options-1));
+    previousClosed=closed;
+    rates.push(cumulative>0?(closed/cumulative).toFixed(6):'0');
+  }
+  body.closeRates=rates.join(',');
+}
+
+function replaySearchGenerationParams(){
+  var body=collectGenerationParams();
+  if(body.algorithm==='cost-ladder')throw new Error('CostLadder 在相同参数下是确定性的，无法通过重试生成不同 ReplayCode；请切换到当前支持随机生成的算法');
+  if(body.algorithm==='closure'){
+    // LC 仅继承花色配额；闭合率与 Dock 使用检索默认/随机值。
+    replaySearchRandomClosureRates(body);
+    body.dock='7';
+    var spreadMin=Math.max(0,Math.min(1,Number(body.spreadParam)||0));
+    var debtMin=Math.max(0,Math.min(Math.max(0,Math.trunc(Number(S.level&&S.level.depthCount)||1)-1),Number(body.debtPersistenceLayers)||0));
+    body.spreadParam=(spreadMin+(1-spreadMin)*replaySearchRandomInt(0,1000)/1000).toFixed(3);
+    var debtMax=Math.max(debtMin,Math.max(0,Math.trunc(Number(S.level&&S.level.depthCount)||1)-1));
+    body.debtPersistenceLayers=String(replaySearchRandomInt(debtMin,debtMax));
+  }else if(body.algorithm==='tile-explorer'){
+    var difficultyMax=Math.max(1,Math.trunc(Number(S.level&&S.level.depthCount)||1));
+    // 当前页面 Difficulty 作为检索下限，再在当前关卡允许的逻辑层范围内抽取。
+    var difficultyMin=Math.max(1,Math.min(difficultyMax,Math.trunc(Number(body.difficulty)||1)));
+    body.difficulty=String(replaySearchRandomInt(difficultyMin,difficultyMax));
+    body.sequenceSeed=String(replaySearchSeed());
+    body.placementSeed=String(replaySearchSeed());
+    delete body.placementRandomState;
+  }else if(body.algorithm==='zen-match'){
+    body.seed=String(replaySearchSeed());
+  }
+  return body;
+}
+
+function replaySearchMetric(evaluation){
+  return 'G'+evaluation.grade.grade
+    +' · sim1 '+(evaluation.sim1.win_rate*100).toFixed(0)+'%'
+    +' · Optimal '+(evaluation.optimal.win_rate*100).toFixed(0)+'%'
+    +' · 败余 '+(evaluation.optimalLossRemainingRatio*100).toFixed(0)+'%'
+    +' / <'+((evaluation.remainingRatioLimit==null ? 0.25 : evaluation.remainingRatioLimit)*100).toFixed(0)+'%';
+}
+
+async function runReplaySearch(){
+  var btn=document.getElementById('btnReplaySearch'),out=document.getElementById('replaySearchResult');
+  if(replaySearchRunning){if(_activeAbort)_activeAbort.abort();return}
+  if(!S.level){toast('请先加载关卡','err');return}
+  var target=parseInt(document.getElementById('replaySearchGrade').value,10);
+  var maxAttempts=parseInt(document.getElementById('replaySearchAttempts').value,10);
+  var remainingRatioLimit=readGradeRemainingRatioLimit(out);
+  if(!Number.isInteger(target)||target<1||target>11){setMsg(out,'需求 Grade 必须是 G1-G11','err');return}
+  if(!Number.isInteger(maxAttempts)||maxAttempts<1||maxAttempts>1000){setMsg(out,'最大搜索次数必须是 1-1000','err');return}
+  if(remainingRatioLimit==null)return;
+  var compatibility=inspectTerrainCompatibility(collectGenerationParams(),S.level);
+  if(compatibility.error){setMsg(out,compatibility.error,'err');return}
+
+  var ctrl=beginRequest(),seen=new Set(),evaluated=0,generationCalls=0,lastEvaluation=null;
+  replaySearchRunning=true;btn.textContent='■ 停止';btn.classList.remove('btn-primary');btn.classList.add('btn-outline');
+  try{
+    while(evaluated<maxAttempts){
+      var generationBody=replaySearchGenerationParams();
+      generationCalls++;
+      setMsg(out,'正在生成候选 '+(evaluated+1)+' / '+maxAttempts+' · '+S.algo+'…');
+      var generatedResponse=await appFetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(generationBody),signal:ctrl.signal});
+      var generated=await generatedResponse.json();
+      if(!generated.ok)throw new Error(generated.error||'ReplayCode 生成失败');
+      if(seen.has(generated.replayCode)){
+        if(generationCalls>=maxAttempts*20)throw new Error('连续生成重复 ReplayCode，请调整当前生成参数或随机配置');
+        continue;
+      }
+      seen.add(generated.replayCode);evaluated++;
+      setMsg(out,'正在评估候选 '+evaluated+' / '+maxAttempts+' · sim1 100次 + Optimal 100次…');
+      var evaluationResponse=await appFetch('/api/replay-search/evaluate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        replayCode:generated.replayCode,
+        levelId:generationBody.levelId,
+        levelsDir:generationBody.levelsDir,
+        terrainPath:generationBody.terrainPath,
+        mechanics:generationBody.mechanics,
+        targetGrade:target,
+        remainingRatioLimit:remainingRatioLimit
+      }),signal:ctrl.signal});
+      var evaluation=await evaluationResponse.json();
+      if(!evaluation.ok)throw new Error(evaluation.error||'机器人评估失败');
+      lastEvaluation=evaluation;
+      if(!evaluation.matched){
+        setMsg(out,'已评估 '+evaluated+' / '+maxAttempts+' · 最近 '+replaySearchMetric(evaluation),'warn');
+        continue;
+      }
+
+      generated.searchEvaluation=evaluation;
+      S.result=generated;S.sims=[];
+      resetReplaySelection();
+      document.getElementById('simHistory').innerHTML='';
+      document.getElementById('emptyState').style.display='none';
+      document.getElementById('verifyEmpty').style.display='none';
+      showResult(generated);showVerify(generated);
+      document.getElementById('selectionGrade').value=String(target);
+      document.getElementById('selectionHint').textContent='Replay 检索命中 G'+target+'，已自动填入';
+      S.selectionPassrate=evaluation.grade.passrate||0;
+      setMsg(out,'✓ 第 '+evaluated+' 个候选命中 · '+replaySearchMetric(evaluation),'ok');
+      toast('Replay 检索命中 G'+target,'ok');
+      document.getElementById('resultCard').scrollIntoView({behavior:'smooth',block:'start'});
+      return;
+    }
+    setMsg(out,'未在 '+maxAttempts+' 次搜索中命中 G'+target+(lastEvaluation?' · 最近 '+replaySearchMetric(lastEvaluation):''),'warn');
+    toast('Replay 检索未命中','err');
+  }catch(e){
+    if(e.name==='AbortError')setMsg(out,'Replay 检索已停止','warn');
+    else{setMsg(out,e.message,'err');toast('Replay 检索失败','err')}
+  }finally{
+    replaySearchRunning=false;endRequest(ctrl);btn.textContent='▶ 检索';btn.classList.remove('btn-outline');btn.classList.add('btn-primary');
+  }
+}
+
+// ═══════════════════════════════════
 //  Replay candidate collection
 // ═══════════════════════════════════
 function resetReplaySelection(){
@@ -2812,7 +3064,16 @@ function applyGradeSuggestion(v){
   var grade='';
   var hint='当前分档未认证，grade 保持为空';
   S.selectionPassrate=0;
-  if(v.strategy==='strategy1'){
+  if(v.strategy==='latest'){
+    var latestResult=v.grade&&v.grade.latest;
+    if(latestResult&&latestResult.passed&&latestResult.grade>=1&&latestResult.grade<=11){
+      grade=String(latestResult.grade);
+      hint='已按最新十一档策略自动填入 G'+grade;
+      S.selectionPassrate=latestResult.passrate||0;
+    }else if(latestResult){
+      hint=latestResult.reason||'当前牌局未通过最新策略约束';
+    }
+  }else if(v.strategy==='strategy1'){
     var strategyResult=v.grade&&v.grade.strategy1;
     if(strategyResult&&strategyResult.passed&&strategyResult.grade>=0&&strategyResult.grade<=5){
       grade=String(strategyResult.grade);hint='已按分档策略1自动填入档'+grade;
@@ -2848,8 +3109,8 @@ async function saveReplaySelection(){
   var elementCount=d.elementCount||d.colorCount||(d.metrics&&d.metrics.colorCount);
   if(!elementCount){toast('当前牌局缺少花色数','err');return}
   var gradeText=document.getElementById('selectionGrade').value.trim();
-  if(gradeText!==''&&(!/^\d+$/.test(gradeText)||+gradeText<0||+gradeText>5)){
-    toast('grade 只能留空或填写 0-5','err');return;
+  if(gradeText!==''&&(!/^\d+$/.test(gradeText)||+gradeText<1||+gradeText>11)){
+    toast('grade 只能留空或填写 1-11','err');return;
   }
 
   var btn=document.getElementById('btnSaveSelection'),out=document.getElementById('selectionResult');
@@ -3050,6 +3311,8 @@ switchSimStrategy();
 updateTeStrategy();
 updateGenerationParamSummary();
 restoreParams();
+updateSpreadLabel();
+updateDebtLabel();
 initDefaultLevelsDir();
 </script>
 </body>

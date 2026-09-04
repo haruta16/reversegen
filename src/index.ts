@@ -78,6 +78,8 @@ export interface GenerateBoardLayerClosureInput {
    * 0=尽量清旧债 / 1=尽量延旧债。闭合率负责"每层有多少债务"，此参数负责"是不是同一批债务"。
    */
   debtPersistenceWeight?: number;
+  /** 债务跨层最大层数（新版离散参数，优先于旧 weight）；范围由当前逻辑深度决定。 */
+  debtPersistenceLayers?: number;
   /**
    * 花色配额方式（默认 'balanced'）。
    * 'balanced' = 均匀分配 / 'single-heavy' = 最大花色生成后按整组三元组改色。
@@ -188,6 +190,7 @@ export function generateBoardLayerClosure(
     levelHash: hashOverride,
     spreadParam,
     debtPersistenceWeight,
+    debtPersistenceLayers,
     colorAllocationMode,
     colorAllocationMaxRatio,
     colorAllocationRng,
@@ -205,6 +208,7 @@ export function generateBoardLayerClosure(
     closeRates,
     spreadParam,
     debtPersistenceWeight,
+    debtPersistenceLayers,
     colorAllocationMode,
     colorAllocationMaxRatio,
     colorAllocationRng,
@@ -216,7 +220,7 @@ export function generateBoardLayerClosure(
   logger.info(`  闭合率: [${m.actualCloseRates.map(r => (r * 100).toFixed(0) + '%').join(', ')}]`);
   logger.info(`  花色使用率: [${m.colorUsageRates.map(r => (r * 100).toFixed(0) + '%').join(', ')}]`);
   logger.info(`  债务保留率: [${m.debtRetentionRates.map(r => (r * 100).toFixed(0) + '%').join(', ')}]`);
-  logger.info(`  债务持续权重 p=${m.configuredDebtPersistenceWeight} 保留旧债tile:[${m.retainedOldDebtTilesByLayer.join(', ')}] 总计:${m.totalRetainedOldDebtTiles}`);
+  logger.info(`  债务跨层上限=${m.configuredDebtPersistenceLayers ?? '兼容权重:' + m.configuredDebtPersistenceWeight} 保留旧债tile:[${m.retainedOldDebtTilesByLayer.join(', ')}] 总计:${m.totalRetainedOldDebtTiles}`);
   logger.info(`  债务持续长度直方图: [${m.debtDurationHistogram.join(', ')}]`);
   logger.info(`  峰值债务:${m.peakDebt} 暴露峰值:${m.peakExpDebt} OI:${m.oi}`);
   logger.info(`  必输: ${m.isDoomed ? '是' : '否'}`);

@@ -107,3 +107,21 @@ describe('债务持续权重 debtPersistenceWeight', () => {
     assert.ok(last >= 0.999, `最后一层闭合率应为 1.0，实际 ${last}`);
   });
 });
+
+describe('债务跨层上限 debtPersistenceLayers', () => {
+  it('按逻辑层数回显并保持所有花色最终闭合', () => {
+    const r = runLayerClosureGen({
+      terrain,
+      colorCount: 8,
+      dock: 7,
+      closeRates,
+      spreadParam: 0,
+      debtPersistenceLayers: Math.min(2, Math.max(0, depthCount - 1)),
+    });
+    assert.equal(r.metrics.allSuitsClosed, true);
+    assert.equal(
+      r.metrics.configuredDebtPersistenceLayers,
+      Math.min(2, Math.max(0, depthCount - 1)),
+    );
+  });
+});

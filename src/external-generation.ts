@@ -199,12 +199,18 @@ function generateClosureReplay(
   const colorCount = integer(params.colorCount, 'colorCount', 1, 99);
   const dock = integer(params.dock, 'dock', 1, 20);
   const spreadParam = ratio(params.spreadParam, 'spreadParam', 0.5);
+  const debtPersistenceLayers = params.debtPersistenceLayers == null || params.debtPersistenceLayers === ''
+    ? undefined
+    : integer(params.debtPersistenceLayers, 'debtPersistenceLayers', 0);
   const debtPersistenceWeight = ratio(params.debtPersistenceWeight, 'debtPersistenceWeight', 0);
   const colorAllocationMode = params.colorAllocationMode === 'single-heavy' ? 'single-heavy' : 'balanced';
   const colorAllocationMaxRatio = ratio(params.colorAllocationMaxRatio, 'colorAllocationMaxRatio', 1);
   if (colorAllocationMaxRatio <= 0) throw new Error('colorAllocationMaxRatio 必须大于 0');
 
   const depthCount = buildGenerationLogicalLayers(terrain).layers.length;
+  if (debtPersistenceLayers != null && debtPersistenceLayers > Math.max(0, depthCount - 1)) {
+    throw new Error(`debtPersistenceLayers 必须在 0-${Math.max(0, depthCount - 1)} 之间`);
+  }
   let closeRates = requiredText(params.closeRates, 'closeRates')
     .split(',')
     .map((value, index) => ratio(value.trim(), `closeRates[${index}]`));
@@ -225,7 +231,8 @@ function generateClosureReplay(
     colorCount,
     dock,
     spreadParam,
-    debtPersistenceWeight,
+    debtPersistenceWeight: debtPersistenceLayers == null ? debtPersistenceWeight : undefined,
+    debtPersistenceLayers,
     colorAllocationMode,
     colorAllocationMaxRatio,
   });

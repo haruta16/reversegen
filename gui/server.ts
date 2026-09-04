@@ -63,6 +63,7 @@ import {
   handlePlayerSimMistakeMechanic,
 } from './lib/api-simulate.js';
 import { handleRunSequence } from './lib/api-run-sequence.js';
+import { handleReplaySearchEvaluate } from './lib/api-replay-search.js';
 import {
   handleGradeConfig,
   handleGradeConfigReload,
@@ -206,6 +207,7 @@ const server = createServer(async (req, res) => {
   if (await handlePlayerSimCostcap(req, res, url)) return;
   if (await handlePlayerSimMistake(req, res, url)) return;
   if (await handlePlayerSimMistakeMechanic(req, res, url)) return;
+  if (await handleReplaySearchEvaluate(req, res, url)) return;
 
   // ── 操作序列跑关（人工对照 Unity 的可读日志） ──
   if (await handleRunSequence(req, res, url)) return;

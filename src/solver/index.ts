@@ -39,3 +39,9 @@ export { solvePlayerMistakeBatchRust } from './solver-player-mistake-rust.js';
 export { solvePlayerMistakeMechanic, solvePlayerMistakeMechanicBatch } from './solver-player-mistake-mechanic.js';
 export type { MistakeMechanicConfig } from './solver-player-mistake-mechanic.js';
 export { solvePlayerShortest, solvePlayerShortestBatch } from './solver-player-shortest.js';
+export { analyzeWinningPaths } from './winning-path-analysis.js';
+export type {
+  SimulationPathResult,
+  WinningPathAnalysis,
+  WinningPathInterval,
+} from './winning-path-analysis.js';

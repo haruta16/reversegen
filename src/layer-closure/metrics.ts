@@ -136,6 +136,8 @@ export interface ComputeMetricsInput {
   actualCloseRates: number[];
   /** 债务持续权重 p（回显） */
   debtPersistenceWeight: number;
+  /** 债务最大跨层数（新版参数，回显） */
+  debtPersistenceLayers?: number;
   /** 花色配额方式（回显） */
   colorAllocationMode?: ColorAllocationMode;
   /** single-heavy 主花色（回显） */
@@ -161,6 +163,7 @@ export function computeMetrics(input: ComputeMetricsInput): DebtMetrics {
     colorCount,
     actualCloseRates,
     debtPersistenceWeight,
+    debtPersistenceLayers,
     colorAllocationMode,
     heavyColor,
     colorTotalTiles: colorTotalTilesArg,
@@ -285,6 +288,7 @@ export function computeMetrics(input: ComputeMetricsInput): DebtMetrics {
     debtRetentionRates,
     weightedDebtRetentionRate,
     configuredDebtPersistenceWeight: debtPersistenceWeight,
+    configuredDebtPersistenceLayers: debtPersistenceLayers,
     retainedOldDebtTilesByLayer,
     totalRetainedOldDebtTiles,
     debtDurationHistogram,

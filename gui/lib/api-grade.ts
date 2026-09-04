@@ -32,6 +32,21 @@ import {
   json,
   parseBody,
 } from './runtime.js';
+import { evaluateLatestGrade } from './latest-grade.js';
+
+function latestSimulationView(summary: {
+  runs: number; wins: number; losses: number; win_rate: number;
+  avg_steps_on_win: number; avg_steps_on_loss: number;
+}) {
+  return {
+    runs: summary.runs,
+    wins: summary.wins,
+    losses: summary.losses,
+    winRate: summary.win_rate,
+    avgStepsOnWin: summary.avg_steps_on_win,
+    avgStepsOnLoss: summary.avg_steps_on_loss,
+  };
+}
 
 export async function handleGradeConfig(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
   if (url.pathname !== '/api/grade/config' || req.method !== 'GET') return false;
@@ -58,15 +73,34 @@ export async function handleGradeCalculate(req: IncomingMessage, res: ServerResp
   if (url.pathname !== '/api/grade/calculate' || req.method !== 'POST') return false;
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, terrainPath, runs, strategy, mechanics, mechanicSeed } = body as {
+      const { replayCode, levelId, levelsDir, terrainPath, runs, strategy, mechanics, mechanicSeed, remainingRatioLimit } = body as {
         replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string; runs?: number; strategy?: string;
-        mechanics?: string; mechanicSeed?: number;
+        mechanics?: string; mechanicSeed?: number; remainingRatioLimit?: number;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
 
-      const { game: gam } = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath, mechanics, mechanicSeed);
-      const useStrategy1 = strategy === 'strategy1';
-      const useStrategy2 = strategy === 'strategy2';
+      const built = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath, mechanics, mechanicSeed);
+      const effectiveStrategy = strategy ?? 'latest';
+      if (effectiveStrategy === 'latest') {
+        const simRuns = runs ?? 100;
+        const evaluation = await evaluateLatestGrade(built.game, built.totalTiles, simRuns, 'grade-calculate', remainingRatioLimit);
+        json(res, {
+          ok: true,
+          strategy: 'latest',
+          runs: simRuns,
+          simResults: {
+            sim1: latestSimulationView(evaluation.sim1),
+            optimal: latestSimulationView(evaluation.optimal),
+          },
+          optimalLossRemainingRatio: evaluation.optimalLossRemainingRatio,
+          remainingRatioLimit: evaluation.remainingRatioLimit,
+          grade: { latest: evaluation.verdict },
+        });
+        return true;
+      }
+      const gam = built.game;
+      const useStrategy1 = effectiveStrategy === 'strategy1';
+      const useStrategy2 = effectiveStrategy === 'strategy2';
       const cfg = (useStrategy1 || useStrategy2) ? getGradeStrategy1Config() : getGradeConfig();
       const simRuns = runs ?? cfg.defaultRuns;
 
@@ -132,13 +166,45 @@ export async function handleGradeValidate(req: IncomingMessage, res: ServerRespo
   if (url.pathname !== '/api/grade/validate' || req.method !== 'POST') return false;
     const body = await parseBody(req);
     try {
-      const { replayCode, levelId, levelsDir, terrainPath, runs, targetGrade, strategy, mechanics, mechanicSeed } = body as {
+      const { replayCode, levelId, levelsDir, terrainPath, runs, targetGrade, strategy, mechanics, mechanicSeed, remainingRatioLimit } = body as {
         replayCode?: string; levelId?: string; levelsDir?: string; terrainPath?: string; runs?: number; targetGrade?: number; strategy?: string;
-        mechanics?: string; mechanicSeed?: number;
+        mechanics?: string; mechanicSeed?: number; remainingRatioLimit?: number;
       };
       if (!replayCode) throw new Error('缺少 replayCode');
-      const useStrategy1 = strategy === 'strategy1';
-      const useStrategy2 = strategy === 'strategy2';
+      const effectiveStrategy = strategy ?? 'latest';
+      if (effectiveStrategy === 'latest') {
+        if (!Number.isInteger(targetGrade) || targetGrade! < 1 || targetGrade! > 11) {
+          throw new Error('targetGrade 需为 1-11 的整数');
+        }
+        const built = buildGameFromReplay(replayCode, levelId, levelsDir, terrainPath, mechanics, mechanicSeed);
+        const simRuns = runs ?? 100;
+        const evaluation = await evaluateLatestGrade(built.game, built.totalTiles, simRuns, 'grade-validate', remainingRatioLimit);
+        const latestMatch = evaluation.verdict.passed && evaluation.verdict.grade === targetGrade;
+        json(res, {
+          ok: true,
+          strategy: 'latest',
+          runs: simRuns,
+          targetGrade,
+          allMatch: latestMatch,
+          simResults: {
+            sim1: latestSimulationView(evaluation.sim1),
+            optimal: latestSimulationView(evaluation.optimal),
+          },
+          optimalLossRemainingRatio: evaluation.optimalLossRemainingRatio,
+          remainingRatioLimit: evaluation.remainingRatioLimit,
+          grade: { latest: evaluation.verdict },
+          validation: {
+            targetGrade,
+            latestMatch,
+            reasons: latestMatch ? [] : [evaluation.verdict.passed
+              ? `最新11档策略: 实际 G${evaluation.verdict.grade}，目标 G${targetGrade}`
+              : `最新11档策略: ${evaluation.verdict.reason}`],
+          },
+        });
+        return true;
+      }
+      const useStrategy1 = effectiveStrategy === 'strategy1';
+      const useStrategy2 = effectiveStrategy === 'strategy2';
       const maxGrade = (useStrategy1 || useStrategy2) ? 5 : 7;
       if (targetGrade == null || targetGrade < 0 || targetGrade > maxGrade) {
         throw new Error(`targetGrade 需为 0-${maxGrade} 的整数`);
