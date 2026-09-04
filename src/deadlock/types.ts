@@ -61,8 +61,12 @@ export interface DeadlockPrefixSpec {
    * 采样不改变「是否有结果」——只要地形存在包含且 limit ≥ 1 必有返回。默认 0。
    */
   enumerationSeed?: number;
-  /** 每个骨架匹配的 wildcard 组合枚举上限。默认 256。 */
-  wildcardPairLimit?: number;
+  /**
+   * 偏好强度 [0,1]：枚举引导的偏向程度（几何权重 bias = 1 − strength）。
+   * 0 = 接近均匀随机采样，1 = 接近严格排序（首位概率 ≈ 98%）。
+   * 仅当深度/密度偏好非中性时生效。默认 0.5。
+   */
+  preferenceStrength?: number;
 }
 
 /** 一次搜索产出的骨架匹配（不含 wildcard 完成）。 */

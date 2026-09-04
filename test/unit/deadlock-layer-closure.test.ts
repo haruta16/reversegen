@@ -204,3 +204,35 @@ test('错误处理：花色不足 / 无包含 / tileCount 非法', () => {
     /3 的倍数且 ≥ 12/,
   );
 });
+
+test('偏好强度贯通：preferenceStrength=0.95 + deepest 选深骨架', () => {
+  // 浅骨架（identity）+ 深骨架（offset 100、底座/wildcard 下探到 130）+ 2 张补牌
+  const tiles: TerrainTile[] = [];
+  const depsOf: Record<number, number[]> = {
+    7: [3, 4, 5, 6], 8: [1], 10: [7, 8], 11: [7], 12: [7, 8],
+  };
+  for (let id = 1; id <= 12; id++) {
+    tiles.push({ id, layer: 0, dependencies: depsOf[id] ?? [], isConst: false, constElementValue: 0, posX: 10 * id, posY: 100 });
+  }
+  for (let id = 1; id <= 12; id++) {
+    const deps = (depsOf[id] ?? []).map(d => d + 100);
+    if (id <= 6 || id === 2 || id === 9) deps.push(130);
+    tiles.push({ id: id + 100, layer: 0, dependencies: deps, isConst: false, constElementValue: 0, posX: 10 * id + 1000, posY: 100 });
+  }
+  tiles.push({ id: 130, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 1010, posY: 60 });
+  tiles.push({ id: 131, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 1020, posY: 60 });
+  tiles.push({ id: 132, layer: 0, dependencies: [], isConst: false, constElementValue: 0, posX: 1030, posY: 60 });
+  const terrain: TerrainData = { levelResId: 888, layers: [{ tiles }] };
+
+  const result = runDeadlockLayerClosureGen({
+    terrain, closeRates: [0.3, 0.4, 0.6], colorCount: 9, dock: 7,
+    deadlock: {
+      depthPreference: 'deepest',
+      preferenceStrength: 0.95,
+      searchLimit: 8,
+      enumerationSeed: 0,
+    },
+  });
+  assert.ok(result.deadlock.depthScore >= 2.4,
+    `高强度 deepest 引导应选中深骨架（depthScore=${result.deadlock.depthScore.toFixed(2)}）`);
+});

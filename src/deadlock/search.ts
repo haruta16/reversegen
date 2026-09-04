@@ -71,6 +71,15 @@ function shuffled<T>(arr: T[], rng: () => number): T[] {
 }
 
 /**
+ * 偏好强度 → 几何衰减 bias：bias = 1 − strength，钳制到 [0.02, 0.95]
+ * （0 = 接近均匀、1 = 接近严格排序；首位抽中概率 ≈ 1 − bias）。
+ */
+export function preferenceStrengthToBias(strength: number): number {
+  const s = Math.max(0, Math.min(1, strength));
+  return Math.min(0.95, Math.max(0.02, 1 - s));
+}
+
+/**
  * 按得分方向做几何加权无放回采样序：候选按得分排序后，名次 i 的权重 =
  * bias^i（首位抽中概率 = 1 − bias），逐次抽取。确定性（rng）。
  */
@@ -309,7 +318,7 @@ function searchCanonicalJoin(
   }
 
   const limit = Math.max(1, searchLimit ?? 256);
-  const bias = Math.min(0.95, Math.max(0.02, guideBias ?? 0.5));
+  const bias = preferenceStrengthToBias(1 - (guideBias ?? 0.5));
   const depthOf = resolveDepthMap(depsOf, input.depthById);
   const posOf = new Map<number, { x: number; y: number }>();
   for (const t of candidateTiles) posOf.set(t.id, { x: t.posX, y: t.posY });

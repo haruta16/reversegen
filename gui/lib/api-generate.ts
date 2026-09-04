@@ -194,6 +194,7 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
         colorAllocationMode, colorAllocationMaxRatio,        // LayerClosure
         deadlockTiles, deadlockLayers, deadlockDepthPref, deadlockDensityPref, // Deadlock 前置
         deadlockSelectionSeed, deadlockSearchLimit, deadlockEnumerationSeed,
+        deadlockPreferenceStrength,
         teStrategy, difficulty, sequenceSeed, placementSeed, placementRandomState, typeCycle, typeWeights,
         easyLayerCount, hardTag, limitFullFirst, lowerCoefficient, topCoefficient,
         fallbackExtraLayers, solvabilityRandomMode, colorGradientTypeGroups,
@@ -210,7 +211,7 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
         deadlockTiles?: string; deadlockLayers?: string;   // Deadlock 前置
         deadlockDepthPref?: string; deadlockDensityPref?: string;
         deadlockSelectionSeed?: string; deadlockSearchLimit?: string;
-        deadlockEnumerationSeed?: string;
+        deadlockEnumerationSeed?: string; deadlockPreferenceStrength?: string;
         teStrategy?: string; difficulty?: string; sequenceSeed?: string; placementSeed?: string;
         placementRandomState?: string | import('../../src/index.js').DotNetRandomState;
         typeCycle?: string; typeWeights?: string; easyLayerCount?: string; hardTag?: string;
@@ -485,6 +486,8 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
         const dlLimitRaw = parseInt(deadlockSearchLimit || '256', 10) || 0;
         const dlLimit = dlLimitRaw > 0 ? dlLimitRaw : undefined;
         const dlEnumSeed = parseInt(deadlockEnumerationSeed || '0', 10) || 0;
+        const dlStrengthRaw = parseFloat(deadlockPreferenceStrength || '0.5');
+        const dlStrength = isNaN(dlStrengthRaw) ? 0.5 : Math.max(0, Math.min(1, dlStrengthRaw));
 
         const dk = parseInt(dock || '7', 10) || 7;
         const sp = parseFloat(spreadParam || '0.5');
@@ -509,6 +512,7 @@ export async function handleGenerate(req: IncomingMessage, res: ServerResponse, 
             selectionSeed: dlSeed,
             searchLimit: dlLimit,
             enumerationSeed: dlEnumSeed,
+            preferenceStrength: dlStrength,
           },
         });
 

@@ -452,6 +452,12 @@ kbd{
           <div><label>搜索收集上限</label><input type="number" id="deadlockSearchLimit" value="256" min="0"></div>
           <div style="font-size:9px;color:var(--dim);padding-top:14px">随机序取前 n 个包含；0=默认 256</div>
         </div>
+        <label style="margin-top:6px">偏好强度 <span style="font-weight:400;font-size:9px" id="deadlockStrengthLabel">— 0.50</span></label>
+        <div class="slider-row">
+          <span class="sl-l">均匀</span>
+          <input class="slider" type="range" id="deadlockPreferenceStrength" min="0" max="100" value="50" step="1" oninput="updateDeadlockStrengthLabel()">
+          <span class="sl-l" style="text-align:left">严格</span>
+        </div>
         <div class="info-block" style="margin-top:6px">
           在依赖 DAG 中查找 <b>最小必死 dagT</b>（默认 12t3l）的可达包含，按其<b>变体表</b>染色：
           死锁牌逐色闭包 ≥ 8 ⇒ <b>纯玩法必死</b>（泡泡/魔药等机制可破局）。
@@ -1340,6 +1346,10 @@ function updateSpreadLabel(){
   var v=parseInt(document.getElementById('spreadParam').value)/100;
   document.getElementById('spreadLabel').textContent='— '+v.toFixed(2);
 }
+function updateDeadlockStrengthLabel(){
+  var v=parseInt(document.getElementById('deadlockPreferenceStrength').value)/100;
+  document.getElementById('deadlockStrengthLabel').textContent='— '+v.toFixed(2);
+}
 
 function updateDebtLabel(){
   var v=parseInt(document.getElementById('debtPersistence').value)/100;
@@ -1449,6 +1459,7 @@ function collectGenerationParams(){
       body.deadlockSelectionSeed=document.getElementById('deadlockSelectionSeed').value;
       body.deadlockEnumerationSeed=document.getElementById('deadlockEnumerationSeed').value;
       body.deadlockSearchLimit=document.getElementById('deadlockSearchLimit').value;
+      body.deadlockPreferenceStrength=(parseInt(document.getElementById('deadlockPreferenceStrength').value)/100).toFixed(2);
     }
   }else if(S.algo==='tile-explorer'){
     var strategy=document.getElementById('teStrategy').value;
@@ -2253,6 +2264,8 @@ function generationParamShapeError(params){
       if(!Number.isInteger(dlLayers)||dlLayers<3)return'dagT 层数 l 须 ≥3';
       if(['deepest','shallowest','neutral'].indexOf(params.deadlockDepthPref)<0)return'深度偏好无效';
       if(['densest','sparsest','neutral'].indexOf(params.deadlockDensityPref)<0)return'密度偏好无效';
+      var dlStrength=parseFloat(params.deadlockPreferenceStrength);
+      if(!Number.isFinite(dlStrength)||dlStrength<0||dlStrength>1)return'偏好强度必须在 0–1 之间';
     }
   }
   if(params.algorithm==='tile-explorer'){
@@ -2387,6 +2400,8 @@ async function applyGenerationParamString(code,out){
       document.getElementById('deadlockDensityPref').value=params.deadlockDensityPref||'neutral';
       document.getElementById('deadlockSelectionSeed').value=String(params.deadlockSelectionSeed==null?0:params.deadlockSelectionSeed);
       document.getElementById('deadlockSearchLimit').value=String(params.deadlockSearchLimit||256);
+      document.getElementById('deadlockPreferenceStrength').value=String(Math.round(parseFloat(params.deadlockPreferenceStrength||0.5)*100));
+      updateDeadlockStrengthLabel();
     }
   }else if(params.algorithm==='tile-explorer'){
     document.getElementById('teStrategy').value=params.teStrategy||'default';

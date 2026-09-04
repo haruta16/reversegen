@@ -27,7 +27,7 @@ import { buildMatrixByCloseRates } from './layer-closure/matrix.js';
 import { computeTileDepSets, placeSuitsFromMatrixWithSpread } from './layer-closure/placement.js';
 import { buildTriplets, computeCloseRatesFromAssignments, computeMetrics } from './layer-closure/metrics.js';
 import { canonicalVariant } from './deadlock/family.js';
-import { searchDeadlockCores } from './deadlock/search.js';
+import { searchDeadlockCores, preferenceStrengthToBias } from './deadlock/search.js';
 import { selectDeadlockEmbedding, type SelectionContext } from './deadlock/selection.js';
 import {
   DEADLOCK_EXCLUDED_EXTRA_ENUMS,
@@ -101,6 +101,7 @@ export function runDeadlockLayerClosureGen(input: DeadlockLayerClosureInput): De
   const selectionSeed = spec.selectionSeed ?? 0;
   const searchLimit = spec.searchLimit ?? 256;
   const enumerationSeed = spec.enumerationSeed ?? 0;
+  const preferenceStrength = Math.max(0, Math.min(1, spec.preferenceStrength ?? 0.5));
 
   // ── 1. 校验 ──
   if (!Number.isInteger(n) || n < 4) {
@@ -157,6 +158,7 @@ export function runDeadlockLayerClosureGen(input: DeadlockLayerClosureInput): De
     searchLimit,
     enumerationSeed,
     guide: depthPreference !== 'neutral' ? depthPreference : densityPreference,
+    guideBias: preferenceStrengthToBias(preferenceStrength),
   });
   if (cores.length === 0) {
     throw new Error(

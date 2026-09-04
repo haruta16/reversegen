@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { canonicalVariant } from '../../src/deadlock/family.js';
 import {
+  preferenceStrengthToBias,
   searchDeadlockCores,
   searchGenericCoresImpl,
   verifyFullEmbedding,
@@ -420,4 +421,15 @@ test('引导枚举 densest：同簇命中（bias=0.05, 64 种子 ≥ 50 次）',
     if (embedding.densityScore < 8000) denseHits++;
   }
   assert.ok(denseHits >= 50, `densest 引导应显著偏向同簇（实际 ${denseHits}/64）`);
+});
+
+
+test('preferenceStrengthToBias：连续强度映射与钳制', () => {
+  assert.equal(preferenceStrengthToBias(0.5), 0.5, '默认强度 0.5 → bias 0.5');
+  assert.ok(Math.abs(preferenceStrengthToBias(0) - 0.95) < 1e-9, '0 → 接近均匀');
+  assert.ok(Math.abs(preferenceStrengthToBias(1) - 0.02) < 1e-9, '1 → 接近严格排序');
+  assert.ok(Math.abs(preferenceStrengthToBias(-1) - 0.95) < 1e-9, '越界钳制下界');
+  assert.ok(Math.abs(preferenceStrengthToBias(2) - 0.02) < 1e-9, '越界钳制上界');
+  // 线性段
+  assert.ok(Math.abs(preferenceStrengthToBias(0.8) - 0.2) < 1e-9);
 });

@@ -60,6 +60,7 @@ const { values } = parseArgs({
     'deadlock-selection-seed': { type: 'string', default: '0' },
     'deadlock-search-limit': { type: 'string', default: '0' },
     'deadlock-enumeration-seed': { type: 'string', default: '0' },
+    'deadlock-preference-strength': { type: 'string', default: '0.5' },
     // Tile Explorer 算法专用参数
     'te-strategy': { type: 'string', default: 'default' },
     difficulty: { type: 'string', default: '1' },
@@ -126,6 +127,7 @@ OPTIONS:
     --deadlock-selection-seed <n> 同分破平种子 (默认 0)
     --deadlock-search-limit <n>   骨架收集上限 (0=默认 256，带种子随机序取前 n)
     --deadlock-enumeration-seed <n> 枚举顺序种子 (默认 0)
+    --deadlock-preference-strength <0-1> 偏好强度 (0=近均匀 1=近严格排序, 默认 0.5)
 
   Tile Explorer 算法参数 (-a tile-explorer):
     --te-strategy <name>   default / top_two_easy / sliding_window / limit_layer_random /
@@ -511,6 +513,9 @@ try {
     const selectionSeed = parseInt(values['deadlock-selection-seed']!, 10) || 0;
     const searchLimit = parseInt(values['deadlock-search-limit']!, 10) || undefined;
     const enumerationSeed = parseInt(values['deadlock-enumeration-seed']!, 10) || 0;
+    const preferenceStrengthRaw = parseFloat(values['deadlock-preference-strength']!);
+    const preferenceStrength = isNaN(preferenceStrengthRaw)
+      ? 0.5 : Math.max(0, Math.min(1, preferenceStrengthRaw));
 
     const dock = parseInt(values['dock']!, 10) || 7;
     const spread = parseFloat(values['spread']!);
@@ -534,6 +539,7 @@ try {
         selectionSeed,
         searchLimit,
         enumerationSeed,
+        preferenceStrength,
       },
     });
 
