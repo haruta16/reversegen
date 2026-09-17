@@ -549,7 +549,6 @@ kbd{
 
       <div class="param-summary" role="group" aria-label="当前生成参数">
         <input type="text" id="generationParamSummary" aria-label="当前生成参数串" title="整套生成参数的可复制文本；粘贴后点解析可恢复设置" spellcheck="false" onkeydown="if(event.key==='Enter'){event.preventDefault();parseGenerationParamSummary()}">
-        <button type="button" class="param-experience" id="btnGenerateExperience" onclick="generateCurrentParamsAsExperience()" aria-label="使用当前参数直接生成并体验" title="调用 TMM 直接生成并设为实际体验">直接体验</button>
         <button type="button" class="param-parse" onclick="parseGenerationParamSummary()" aria-label="解析生成参数串" title="解析生成参数串">解析</button>
         <button type="button" class="param-copy" id="btnCopyParams" onclick="copyGenerationParams()" aria-label="复制生成参数" title="复制生成参数">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M15 9V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"></path></svg>
@@ -567,7 +566,7 @@ kbd{
   <div class="panel">
     <div class="panel-hd"><span class="dot copper"></span> 导入已有牌局</div>
     <div class="panel-bd">
-      <textarea id="decodeInput" placeholder="粘贴 ReplayCode..." style="min-height:34px;font-size:10px"></textarea>
+      <textarea id="decodeInput" placeholder="粘贴 ReplayCode（不是 Hash / Revision）..." style="min-height:34px;font-size:10px"></textarea>
       <button class="btn btn-outline" onclick="decodeCode()" style="width:100%;margin-top:5px">解码并加载</button>
       <button class="btn btn-outline" onclick="importParams()" style="width:100%;margin-top:5px">提取 Replay 参数</button>
       <div class="msg" id="decodeOut"></div>
@@ -624,7 +623,6 @@ kbd{
         <div class="code-block" id="codeBox"></div>
         <div class="code-actions">
           <button type="button" class="btn btn-secondary btn-xs" onclick="copyCode()">复制</button>
-          <button type="button" class="btn btn-primary btn-xs" id="btnSetExperience" onclick="setCurrentReplayAsExperience()">直接体验</button>
           <button class="btn btn-outline btn-xs" onclick="downloadCode()">下载 .txt</button>
           <span style="font-size:9px;color:var(--faint);margin-left:auto">Unity LoadLevel_V2() 兼容</span>
         </div>
@@ -866,6 +864,16 @@ function publishExperienceCandidate(result){
   }).catch(function(error){
     console.warn('[experience-v2] candidate publish failed',error);
   });
+}
+
+function publishExperienceLevelSelection(){
+  var bridge=window.reverseGenExperienceBridge;
+  if(!bridge||typeof bridge.publishLevelSelection!=='function'||!S.level||S.hostLevelIdentity)return;
+  var levelId=Number(S.level.levelResId);
+  var levelHash=String(S.level.levelHash||'').trim().toLowerCase();
+  if(!Number.isInteger(levelId)||levelId<=0||!levelHash||levelHash==='(none)')return;
+  try{bridge.publishLevelSelection({levelId:levelId,levelHash:levelHash})}
+  catch(error){console.warn('[experience-v2] level selection publish failed',error)}
 }
 
 // ── 请求竞态控制：新请求开始时中止旧请求（切换算法/重新生成不会旧响应覆盖新结果） ──
@@ -1139,6 +1147,7 @@ function renderLevelList(levels){
     option.value=String(level.id);
     var detail=[];
     if(level.tiles!=null)detail.push(level.tiles+'张');
+    if(level.source==='uploaded')detail.push('已上传');
     if(level.fileName&&level.fileName!==String(level.id)+'.json')detail.push(level.fileName);
     option.label=detail.length?String(level.id)+' · '+detail.join(' · '):String(level.id);
     list.appendChild(option);
@@ -1309,6 +1318,7 @@ async function loadLevel(source){
     validateMechanicsInput();
     saveParams();
     toast('地形加载完成 · '+d.freeTiles+'自由牌 · '+d.steps+'步');
+    if(!_loadingHostTerrain)publishExperienceLevelSelection();
     return true;
   }catch(e){toast(e.message,'err');return false}
 }
@@ -1527,6 +1537,10 @@ function collectGenerationParams(){
         :document.getElementById('colorCount').value,
   };
   if(S.terrainPath)body.terrainPath=S.terrainPath;
+  // 嵌入管理平台时，以平台当前地形身份作为 ReplayCode 的唯一 Hash 来源。
+  // ReverseGen 仍只负责生成，不在这里创建或切换体验会话。
+  var hostLevelHash=String(S.hostLevelIdentity&&S.hostLevelIdentity.hash||'').trim().toLowerCase();
+  if(hostLevelHash&&hostLevelHash!=='(none)')body.levelHash=hostLevelHash;
   var mechanicsText=document.getElementById('mechanics').value.trim();
   if(mechanicsText)body.mechanics=mechanicsText;
   var dir=selectedLevelsDir();
@@ -1949,10 +1963,6 @@ function validateMechanicsInput(){
 async function generate(){
   var btn=document.getElementById('btnGen');
   if(!S.level){toast('请先加载关卡','err');return}
-  if(S.hostTerrainValidation&&S.hostTerrainValidation.ok===false){
-    setMsg(document.getElementById('genErr'),'管理平台地形身份校验未通过，已阻止生成','err');
-    toast('地形身份校验未通过','err');return
-  }
   var body=collectGenerationParams();
   var singleHeavy=document.getElementById('colorAllocation').value==='single-heavy';
   var compatibility=inspectTerrainCompatibility(body,S.level);
@@ -2299,6 +2309,10 @@ async function decodeCode(){
   var code=document.getElementById('decodeInput').value.trim();
   var out=document.getElementById('decodeOut');
   if(!code){setMsg(out,'');return}
+  if(/^[0-9a-f]{64}$/i.test(code)){
+    setMsg(out,'这是一串 64 位 Hash / Revision，不是 ReplayCode。请从牌局资料复制完整 ReplayCode。','err');
+    return;
+  }
   setMsg(out,'解码中...');
   try{
     // 1. 解码 replay code
@@ -2549,6 +2563,10 @@ async function importParams(){
   var code=document.getElementById('decodeInput').value.trim();
   var out=document.getElementById('decodeOut');
   if(!code){out.textContent='';return}
+  if(/^[0-9a-f]{64}$/i.test(code)){
+    setMsg(out,'这是一串 64 位 Hash / Revision，不包含可提取的 Replay 参数。','err');
+    return;
+  }
   out.textContent='解析中...';out.className='msg';
   try{
     if(/^RGP\d+\./.test(code)||code.charAt(0)==='{'||/^(?:闭合率|Cost)/i.test(code)||code.indexOf(':')>=0){
@@ -3217,88 +3235,9 @@ async function copyCode(){
   if(result==='copied')toast('ReplayCode 已复制','ok');
 }
 
-var experienceRequestSequence=0;
-var pendingExperienceRequests={};
 function platformParentOrigin(){
   if(window.parent===window||!document.referrer)return'';
   try{return new URL(document.referrer).origin}catch(e){return''}
-}
-function finishExperienceRequest(requestId,result){
-  var pending=pendingExperienceRequests[requestId];
-  if(!pending)return;
-  clearTimeout(pending.timer);
-  pending.button.disabled=false;
-  pending.button.textContent=pending.idleText;
-  delete pendingExperienceRequests[requestId];
-  if(result.ok){
-    setExperienceDirty(false,'experience-package-saved');
-    toast(result.levelResId?'关卡 '+result.levelResId+' 已设为实际体验':'已设为实际体验','ok');
-  }else{
-    toast(result.error||'设定实际体验失败','err');
-  }
-}
-window.addEventListener('message',function(event){
-  var origin=platformParentOrigin();
-  if(!origin||event.source!==window.parent||event.origin!==origin)return;
-  var data=event.data;
-  if(!data||data.type!=='reversegen:experience-package-result')return;
-  finishExperienceRequest(String(data.requestId||''),data);
-});
-function setCurrentReplayAsExperience(){
-  var replayCode=document.getElementById('codeBox').textContent.trim();
-  if(!replayCode){toast('请先生成或导入 ReplayCode','err');return}
-  var origin=platformParentOrigin();
-  if(!origin){toast('请在 TMM 管理平台中使用直接体验','err');return}
-
-  var button=document.getElementById('btnSetExperience');
-  var requestId='reversegen-'+Date.now()+'-'+(++experienceRequestSequence);
-  button.disabled=true;
-  button.innerHTML='<span class="spinner"></span> 设定中...';
-  pendingExperienceRequests[requestId]={
-    button:button,
-    idleText:'直接体验',
-    timer:setTimeout(function(){
-      finishExperienceRequest(requestId,{ok:false,error:'设定实际体验超时，请重试'});
-    },30000),
-  };
-  window.parent.postMessage({
-    type:'reversegen:set-experience-package',
-    protocolVersion:2,
-    requestId:requestId,
-    replayCode:replayCode,
-  },origin);
-}
-function generateCurrentParamsAsExperience(){
-  var field=document.getElementById('generationParamSummary');
-  var parameterString=field.value.trim()||updateGenerationParamSummary();
-  var params;
-  try{params=decodeGenerationParamString(parameterString)}
-  catch(e){toast(e.message||'生成参数串格式无效','err');return}
-  var levelResId=parseInt(params.levelId,10);
-  if(!Number.isInteger(levelResId)||levelResId<=0){
-    toast('生成参数串缺少有效关卡 ID','err');return;
-  }
-
-  var origin=platformParentOrigin();
-  if(!origin){toast('请在 TMM 管理平台中使用直接体验','err');return}
-  var button=document.getElementById('btnGenerateExperience');
-  var requestId='reversegen-generate-'+Date.now()+'-'+(++experienceRequestSequence);
-  button.disabled=true;
-  button.textContent='生成中';
-  pendingExperienceRequests[requestId]={
-    button:button,
-    idleText:'直接体验',
-    timer:setTimeout(function(){
-      finishExperienceRequest(requestId,{ok:false,error:'生成并设定实际体验超时，请重试'});
-    },245000),
-  };
-  window.parent.postMessage({
-    type:'reversegen:generate-experience-package',
-    protocolVersion:2,
-    requestId:requestId,
-    levelResId:levelResId,
-    parameterString:parameterString,
-  },origin);
 }
 function downloadCode(){
   var t=document.getElementById('codeBox').textContent;
@@ -3395,37 +3334,26 @@ async function loadTerrainFromHostV2(input){
 
   var actualLevelId=Number(S.level.levelResId)||null;
   var actualHash=String(S.level.levelHash||'').trim().toLowerCase();
-  var expectedHash=String(identity.hash||'').trim().toLowerCase();
-  var levelIdMatches=identityLevelId==null||identityLevelId===actualLevelId;
-  var levelHashPresent=actualHash!==''&&actualHash!=='(none)';
-  var levelHashMatches=levelHashPresent&&actualHash===expectedHash;
-  var errors=[];
-  if(!levelIdMatches)errors.push('地形 JSON 的 levelResId 与 levelIdentity.levelId 不一致');
-  if(!levelHashPresent)errors.push('地形 JSON 缺少可验证的 LevelHash');
-  else if(!levelHashMatches)errors.push('地形 JSON 的 LevelHash 与 levelIdentity.hash 不一致');
   var validation={
-    ok:errors.length===0,
+    ok:true,
     checks:{
       exactTerrainJson:true,
-      levelIdMatches:levelIdMatches,
-      levelHashPresent:levelHashPresent,
-      levelHashMatches:levelHashMatches,
+      terrainLoaded:true,
     },
     warnings:[],
-    errors:errors,
+    errors:[],
   };
   S.hostLevelIdentity={
     levelId:actualLevelId,
     source:String(identity.source),
     revision:String(identity.revision),
-    hash:expectedHash,
+    hash:String(identity.hash||actualHash).trim().toLowerCase(),
     actualHash:actualHash,
     contentHash:String(input.contentHash||''),
   };
   S.hostTerrainValidation=validation;
   document.getElementById('terrainFileName').textContent=String(identity.source)+' @ '+String(identity.revision);
-  if(validation.ok)toast('已载入管理平台精确地形 #'+(actualLevelId||fileLevelId),'ok');
-  else toast(errors.join('；'),'err');
+  toast('已载入管理平台地形 #'+(actualLevelId||fileLevelId),'ok');
   return{actualHash:actualHash,validation:validation};
 }
 
@@ -3451,6 +3379,7 @@ switchSimStrategy();
 updateTeStrategy();
 updateGenerationParamSummary();
 restoreParams();
+syncColorAllocationMode();
 updateSpreadLabel();
 updateDebtLabel();
 initDefaultLevelsDir().then(function(){

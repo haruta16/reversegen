@@ -1,11 +1,13 @@
 export const PROTOCOL_VERSION: 2;
 
 export const EXPERIENCE_MESSAGES: Readonly<{
+  ping: 'reversegen:ping';
   ready: 'reversegen:ready';
   loadTerrain: 'reversegen:load-terrain';
   terrainLoaded: 'reversegen:terrain-loaded';
   dirtyState: 'reversegen:dirty-state';
   candidate: 'reversegen:candidate';
+  levelSelected: 'reversegen:level-selected';
   legacyLoadLevel: 'reversegen:load-level';
   legacyLoadLevelResult: 'reversegen:load-level-result';
 }>;
@@ -69,6 +71,7 @@ export function createExperienceBridge(options: {
   post: (type: string, requestId: string, payload?: Record<string, unknown>) => boolean;
   setDirty: (dirty: boolean, reason?: string, requestId?: string) => boolean;
   publishCandidate: (candidate: Record<string, unknown>, requestId?: string) => Promise<boolean>;
+  publishLevelSelection: (selection: { levelId: number; levelHash: string }, requestId?: string) => boolean;
   dispose: () => void;
 };
 

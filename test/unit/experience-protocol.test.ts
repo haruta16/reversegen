@@ -108,6 +108,11 @@ describe('ReverseGen management iframe protocol v2', () => {
     assert.equal((ready?.message.capabilities as Record<string, boolean>).exactTerrainJson, true);
     assert.match(String(ready?.message.requestId), /^ready-/);
 
+    harness.dispatch({ type: EXPERIENCE_MESSAGES.ping, requestId: 'probe-1' });
+    await waitFor(() => harness.posted.filter(entry => entry.message.type === EXPERIENCE_MESSAGES.ready).length === 2);
+    const repeatedReady = harness.posted.filter(entry => entry.message.type === EXPERIENCE_MESSAGES.ready)[1];
+    assert.equal(repeatedReady?.message.requestId, 'probe-1');
+
     const loadMessage = {
       type: EXPERIENCE_MESSAGES.loadTerrain,
       protocolVersion: 2,
@@ -166,6 +171,13 @@ describe('ReverseGen management iframe protocol v2', () => {
     });
     await bridge.ready;
     harness.posted.length = 0;
+
+    assert.equal(bridge.publishLevelSelection({ levelId: 42, levelHash: 'AABBCCDD' }, 'selected-42'), true);
+    const selected = harness.posted.find(entry => entry.message.type === EXPERIENCE_MESSAGES.levelSelected);
+    assert.equal(selected?.message.requestId, 'selected-42');
+    assert.equal(selected?.message.levelId, 42);
+    assert.equal(selected?.message.levelHash, 'aabbccdd');
+    assert.throws(() => bridge.publishLevelSelection({ levelId: 0, levelHash: '' }), /正整数/);
 
     await bridge.publishCandidate({
       replayCode: 'v4-candidate',

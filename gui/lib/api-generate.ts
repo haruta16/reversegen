@@ -36,9 +36,10 @@ import {
   defaultLevelsDir,
   APP_VERSION,
   findTerrainByLevelHash,
-  listLevels,
+  listAvailableLevels,
   resolveTerrainPath,
   storeUploadedTerrain,
+  UPLOADED_TERRAINS_DIR,
   json,
   parseBody,
 } from './runtime.js';
@@ -90,7 +91,7 @@ export async function handleExternalGenerateReplay(req: IncomingMessage, res: Se
 export async function handleLevels(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
   if (url.pathname !== '/api/levels' || req.method !== 'GET') return false;
     const dir = url.searchParams.get('dir') || defaultLevelsDir;
-    json(res, { ok: true, dir, levels: listLevels(dir) });
+    json(res, { ok: true, dir, uploadDir: UPLOADED_TERRAINS_DIR, levels: listAvailableLevels(dir) });
     return true;
   }
 

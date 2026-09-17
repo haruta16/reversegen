@@ -50,7 +50,7 @@ function normalizeTerrain(raw: Record<string, unknown>): TerrainData {
   const terrainStructures = normalizeTerrainStructures(raw.terrainStructures);
 
   return {
-    levelResId: raw.levelResId as number | undefined,
+    levelResId: (raw.levelResId ?? raw.LevelResId) as number | undefined,
     levelHash: (raw.LevelHash || raw.levelHash || '') as string,
     layers,
     terrainStructures,

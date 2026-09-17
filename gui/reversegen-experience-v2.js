@@ -1,21 +1,25 @@
 export const PROTOCOL_VERSION = 2;
 
 export const EXPERIENCE_MESSAGES = Object.freeze({
+  ping: 'reversegen:ping',
   ready: 'reversegen:ready',
   loadTerrain: 'reversegen:load-terrain',
   terrainLoaded: 'reversegen:terrain-loaded',
   dirtyState: 'reversegen:dirty-state',
   candidate: 'reversegen:candidate',
+  levelSelected: 'reversegen:level-selected',
   legacyLoadLevel: 'reversegen:load-level',
   legacyLoadLevelResult: 'reversegen:load-level-result',
 });
 
 export const EXPERIENCE_CAPABILITIES = Object.freeze({
+  repeatableReady: true,
   exactTerrainJson: true,
   levelIdentity: true,
   terrainLoadedAck: true,
   dirtyState: true,
   candidate: true,
+  standaloneLevelSelection: true,
   legacyLoadLevel: true,
 });
 
@@ -130,6 +134,12 @@ export function createExperienceBridge(options) {
     return true;
   };
 
+  const postReady = (outboundRequestId = createRequestId('ready')) => post(
+    EXPERIENCE_MESSAGES.ready,
+    outboundRequestId,
+    { appVersion, capabilities: EXPERIENCE_CAPABILITIES },
+  );
+
   const setDirty = (dirty, reason = 'state-changed', outboundRequestId = createRequestId('dirty')) => {
     const normalized = Boolean(dirty);
     if (currentDirty === normalized) return false;
@@ -170,6 +180,18 @@ export function createExperienceBridge(options) {
     return sent;
   };
 
+  const publishLevelSelection = (selection, outboundRequestId = createRequestId('level-selected')) => {
+    const levelId = Number(selection?.levelId);
+    const levelHash = String(selection?.levelHash || '').trim().toLowerCase();
+    if (!Number.isSafeInteger(levelId) || levelId <= 0) {
+      throw new Error('selection.levelId 必须是正整数');
+    }
+    if (!levelHash || levelHash === '(none)') {
+      throw new Error('selection.levelHash 不能为空');
+    }
+    return post(EXPERIENCE_MESSAGES.levelSelected, outboundRequestId, { levelId, levelHash });
+  };
+
   const onMessage = async (event) => {
     if (
       disposed
@@ -180,6 +202,14 @@ export function createExperienceBridge(options) {
 
     const data = event.data;
     if (!data || typeof data !== 'object') return;
+
+    if (data.type === EXPERIENCE_MESSAGES.ping) {
+      const pingRequestId = REQUEST_ID_PATTERN.test(String(data.requestId || '').trim())
+        ? String(data.requestId).trim()
+        : createRequestId('ready');
+      postReady(pingRequestId);
+      return;
+    }
 
     if (data.type === EXPERIENCE_MESSAGES.loadTerrain) {
       let normalized;
@@ -254,17 +284,11 @@ export function createExperienceBridge(options) {
     .then(() => host.getRuntimeConfig?.())
     .then((config) => {
       appVersion = String(config?.appVersion || config?.version || 'unknown');
-      post(EXPERIENCE_MESSAGES.ready, createRequestId('ready'), {
-        appVersion,
-        capabilities: EXPERIENCE_CAPABILITIES,
-      });
+      postReady();
       setDirty(false, 'initialized');
     })
     .catch(() => {
-      post(EXPERIENCE_MESSAGES.ready, createRequestId('ready'), {
-        appVersion,
-        capabilities: EXPERIENCE_CAPABILITIES,
-      });
+      postReady();
       setDirty(false, 'initialized');
     });
 
@@ -274,6 +298,7 @@ export function createExperienceBridge(options) {
     post,
     setDirty,
     publishCandidate,
+    publishLevelSelection,
     dispose() {
       disposed = true;
       windowRef.removeEventListener('message', onMessage);

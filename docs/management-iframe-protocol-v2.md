@@ -31,12 +31,32 @@ ReverseGen iframe 初始化后发送：
     "terrainLoadedAck": true,
     "dirtyState": true,
     "candidate": true,
+    "standaloneLevelSelection": true,
     "legacyLoadLevel": true
   }
 }
 ```
 
 管理端应先确认 `protocolVersion` 和所需 capability，再发送地形。
+
+## 直接入口选择地形
+
+管理端没有预先指定 Level 时，ReverseGen 仍可直接打开。策划在 ReverseGen 顶部输入并成功
+载入 Level 后，ReverseGen 主动发送本地实际读到的业务 Hash：
+
+```json
+{
+  "type": "reversegen:level-selected",
+  "protocolVersion": 2,
+  "requestId": "level-selected-...",
+  "levelId": 100075,
+  "levelHash": "0123456789abcdef"
+}
+```
+
+管理端必须用 `levelId + levelHash` 在明确的 `official/current` 来源中匹配精确快照，再发送
+`reversegen:load-terrain` 完成确认。仅 ID 相同、Hash 不同不得建立体验会话。从关卡页进入后，
+策划仍可在 ReverseGen 内改输另一个 Level；管理端应重复该流程，并同步更新外层路由与版本资料。
 
 ## 载入精确地形
 
